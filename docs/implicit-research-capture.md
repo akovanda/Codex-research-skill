@@ -8,6 +8,8 @@ This document covers the general `research-capture` skill, the private-by-defaul
 - topic delegation to [`skills/research-memory-retrieval`](/home/akovanda/dev/llmresearch/skills/research-memory-retrieval)
 - a local queue for pending research captures
 - a queue CLI for inspect and replay
+- hosted-default backend selection with explicit custom and org overrides
+- per-user or per-org namespace routing for queued replay
 
 ## Install The Skill Globally
 
@@ -23,6 +25,16 @@ ln -sfn "/home/akovanda/dev/llmresearch/skills/research-memory-retrieval" "${COD
 ```
 
 ## Queue Behavior
+
+Backend selection precedence for MCP and queue replay:
+
+1. `RESEARCH_REGISTRY_BACKEND_URL`
+2. `RESEARCH_REGISTRY_BACKEND_PROFILE`
+3. org profile matched by `RESEARCH_REGISTRY_ORG`
+4. `RESEARCH_REGISTRY_DEFAULT_BACKEND_URL`
+5. embedded local backend when none of the above are set
+
+Queued bundles are scoped to the selected backend and namespace so a bundle created for one org or backend is not replayed into another by mistake.
 
 Default queue path:
 
@@ -62,5 +74,7 @@ python3 /home/akovanda/.codex/skills/.system/skill-creator/scripts/quick_validat
 - memory/retrieval research routes to `research-memory-retrieval`
 - registry content is searched before new storage
 - new research stores private annotations, findings, and a report
+- remote writes use API keys and preserve namespace plus actor attribution
+- self-published artifacts appear in their public namespace before they are promoted into the shared global index
 - if storage is unavailable, a queue bundle is written and replayed later
 - the user gets an explicit summary of reuse, storage, or queue status

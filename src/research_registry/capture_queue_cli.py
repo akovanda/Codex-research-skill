@@ -4,9 +4,9 @@ import argparse
 from pathlib import Path
 import sys
 
+from .backend_client import create_backend
 from .capture_queue import CaptureQueue, QueuedCaptureBundle
 from .config import load_settings
-from .service import RegistryService
 
 
 def main() -> None:
@@ -33,9 +33,8 @@ def main() -> None:
         return
 
     if args.command == "flush":
-        service = RegistryService(settings.db_path)
-        service.initialize()
-        result = queue.flush(service)
+        backend = create_backend(settings)
+        result = queue.flush(backend)
         print(f"flushed={len(result.flushed_queue_ids)} failed={len(result.failed_queue_ids)}")
         for report_id in result.stored_report_ids:
             print(f"report={report_id}")

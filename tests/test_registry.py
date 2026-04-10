@@ -5,8 +5,9 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from research_registry.app import create_app
+from research_registry.backend_selection import resolve_backend
 from research_registry.config import Settings
-from research_registry.models import AnnotationCreate, FindingCreate, PublishRequest, ReportCompileCreate, ReviewRequest, RunCreate, SourceCreate, SourceSelector
+from research_registry.models import AnnotationCreate, ApiKeyCreate, FindingCreate, PublishRequest, ReportCompileCreate, ReviewRequest, RunCreate, SourceCreate, SourceSelector
 from research_registry.service import RegistryService
 
 
@@ -179,10 +180,17 @@ def test_api_hides_private_records_without_admin_token(tmp_path: Path) -> None:
         data_dir=data_dir,
         db_path=db_path,
         capture_queue_path=data_dir / "pending-research-captures.jsonl",
+        backend_profile_path=data_dir / "backend-profiles.json",
         admin_token="secret",
         session_secret="session-secret",
         host="127.0.0.1",
         port=8000,
+        default_backend_url=None,
+        backend_url=None,
+        backend_api_key=None,
+        backend_org=None,
+        backend_profile=None,
+        public_base_url="http://127.0.0.1:8000",
     )
     app = create_app(settings)
     client = TestClient(app)
@@ -209,3 +217,121 @@ def test_api_hides_private_records_without_admin_token(tmp_path: Path) -> None:
 
     response = client.get(f"/api/annotations/{annotation.id}")
     assert response.status_code == 200
+
+
+def test_api_key_isolation_and_public_namespace_vs_global_index(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    settings = Settings(
+        data_dir=data_dir,
+        db_path=tmp_path / "auth.sqlite3",
+        capture_queue_path=data_dir / "pending-research-captures.jsonl",
+        backend_profile_path=data_dir / "backend-profiles.json",
+        admin_token="secret",
+        session_secret="session-secret",
+        host="127.0.0.1",
+        port=8000,
+        default_backend_url="https://registry.example.com",
+        backend_url=None,
+        backend_api_key=None,
+        backend_org=None,
+        backend_profile=None,
+        public_base_url="https://registry.example.com",
+    )
+    app = create_app(settings)
+    client = TestClient(app)
+    service = app.state.service
+
+    alice_key = service.issue_api_key(ApiKeyCreate(label="alice", actor_user_id="alice"))
+    bob_key = service.issue_api_key(ApiKeyCreate(label="bob", actor_user_id="bob"))
+
+    create_response = client.post(
+        "/api/annotations",
+        headers={"x-api-key": alice_key.token},
+        json=AnnotationCreate(
+            source=SourceCreate(canonical_url="https://example.com/memory", title="Memory source", snapshot_required=True, snapshot_present=True),
+            subject="agent memory",
+            note="Private memory note.",
+            selector=SourceSelector(exact="memory note", deep_link="https://example.com/memory#1"),
+        ).model_dump(mode="json"),
+    )
+    assert create_response.status_code == 200
+    annotation_id = create_response.json()["id"]
+
+    assert client.get(f"/api/annotations/{annotation_id}").status_code == 404
+    assert client.get(f"/api/annotations/{annotation_id}", headers={"x-api-key": bob_key.token}, params={"include_private": "true"}).status_code == 404
+    assert client.get(f"/api/annotations/{annotation_id}", headers={"x-api-key": alice_key.token}, params={"include_private": "true"}).status_code == 200
+
+    publish_response = client.post(
+        "/api/publish",
+        headers={"x-api-key": alice_key.token},
+        json=PublishRequest(kind="annotation", record_id=annotation_id).model_dump(mode="json"),
+    )
+    assert publish_response.status_code == 200
+
+    namespace_search = client.get("/api/search", params={"q": "memory", "namespace_slug": "alice", "kind": "annotation"})
+    assert namespace_search.status_code == 200
+    assert [hit["id"] for hit in namespace_search.json()["hits"]] == [annotation_id]
+
+    global_search = client.get("/api/search", params={"q": "memory"})
+    assert global_search.status_code == 200
+    assert global_search.json()["hits"] == []
+
+    index_response = client.post(
+        "/api/index-state",
+        headers={"x-admin-token": "secret"},
+        json={"kind": "annotation", "record_id": annotation_id, "state": "included"},
+    )
+    assert index_response.status_code == 200
+
+    global_search = client.get("/api/search", params={"q": "memory"})
+    assert [hit["id"] for hit in global_search.json()["hits"]] == [annotation_id]
+
+
+def test_backend_selection_precedence(tmp_path: Path) -> None:
+    profile_path = tmp_path / "profiles.json"
+    profile_path.write_text(
+        """
+        {
+          "profiles": {
+            "vpn": {"url": "https://vpn.example.com", "kind": "corporate"}
+          },
+          "organizations": {
+            "acme": {"url": "https://acme.example.com", "kind": "corporate"}
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    base_settings = Settings(
+        data_dir=tmp_path / "data",
+        db_path=tmp_path / "backend.sqlite3",
+        capture_queue_path=tmp_path / "data" / "queue.jsonl",
+        backend_profile_path=profile_path,
+        admin_token=None,
+        session_secret="secret",
+        host="127.0.0.1",
+        port=8000,
+        default_backend_url="https://default.example.com",
+        backend_url=None,
+        backend_api_key=None,
+        backend_org=None,
+        backend_profile=None,
+        public_base_url="http://127.0.0.1:8000",
+    )
+
+    explicit = resolve_backend(base_settings.__class__(**{**base_settings.__dict__, "backend_url": "https://custom.example.com"}))
+    assert explicit.url == "https://custom.example.com"
+    assert explicit.selection_source == "explicit_url"
+
+    named_profile = resolve_backend(base_settings.__class__(**{**base_settings.__dict__, "backend_profile": "vpn"}))
+    assert named_profile.url == "https://vpn.example.com"
+    assert named_profile.selection_source == "named_profile"
+
+    org_profile = resolve_backend(base_settings.__class__(**{**base_settings.__dict__, "backend_org": "acme"}))
+    assert org_profile.url == "https://acme.example.com"
+    assert org_profile.selection_source == "organization_profile"
+
+    default = resolve_backend(base_settings)
+    assert default.url == "https://default.example.com"
+    assert default.selection_source == "default_hosted"

@@ -6,16 +6,25 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 from pathlib import Path
+import secrets
 import sqlite3
 from uuid import uuid4
 
 from .models import (
     AnnotationCreate,
     AnnotationRecord,
+    ApiKeyCreate,
+    ApiKeyRecord,
+    AuthContext,
+    BackendStatus,
     DashboardData,
     FindingCreate,
     FindingRecord,
+    IndexStateRequest,
+    IssuedApiKey,
+    OrganizationRecord,
     PublishRequest,
+    PublicIndexState,
     RecordKind,
     ReportCreate,
     ReportCompileCreate,
@@ -28,6 +37,7 @@ from .models import (
     SourceCreate,
     SourceRecord,
     SourceSelector,
+    UserRecord,
 )
 
 
@@ -38,6 +48,15 @@ def utc_now() -> datetime:
 class RegistryService:
     def __init__(self, db_path: Path):
         self.db_path = db_path
+        self._backend_status = BackendStatus(
+            name="embedded-local",
+            kind="local",
+            selection_source="embedded_local",
+            url=None,
+            namespace_kind="user",
+            namespace_id="local",
+            api_key_present=False,
+        )
 
     @contextmanager
     def connect(self):
@@ -49,6 +68,12 @@ class RegistryService:
             connection.commit()
         finally:
             connection.close()
+
+    def set_backend_status(self, status: BackendStatus) -> None:
+        self._backend_status = status
+
+    def backend_status(self) -> BackendStatus:
+        return self._backend_status
 
     def initialize(self) -> None:
         with self.connect() as conn:
@@ -63,6 +88,14 @@ class RegistryService:
                     visibility TEXT NOT NULL,
                     author_type TEXT NOT NULL,
                     freshness_ttl_days INTEGER NOT NULL,
+                    namespace_kind TEXT NOT NULL DEFAULT 'user',
+                    namespace_id TEXT NOT NULL DEFAULT 'local',
+                    actor_user_id TEXT,
+                    actor_org_id TEXT,
+                    api_key_id TEXT,
+                    public_namespace_slug TEXT,
+                    public_index_state TEXT NOT NULL DEFAULT 'private',
+                    dedupe_key TEXT UNIQUE,
                     started_at TEXT NOT NULL,
                     finished_at TEXT NOT NULL,
                     created_at TEXT NOT NULL
@@ -84,6 +117,14 @@ class RegistryService:
                     snapshot_present INTEGER NOT NULL DEFAULT 0,
                     last_verified_at TEXT,
                     visibility TEXT NOT NULL,
+                    namespace_kind TEXT NOT NULL DEFAULT 'user',
+                    namespace_id TEXT NOT NULL DEFAULT 'local',
+                    actor_user_id TEXT,
+                    actor_org_id TEXT,
+                    api_key_id TEXT,
+                    public_namespace_slug TEXT,
+                    public_index_state TEXT NOT NULL DEFAULT 'private',
+                    dedupe_key TEXT UNIQUE,
                     created_at TEXT NOT NULL
                 );
 
@@ -109,6 +150,14 @@ class RegistryService:
                     parent_annotation_id TEXT REFERENCES annotations(id) ON DELETE SET NULL,
                     tags_json TEXT NOT NULL,
                     source_content_sha256 TEXT,
+                    namespace_kind TEXT NOT NULL DEFAULT 'user',
+                    namespace_id TEXT NOT NULL DEFAULT 'local',
+                    actor_user_id TEXT,
+                    actor_org_id TEXT,
+                    api_key_id TEXT,
+                    public_namespace_slug TEXT,
+                    public_index_state TEXT NOT NULL DEFAULT 'private',
+                    dedupe_key TEXT UNIQUE,
                     human_reviewed INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL
                 );
@@ -129,6 +178,14 @@ class RegistryService:
                     model_version TEXT,
                     run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
                     confidence REAL NOT NULL,
+                    namespace_kind TEXT NOT NULL DEFAULT 'user',
+                    namespace_id TEXT NOT NULL DEFAULT 'local',
+                    actor_user_id TEXT,
+                    actor_org_id TEXT,
+                    api_key_id TEXT,
+                    public_namespace_slug TEXT,
+                    public_index_state TEXT NOT NULL DEFAULT 'private',
+                    dedupe_key TEXT UNIQUE,
                     human_reviewed INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL
                 );
@@ -149,6 +206,14 @@ class RegistryService:
                     model_name TEXT,
                     model_version TEXT,
                     run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+                    namespace_kind TEXT NOT NULL DEFAULT 'user',
+                    namespace_id TEXT NOT NULL DEFAULT 'local',
+                    actor_user_id TEXT,
+                    actor_org_id TEXT,
+                    api_key_id TEXT,
+                    public_namespace_slug TEXT,
+                    public_index_state TEXT NOT NULL DEFAULT 'private',
+                    dedupe_key TEXT UNIQUE,
                     human_reviewed INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL
                 );
@@ -158,19 +223,72 @@ class RegistryService:
                     finding_id TEXT NOT NULL REFERENCES findings(id) ON DELETE RESTRICT,
                     PRIMARY KEY (report_id, finding_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS organizations (
+                    id TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS org_memberships (
+                    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    role TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (org_id, user_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id TEXT PRIMARY KEY,
+                    label TEXT NOT NULL,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    actor_user_id TEXT NOT NULL,
+                    actor_org_id TEXT,
+                    namespace_kind TEXT NOT NULL,
+                    namespace_id TEXT NOT NULL,
+                    scopes_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    revoked_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id TEXT PRIMARY KEY,
+                    action TEXT NOT NULL,
+                    kind TEXT,
+                    record_id TEXT,
+                    api_key_id TEXT,
+                    actor_user_id TEXT,
+                    actor_org_id TEXT,
+                    details_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 """
             )
+            self._apply_migrations(conn)
 
-    def create_run(self, payload: RunCreate) -> RunRecord:
-        run_id = self._new_id("run")
+    def create_run(self, payload: RunCreate, auth: AuthContext | None = None) -> RunRecord:
         created_at = utc_now()
+        metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         with self.connect() as conn:
+            existing = self._fetch_existing_by_dedupe_key(conn, "runs", payload.dedupe_key)
+            if existing:
+                return self._run_from_row(existing)
+            run_id = self._new_id("run")
             conn.execute(
                 """
                 INSERT INTO runs (
                     id, question, model_name, model_version, notes, visibility,
-                    author_type, freshness_ttl_days, started_at, finished_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    author_type, freshness_ttl_days, namespace_kind, namespace_id,
+                    actor_user_id, actor_org_id, api_key_id, public_namespace_slug,
+                    public_index_state, dedupe_key, started_at, finished_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -181,6 +299,14 @@ class RegistryService:
                     payload.visibility,
                     payload.author_type,
                     payload.freshness_ttl_days,
+                    metadata["namespace_kind"],
+                    metadata["namespace_id"],
+                    metadata["actor_user_id"],
+                    metadata["actor_org_id"],
+                    metadata["api_key_id"],
+                    metadata["public_namespace_slug"],
+                    self._public_index_state_for_visibility(payload.visibility),
+                    payload.dedupe_key,
                     created_at.isoformat(),
                     created_at.isoformat(),
                     created_at.isoformat(),
@@ -189,16 +315,21 @@ class RegistryService:
             row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
         return self._run_from_row(row)
 
-    def create_source(self, payload: SourceCreate) -> SourceRecord:
+    def create_source(self, payload: SourceCreate, auth: AuthContext | None = None) -> SourceRecord:
+        metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         with self.connect() as conn:
+            existing = self._fetch_existing_by_dedupe_key(conn, "sources", payload.dedupe_key)
+            if existing:
+                return self._source_from_row(existing)
             existing = conn.execute(
                 """
                 SELECT * FROM sources
                 WHERE canonical_url = ? AND COALESCE(content_sha256, '') = COALESCE(?, '')
+                  AND namespace_kind = ? AND namespace_id = ?
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
-                (payload.canonical_url, payload.content_sha256),
+                (payload.canonical_url, payload.content_sha256, metadata["namespace_kind"], metadata["namespace_id"]),
             ).fetchone()
             if existing:
                 return self._source_from_row(existing)
@@ -210,8 +341,10 @@ class RegistryService:
                 INSERT INTO sources (
                     id, canonical_url, title, source_type, site_name, published_at, accessed_at,
                     author, snippet, content_sha256, snapshot_url, snapshot_required,
-                    snapshot_present, last_verified_at, visibility, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    snapshot_present, last_verified_at, visibility, namespace_kind, namespace_id,
+                    actor_user_id, actor_org_id, api_key_id, public_namespace_slug,
+                    public_index_state, dedupe_key, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     source_id,
@@ -229,33 +362,55 @@ class RegistryService:
                     int(payload.snapshot_present),
                     self._encode_dt(payload.last_verified_at),
                     payload.visibility,
+                    metadata["namespace_kind"],
+                    metadata["namespace_id"],
+                    metadata["actor_user_id"],
+                    metadata["actor_org_id"],
+                    metadata["api_key_id"],
+                    metadata["public_namespace_slug"],
+                    self._public_index_state_for_visibility(payload.visibility),
+                    payload.dedupe_key,
                     created_at.isoformat(),
                 ),
             )
             row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
         return self._source_from_row(row)
 
-    def get_source(self, source_id: str, include_private: bool = False) -> SourceRecord:
+    def get_source(
+        self,
+        source_id: str,
+        include_private: bool = False,
+        *,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> SourceRecord:
         row = self._fetch_row("sources", source_id)
-        self._ensure_visible(row, include_private)
+        self._ensure_visible(row, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
         return self._source_from_row(row)
 
-    def create_annotation(self, payload: AnnotationCreate) -> AnnotationRecord:
-        source = self._resolve_source(payload)
+    def create_annotation(self, payload: AnnotationCreate, auth: AuthContext | None = None) -> AnnotationRecord:
+        metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
+        source = self._resolve_source(payload, auth=auth)
         created_at = utc_now()
         quote_text = payload.quote_text or payload.selector.exact
         quote_hash = self._hash_text(quote_text) if quote_text else None
         anchor_fingerprint = self._anchor_fingerprint(source.id, payload.selector, quote_hash)
-        annotation_id = self._new_id("ann")
         with self.connect() as conn:
+            existing = self._fetch_existing_by_dedupe_key(conn, "annotations", payload.dedupe_key)
+            if existing:
+                return self._annotation_from_row(existing, source)
+            annotation_id = self._new_id("ann")
             conn.execute(
                 """
                 INSERT INTO annotations (
                     id, source_id, run_id, subject, note, selector_json, quote_text, quote_hash,
                     anchor_fingerprint, confidence, freshness_ttl_days, visibility, author_type,
                     model_name, model_version, parent_annotation_id, tags_json,
-                    source_content_sha256, human_reviewed, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_content_sha256, namespace_kind, namespace_id, actor_user_id,
+                    actor_org_id, api_key_id, public_namespace_slug, public_index_state,
+                    dedupe_key, human_reviewed, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     annotation_id,
@@ -276,6 +431,14 @@ class RegistryService:
                     payload.parent_annotation_id,
                     json.dumps(payload.tags),
                     source.content_sha256,
+                    metadata["namespace_kind"],
+                    metadata["namespace_id"],
+                    metadata["actor_user_id"],
+                    metadata["actor_org_id"],
+                    metadata["api_key_id"],
+                    metadata["public_namespace_slug"],
+                    self._public_index_state_for_visibility(payload.visibility),
+                    payload.dedupe_key,
                     0,
                     created_at.isoformat(),
                 ),
@@ -283,26 +446,40 @@ class RegistryService:
             row = conn.execute("SELECT * FROM annotations WHERE id = ?", (annotation_id,)).fetchone()
         return self._annotation_from_row(row, source)
 
-    def get_annotation(self, annotation_id: str, include_private: bool = False) -> AnnotationRecord:
+    def get_annotation(
+        self,
+        annotation_id: str,
+        include_private: bool = False,
+        *,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> AnnotationRecord:
         row = self._fetch_row("annotations", annotation_id)
-        self._ensure_visible(row, include_private)
+        self._ensure_visible(row, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
         source = self._fetch_row("sources", row["source_id"])
         return self._annotation_from_row(row, source)
 
-    def create_finding(self, payload: FindingCreate) -> FindingRecord:
+    def create_finding(self, payload: FindingCreate, auth: AuthContext | None = None) -> FindingRecord:
         annotations = [self.get_annotation(annotation_id, include_private=True) for annotation_id in payload.annotation_ids]
         confidence = payload.confidence
         if confidence is None:
             confidence = round(sum(annotation.confidence for annotation in annotations) / len(annotations), 3)
-        finding_id = self._new_id("fdg")
         created_at = utc_now()
+        metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         with self.connect() as conn:
+            existing = self._fetch_existing_by_dedupe_key(conn, "findings", payload.dedupe_key)
+            if existing:
+                return self._finding_from_row(existing, annotations=annotations)
+            finding_id = self._new_id("fdg")
             conn.execute(
                 """
                 INSERT INTO findings (
                     id, title, subject, claim, visibility, author_type,
-                    model_name, model_version, run_id, confidence, human_reviewed, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    model_name, model_version, run_id, confidence, namespace_kind, namespace_id,
+                    actor_user_id, actor_org_id, api_key_id, public_namespace_slug,
+                    public_index_state, dedupe_key, human_reviewed, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     finding_id,
@@ -315,6 +492,14 @@ class RegistryService:
                     payload.model_version,
                     payload.run_id,
                     confidence,
+                    metadata["namespace_kind"],
+                    metadata["namespace_id"],
+                    metadata["actor_user_id"],
+                    metadata["actor_org_id"],
+                    metadata["api_key_id"],
+                    metadata["public_namespace_slug"],
+                    self._public_index_state_for_visibility(payload.visibility),
+                    payload.dedupe_key,
                     0,
                     created_at.isoformat(),
                 ),
@@ -326,23 +511,43 @@ class RegistryService:
             row = conn.execute("SELECT * FROM findings WHERE id = ?", (finding_id,)).fetchone()
         return self._finding_from_row(row, annotations=annotations)
 
-    def get_finding(self, finding_id: str, include_private: bool = False) -> FindingRecord:
+    def get_finding(
+        self,
+        finding_id: str,
+        include_private: bool = False,
+        *,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> FindingRecord:
         row = self._fetch_row("findings", finding_id)
-        self._ensure_visible(row, include_private)
-        annotations = self._annotations_for_finding(finding_id, include_private=include_private)
+        self._ensure_visible(row, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        annotations = self._annotations_for_finding(
+            finding_id,
+            include_private=include_private,
+            auth=auth,
+            public_index_only=public_index_only,
+            namespace_slug=namespace_slug,
+        )
         return self._finding_from_row(row, annotations=annotations)
 
-    def create_report(self, payload: ReportCreate) -> ReportRecord:
+    def create_report(self, payload: ReportCreate, auth: AuthContext | None = None) -> ReportRecord:
         findings = [self.get_finding(finding_id, include_private=True) for finding_id in payload.finding_ids]
-        report_id = self._new_id("rpt")
         created_at = utc_now()
+        metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         with self.connect() as conn:
+            existing = self._fetch_existing_by_dedupe_key(conn, "reports", payload.dedupe_key)
+            if existing:
+                return self._report_from_row(existing, findings=findings)
+            report_id = self._new_id("rpt")
             conn.execute(
                 """
                 INSERT INTO reports (
                     id, question, subject, summary_md, visibility, author_type,
-                    model_name, model_version, run_id, human_reviewed, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    model_name, model_version, run_id, namespace_kind, namespace_id,
+                    actor_user_id, actor_org_id, api_key_id, public_namespace_slug,
+                    public_index_state, dedupe_key, human_reviewed, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     report_id,
@@ -354,6 +559,14 @@ class RegistryService:
                     payload.model_name,
                     payload.model_version,
                     payload.run_id,
+                    metadata["namespace_kind"],
+                    metadata["namespace_id"],
+                    metadata["actor_user_id"],
+                    metadata["actor_org_id"],
+                    metadata["api_key_id"],
+                    metadata["public_namespace_slug"],
+                    self._public_index_state_for_visibility(payload.visibility),
+                    payload.dedupe_key,
                     0,
                     created_at.isoformat(),
                 ),
@@ -365,7 +578,7 @@ class RegistryService:
             row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
         return self._report_from_row(row, findings=findings)
 
-    def compile_report(self, payload: ReportCompileCreate) -> ReportRecord:
+    def compile_report(self, payload: ReportCompileCreate, auth: AuthContext | None = None) -> ReportRecord:
         findings = [self.get_finding(finding_id, include_private=True) for finding_id in payload.finding_ids]
         annotation_ids = sorted({annotation_id for finding in findings for annotation_id in finding.annotation_ids})
         annotations = [self.get_annotation(annotation_id, include_private=True) for annotation_id in annotation_ids]
@@ -382,13 +595,32 @@ class RegistryService:
                 model_name=payload.model_name,
                 model_version=payload.model_version,
                 run_id=payload.run_id,
+                namespace_kind=payload.namespace_kind,
+                namespace_id=payload.namespace_id,
+                dedupe_key=payload.dedupe_key,
             )
+            ,
+            auth=auth,
         )
 
-    def get_report(self, report_id: str, include_private: bool = False) -> ReportRecord:
+    def get_report(
+        self,
+        report_id: str,
+        include_private: bool = False,
+        *,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> ReportRecord:
         row = self._fetch_row("reports", report_id)
-        self._ensure_visible(row, include_private)
-        findings = self._findings_for_report(report_id, include_private=include_private)
+        self._ensure_visible(row, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        findings = self._findings_for_report(
+            report_id,
+            include_private=include_private,
+            auth=auth,
+            public_index_only=public_index_only,
+            namespace_slug=namespace_slug,
+        )
         return self._report_from_row(row, findings=findings)
 
     def search(
@@ -398,37 +630,89 @@ class RegistryService:
         kind: RecordKind | None = None,
         include_private: bool = False,
         limit: int = 20,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
     ) -> SearchResponse:
         normalized = query.strip().lower()
         hits: list[SearchHit] = []
         if kind in (None, "annotation"):
-            hits.extend(self._search_annotations(normalized, include_private))
+            hits.extend(self._search_annotations(normalized, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug))
         if kind in (None, "finding"):
-            hits.extend(self._search_findings(normalized, include_private))
+            hits.extend(self._search_findings(normalized, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug))
         if kind in (None, "report"):
-            hits.extend(self._search_reports(normalized, include_private))
+            hits.extend(self._search_reports(normalized, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug))
         if kind in (None, "source"):
-            hits.extend(self._search_sources(normalized, include_private))
+            hits.extend(self._search_sources(normalized, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug))
         hits.sort(key=lambda hit: (hit.score, hit.created_at), reverse=True)
         return SearchResponse(query=query, hits=hits[:limit])
 
-    def dashboard(self, *, include_private: bool, limit: int = 8) -> DashboardData:
-        reports = self._list_reports(include_private=include_private, limit=limit)
-        findings = self._list_findings(include_private=include_private, limit=limit)
-        annotations = self._list_annotations(include_private=include_private, limit=limit)
+    def dashboard(
+        self,
+        *,
+        include_private: bool,
+        limit: int = 8,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> DashboardData:
+        reports = self._list_reports(include_private=include_private, limit=limit, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        findings = self._list_findings(include_private=include_private, limit=limit, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        annotations = self._list_annotations(include_private=include_private, limit=limit, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
         return DashboardData(reports=reports, findings=findings, annotations=annotations)
 
-    def publish(self, payload: PublishRequest) -> None:
+    def publish(self, payload: PublishRequest, auth: AuthContext | None = None) -> None:
+        if auth is not None and not auth.has_scope("publish"):
+            raise PermissionError("publish scope required")
         with self.connect() as conn:
-            self._set_visibility(conn, payload.kind, payload.record_id, "public")
+            self._set_visibility(
+                conn,
+                payload.kind,
+                payload.record_id,
+                "public",
+                include_in_global_index=payload.include_in_global_index,
+            )
             if payload.cascade_linked_sources:
-                self._cascade_publish(conn, payload.kind, payload.record_id)
+                self._cascade_publish(conn, payload.kind, payload.record_id, include_in_global_index=payload.include_in_global_index)
+            self._record_audit(
+                conn,
+                action="publish",
+                kind=payload.kind,
+                record_id=payload.record_id,
+                auth=auth,
+                details={"include_in_global_index": payload.include_in_global_index},
+            )
 
-    def review(self, payload: ReviewRequest) -> None:
+    def review(self, payload: ReviewRequest, auth: AuthContext | None = None) -> None:
         with self.connect() as conn:
             conn.execute(
                 f"UPDATE {self._table_name(payload.kind)} SET human_reviewed = ? WHERE id = ?",
                 (int(payload.reviewed), payload.record_id),
+            )
+            self._record_audit(
+                conn,
+                action="review",
+                kind=payload.kind,
+                record_id=payload.record_id,
+                auth=auth,
+                details={"reviewed": payload.reviewed},
+            )
+
+    def set_index_state(self, payload: IndexStateRequest, auth: AuthContext | None = None) -> None:
+        if auth is not None and not auth.is_admin:
+            raise PermissionError("admin scope required")
+        with self.connect() as conn:
+            conn.execute(
+                f"UPDATE {self._table_name(payload.kind)} SET public_index_state = ? WHERE id = ?",
+                (payload.state, payload.record_id),
+            )
+            self._record_audit(
+                conn,
+                action="set_index_state",
+                kind=payload.kind,
+                record_id=payload.record_id,
+                auth=auth,
+                details={"state": payload.state},
             )
 
     def seed_demo(self) -> dict[str, str]:
@@ -525,52 +809,173 @@ class RegistryService:
         )
         self.review(ReviewRequest(kind="annotation", record_id=annotation_one.id))
         self.review(ReviewRequest(kind="finding", record_id=finding.id))
-        self.publish(PublishRequest(kind="report", record_id=report.id))
+        self.publish(PublishRequest(kind="report", record_id=report.id, include_in_global_index=True))
         return {"run_id": run.id, "report_id": report.id}
 
-    def _resolve_source(self, payload: AnnotationCreate) -> SourceRecord:
+    def ensure_user(self, user_id: str, display_name: str | None = None) -> UserRecord:
+        created_at = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO users (id, display_name, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET display_name = COALESCE(users.display_name, excluded.display_name)
+                """,
+                (user_id, display_name or user_id, created_at.isoformat()),
+            )
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return UserRecord(id=row["id"], display_name=row["display_name"], created_at=datetime.fromisoformat(row["created_at"]))
+
+    def ensure_organization(self, org_id: str, display_name: str | None = None) -> OrganizationRecord:
+        created_at = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO organizations (id, display_name, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET display_name = COALESCE(organizations.display_name, excluded.display_name)
+                """,
+                (org_id, display_name or org_id, created_at.isoformat()),
+            )
+            row = conn.execute("SELECT * FROM organizations WHERE id = ?", (org_id,)).fetchone()
+        return OrganizationRecord(id=row["id"], display_name=row["display_name"], created_at=datetime.fromisoformat(row["created_at"]))
+
+    def add_org_membership(self, org_id: str, user_id: str, role: str = "member") -> None:
+        self.ensure_organization(org_id)
+        self.ensure_user(user_id)
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO org_memberships (org_id, user_id, role, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (org_id, user_id, role, utc_now().isoformat()),
+            )
+
+    def issue_api_key(self, payload: ApiKeyCreate) -> IssuedApiKey:
+        self.ensure_user(payload.actor_user_id)
+        if payload.actor_org_id:
+            self.ensure_organization(payload.actor_org_id)
+            self.add_org_membership(payload.actor_org_id, payload.actor_user_id)
+        namespace_id = payload.namespace_id or (payload.actor_org_id if payload.namespace_kind == "org" else payload.actor_user_id)
+        key_id = self._new_id("key")
+        token = f"rrk_{secrets.token_urlsafe(24)}"
+        created_at = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO api_keys (
+                    id, label, token_hash, actor_user_id, actor_org_id, namespace_kind,
+                    namespace_id, scopes_json, status, created_at, revoked_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    key_id,
+                    payload.label,
+                    self._hash_text(token),
+                    payload.actor_user_id,
+                    payload.actor_org_id,
+                    payload.namespace_kind,
+                    namespace_id,
+                    json.dumps(payload.scopes),
+                    "active",
+                    created_at.isoformat(),
+                    None,
+                ),
+            )
+            row = conn.execute("SELECT * FROM api_keys WHERE id = ?", (key_id,)).fetchone()
+        return IssuedApiKey(token=token, record=self._api_key_from_row(row))
+
+    def authenticate_api_key(self, token: str) -> AuthContext:
+        if not token:
+            raise PermissionError("api key required")
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM api_keys WHERE token_hash = ?", (self._hash_text(token),)).fetchone()
+        if row is None:
+            raise PermissionError("invalid api key")
+        if row["status"] != "active":
+            raise PermissionError("api key is not active")
+        return AuthContext(
+            api_key_id=row["id"],
+            actor_user_id=row["actor_user_id"],
+            actor_org_id=row["actor_org_id"],
+            namespace_kind=row["namespace_kind"],
+            namespace_id=row["namespace_id"],
+            scopes=json.loads(row["scopes_json"]),
+        )
+
+    def _resolve_source(self, payload: AnnotationCreate, auth: AuthContext | None = None) -> SourceRecord:
         if payload.source_id:
             return self.get_source(payload.source_id, include_private=True)
         assert payload.source is not None
-        return self.create_source(payload.source)
+        return self.create_source(payload.source, auth=auth)
 
-    def _list_annotations(self, *, include_private: bool, limit: int) -> list[AnnotationRecord]:
+    def _list_annotations(
+        self,
+        *,
+        include_private: bool,
+        limit: int,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> list[AnnotationRecord]:
         with self.connect() as conn:
-            query = "SELECT * FROM annotations"
-            params: list[object] = []
-            if not include_private:
-                query += " WHERE visibility = 'public'"
-            query += " ORDER BY created_at DESC LIMIT ?"
-            params.append(limit)
-            rows = conn.execute(query, params).fetchall()
+            rows = conn.execute("SELECT * FROM annotations ORDER BY created_at DESC").fetchall()
             sources = self._fetch_sources_map(conn, [row["source_id"] for row in rows])
-        return [self._annotation_from_row(row, sources[row["source_id"]]) for row in rows]
+        records = [
+            self._annotation_from_row(row, sources[row["source_id"]])
+            for row in rows
+            if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        ]
+        return records[:limit]
 
-    def _list_findings(self, *, include_private: bool, limit: int) -> list[FindingRecord]:
+    def _list_findings(
+        self,
+        *,
+        include_private: bool,
+        limit: int,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> list[FindingRecord]:
         with self.connect() as conn:
-            query = "SELECT * FROM findings"
-            params: list[object] = []
-            if not include_private:
-                query += " WHERE visibility = 'public'"
-            query += " ORDER BY created_at DESC LIMIT ?"
-            params.append(limit)
-            rows = conn.execute(query, params).fetchall()
-        return [self.get_finding(row["id"], include_private=include_private) for row in rows]
+            rows = conn.execute("SELECT * FROM findings ORDER BY created_at DESC").fetchall()
+        visible_rows = [
+            row
+            for row in rows
+            if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        ]
+        return [self.get_finding(row["id"], include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug) for row in visible_rows[:limit]]
 
-    def _list_reports(self, *, include_private: bool, limit: int) -> list[ReportRecord]:
+    def _list_reports(
+        self,
+        *,
+        include_private: bool,
+        limit: int,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> list[ReportRecord]:
         with self.connect() as conn:
-            query = "SELECT * FROM reports"
-            params: list[object] = []
-            if not include_private:
-                query += " WHERE visibility = 'public'"
-            query += " ORDER BY created_at DESC LIMIT ?"
-            params.append(limit)
-            rows = conn.execute(query, params).fetchall()
-        return [self.get_report(row["id"], include_private=include_private) for row in rows]
+            rows = conn.execute("SELECT * FROM reports ORDER BY created_at DESC").fetchall()
+        visible_rows = [
+            row
+            for row in rows
+            if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        ]
+        return [self.get_report(row["id"], include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug) for row in visible_rows[:limit]]
 
-    def _search_annotations(self, normalized: str, include_private: bool) -> list[SearchHit]:
+    def _search_annotations(
+        self,
+        normalized: str,
+        include_private: bool,
+        *,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> list[SearchHit]:
         hits: list[SearchHit] = []
-        for annotation in self._list_annotations(include_private=include_private, limit=100):
+        for annotation in self._list_annotations(include_private=include_private, limit=100, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug):
             source = self.get_source(annotation.source_id, include_private=True)
             haystack = " ".join(
                 [
@@ -598,13 +1003,25 @@ class RegistryService:
                     url=f"/annotations/{annotation.id}",
                     source_title=source.title,
                     human_reviewed=annotation.human_reviewed,
+                    namespace_kind=annotation.namespace_kind,
+                    namespace_id=annotation.namespace_id,
+                    public_namespace_slug=annotation.public_namespace_slug,
+                    public_index_state=annotation.public_index_state,
                 )
             )
         return hits
 
-    def _search_findings(self, normalized: str, include_private: bool) -> list[SearchHit]:
+    def _search_findings(
+        self,
+        normalized: str,
+        include_private: bool,
+        *,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> list[SearchHit]:
         hits: list[SearchHit] = []
-        for finding in self._list_findings(include_private=include_private, limit=100):
+        for finding in self._list_findings(include_private=include_private, limit=100, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug):
             annotations = [self.get_annotation(annotation_id, include_private=True) for annotation_id in finding.annotation_ids]
             source_quality = max((self._source_quality(self.get_source(annotation.source_id, include_private=True).source_type) for annotation in annotations), default=0)
             haystack = " ".join([finding.title, finding.subject, finding.claim]).lower()
@@ -623,13 +1040,25 @@ class RegistryService:
                     score=score,
                     url=f"/findings/{finding.id}",
                     human_reviewed=finding.human_reviewed,
+                    namespace_kind=finding.namespace_kind,
+                    namespace_id=finding.namespace_id,
+                    public_namespace_slug=finding.public_namespace_slug,
+                    public_index_state=finding.public_index_state,
                 )
             )
         return hits
 
-    def _search_reports(self, normalized: str, include_private: bool) -> list[SearchHit]:
+    def _search_reports(
+        self,
+        normalized: str,
+        include_private: bool,
+        *,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> list[SearchHit]:
         hits: list[SearchHit] = []
-        for report in self._list_reports(include_private=include_private, limit=100):
+        for report in self._list_reports(include_private=include_private, limit=100, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug):
             source_quality = max((self._source_quality(self.get_source(source_id, include_private=True).source_type) for source_id in report.source_ids), default=0)
             haystack = " ".join([report.question, report.subject, report.summary_md]).lower()
             score = self._search_score(normalized, haystack, source_quality=source_quality, human_reviewed=report.human_reviewed, created_at=report.created_at, provenance_fields=[report.run_id, report.model_name, *report.finding_ids, *report.annotation_ids])
@@ -647,18 +1076,29 @@ class RegistryService:
                     score=score,
                     url=f"/reports/{report.id}",
                     human_reviewed=report.human_reviewed,
+                    namespace_kind=report.namespace_kind,
+                    namespace_id=report.namespace_id,
+                    public_namespace_slug=report.public_namespace_slug,
+                    public_index_state=report.public_index_state,
                 )
             )
         return hits
 
-    def _search_sources(self, normalized: str, include_private: bool) -> list[SearchHit]:
+    def _search_sources(
+        self,
+        normalized: str,
+        include_private: bool,
+        *,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> list[SearchHit]:
         with self.connect() as conn:
-            query = "SELECT * FROM sources"
-            if not include_private:
-                query += " WHERE visibility = 'public'"
-            rows = conn.execute(query).fetchall()
+            rows = conn.execute("SELECT * FROM sources").fetchall()
         hits: list[SearchHit] = []
         for row in rows:
+            if not self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug):
+                continue
             source = self._source_from_row(row)
             haystack = " ".join([source.title, source.canonical_url, source.source_type, source.snippet or "", source.site_name or "", source.author or ""]).lower()
             score = self._search_score(normalized, haystack, source_type=source.source_type, human_reviewed=False, created_at=source.created_at, provenance_fields=[source.content_sha256, source.snapshot_url])
@@ -675,6 +1115,10 @@ class RegistryService:
                     created_at=source.created_at,
                     score=score,
                     url=f"/sources/{source.id}",
+                    namespace_kind=source.namespace_kind,
+                    namespace_id=source.namespace_id,
+                    public_namespace_slug=source.public_namespace_slug,
+                    public_index_state=source.public_index_state,
                 )
             )
         return hits
@@ -686,9 +1130,53 @@ class RegistryService:
             raise KeyError(f"{table}:{record_id} not found")
         return row
 
-    def _ensure_visible(self, row: sqlite3.Row, include_private: bool) -> None:
-        if row["visibility"] == "private" and not include_private:
+    def _ensure_visible(
+        self,
+        row: sqlite3.Row,
+        include_private: bool,
+        *,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> None:
+        if not self._can_access_row(
+            row,
+            include_private=include_private,
+            auth=auth,
+            public_index_only=public_index_only,
+            namespace_slug=namespace_slug,
+        ):
             raise PermissionError("record is private")
+
+    def _can_access_row(
+        self,
+        row: sqlite3.Row,
+        *,
+        include_private: bool,
+        auth: AuthContext | None,
+        public_index_only: bool,
+        namespace_slug: str | None,
+    ) -> bool:
+        visibility = row["visibility"]
+        public_namespace_slug = row["public_namespace_slug"]
+        public_index_state = row["public_index_state"]
+
+        if visibility == "public":
+            if namespace_slug and public_namespace_slug != namespace_slug:
+                return False
+            if public_index_only and public_index_state != "included":
+                return False
+            if public_index_state == "suppressed" and not (auth and auth.is_admin):
+                return False
+            return True
+
+        if not include_private:
+            return False
+        if auth is None:
+            return True
+        if auth.is_admin:
+            return True
+        return auth.has_scope("read_private") and self._row_namespace_matches_auth(row, auth)
 
     def _fetch_sources_map(self, conn: sqlite3.Connection, source_ids: list[str]) -> dict[str, sqlite3.Row]:
         if not source_ids:
@@ -697,7 +1185,15 @@ class RegistryService:
         rows = conn.execute(f"SELECT * FROM sources WHERE id IN ({placeholders})", source_ids).fetchall()
         return {row["id"]: row for row in rows}
 
-    def _annotations_for_finding(self, finding_id: str, *, include_private: bool) -> list[AnnotationRecord]:
+    def _annotations_for_finding(
+        self,
+        finding_id: str,
+        *,
+        include_private: bool,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> list[AnnotationRecord]:
         with self.connect() as conn:
             rows = conn.execute(
                 """
@@ -712,10 +1208,26 @@ class RegistryService:
             sources = self._fetch_sources_map(conn, [row["source_id"] for row in rows])
         annotations = [self._annotation_from_row(row, sources[row["source_id"]]) for row in rows]
         if include_private:
-            return annotations
-        return [annotation for annotation in annotations if annotation.visibility == "public"]
+            return [
+                annotation
+                for annotation, row in zip(annotations, rows, strict=True)
+                if self._can_access_row(row, include_private=True, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+            ]
+        return [
+            annotation
+            for annotation, row in zip(annotations, rows, strict=True)
+            if self._can_access_row(row, include_private=False, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        ]
 
-    def _findings_for_report(self, report_id: str, *, include_private: bool) -> list[FindingRecord]:
+    def _findings_for_report(
+        self,
+        report_id: str,
+        *,
+        include_private: bool,
+        auth: AuthContext | None = None,
+        public_index_only: bool = False,
+        namespace_slug: str | None = None,
+    ) -> list[FindingRecord]:
         with self.connect() as conn:
             rows = conn.execute(
                 """
@@ -729,8 +1241,16 @@ class RegistryService:
             ).fetchall()
         findings = [self.get_finding(row["id"], include_private=True) for row in rows]
         if include_private:
-            return findings
-        return [finding for finding in findings if finding.visibility == "public"]
+            return [
+                finding
+                for finding, row in zip(findings, rows, strict=True)
+                if self._can_access_row(row, include_private=True, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+            ]
+        return [
+            finding
+            for finding, row in zip(findings, rows, strict=True)
+            if self._can_access_row(row, include_private=False, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        ]
 
     def _compile_summary(
         self,
@@ -754,16 +1274,49 @@ class RegistryService:
             lines.append(f"- {source.title}: {source.canonical_url}")
         return "\n".join(lines)
 
-    def _set_visibility(self, conn: sqlite3.Connection, kind: RecordKind, record_id: str, visibility: str) -> None:
-        conn.execute(f"UPDATE {self._table_name(kind)} SET visibility = ? WHERE id = ?", (visibility, record_id))
+    def _set_visibility(
+        self,
+        conn: sqlite3.Connection,
+        kind: RecordKind,
+        record_id: str,
+        visibility: str,
+        *,
+        include_in_global_index: bool = False,
+    ) -> None:
+        row = conn.execute(
+            f"SELECT namespace_id, public_namespace_slug FROM {self._table_name(kind)} WHERE id = ?",
+            (record_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"{kind}:{record_id} not found")
+        public_namespace_slug = row["public_namespace_slug"] or row["namespace_id"]
+        public_index_state = self._public_index_state_for_visibility(
+            visibility,
+            include_in_global_index=include_in_global_index,
+        )
+        conn.execute(
+            f"""
+            UPDATE {self._table_name(kind)}
+            SET visibility = ?, public_namespace_slug = ?, public_index_state = ?
+            WHERE id = ?
+            """,
+            (visibility, public_namespace_slug, public_index_state, record_id),
+        )
 
-    def _cascade_publish(self, conn: sqlite3.Connection, kind: RecordKind, record_id: str) -> None:
+    def _cascade_publish(
+        self,
+        conn: sqlite3.Connection,
+        kind: RecordKind,
+        record_id: str,
+        *,
+        include_in_global_index: bool = False,
+    ) -> None:
         if kind == "source":
             return
         if kind == "annotation":
             row = conn.execute("SELECT source_id FROM annotations WHERE id = ?", (record_id,)).fetchone()
             if row:
-                self._set_visibility(conn, "source", row["source_id"], "public")
+                self._set_visibility(conn, "source", row["source_id"], "public", include_in_global_index=include_in_global_index)
             return
         if kind == "finding":
             rows = conn.execute(
@@ -771,8 +1324,8 @@ class RegistryService:
                 (record_id,),
             ).fetchall()
             for row in rows:
-                self._set_visibility(conn, "annotation", row["annotation_id"], "public")
-                self._cascade_publish(conn, "annotation", row["annotation_id"])
+                self._set_visibility(conn, "annotation", row["annotation_id"], "public", include_in_global_index=include_in_global_index)
+                self._cascade_publish(conn, "annotation", row["annotation_id"], include_in_global_index=include_in_global_index)
             return
         if kind == "report":
             rows = conn.execute(
@@ -780,8 +1333,8 @@ class RegistryService:
                 (record_id,),
             ).fetchall()
             for row in rows:
-                self._set_visibility(conn, "finding", row["finding_id"], "public")
-                self._cascade_publish(conn, "finding", row["finding_id"])
+                self._set_visibility(conn, "finding", row["finding_id"], "public", include_in_global_index=include_in_global_index)
+                self._cascade_publish(conn, "finding", row["finding_id"], include_in_global_index=include_in_global_index)
 
     def _table_name(self, kind: RecordKind) -> str:
         return {"source": "sources", "annotation": "annotations", "finding": "findings", "report": "reports"}[kind]
@@ -854,6 +1407,14 @@ class RegistryService:
             human_reviewed=bool(row["human_reviewed"]),
             is_stale=reason is not None,
             staleness_reason=reason,
+            namespace_kind=row["namespace_kind"],
+            namespace_id=row["namespace_id"],
+            actor_user_id=row["actor_user_id"],
+            actor_org_id=row["actor_org_id"],
+            api_key_id=row["api_key_id"],
+            public_namespace_slug=row["public_namespace_slug"],
+            public_index_state=row["public_index_state"],
+            dedupe_key=row["dedupe_key"],
         )
 
     def _finding_from_row(
@@ -881,6 +1442,14 @@ class RegistryService:
             human_reviewed=bool(row["human_reviewed"]),
             is_stale=bool(reasons),
             staleness_reason=reasons[0] if reasons else None,
+            namespace_kind=row["namespace_kind"],
+            namespace_id=row["namespace_id"],
+            actor_user_id=row["actor_user_id"],
+            actor_org_id=row["actor_org_id"],
+            api_key_id=row["api_key_id"],
+            public_namespace_slug=row["public_namespace_slug"],
+            public_index_state=row["public_index_state"],
+            dedupe_key=row["dedupe_key"],
         )
 
     def _report_from_row(
@@ -912,6 +1481,14 @@ class RegistryService:
             human_reviewed=bool(row["human_reviewed"]),
             is_stale=bool(reasons),
             staleness_reason=reasons[0] if reasons else None,
+            namespace_kind=row["namespace_kind"],
+            namespace_id=row["namespace_id"],
+            actor_user_id=row["actor_user_id"],
+            actor_org_id=row["actor_org_id"],
+            api_key_id=row["api_key_id"],
+            public_namespace_slug=row["public_namespace_slug"],
+            public_index_state=row["public_index_state"],
+            dedupe_key=row["dedupe_key"],
         )
 
     def _source_from_row(self, row: sqlite3.Row) -> SourceRecord:
@@ -932,6 +1509,14 @@ class RegistryService:
             last_verified_at=self._decode_dt(row["last_verified_at"]),
             visibility=row["visibility"],
             created_at=datetime.fromisoformat(row["created_at"]),
+            namespace_kind=row["namespace_kind"],
+            namespace_id=row["namespace_id"],
+            dedupe_key=row["dedupe_key"],
+            actor_user_id=row["actor_user_id"],
+            actor_org_id=row["actor_org_id"],
+            api_key_id=row["api_key_id"],
+            public_namespace_slug=row["public_namespace_slug"],
+            public_index_state=row["public_index_state"],
         )
 
     def _run_from_row(self, row: sqlite3.Row) -> RunRecord:
@@ -947,6 +1532,189 @@ class RegistryService:
             started_at=datetime.fromisoformat(row["started_at"]),
             finished_at=datetime.fromisoformat(row["finished_at"]),
             created_at=datetime.fromisoformat(row["created_at"]),
+            namespace_kind=row["namespace_kind"],
+            namespace_id=row["namespace_id"],
+            dedupe_key=row["dedupe_key"],
+            actor_user_id=row["actor_user_id"],
+            actor_org_id=row["actor_org_id"],
+            api_key_id=row["api_key_id"],
+            public_namespace_slug=row["public_namespace_slug"],
+            public_index_state=row["public_index_state"],
+        )
+
+    def _api_key_from_row(self, row: sqlite3.Row) -> ApiKeyRecord:
+        return ApiKeyRecord(
+            id=row["id"],
+            label=row["label"],
+            actor_user_id=row["actor_user_id"],
+            actor_org_id=row["actor_org_id"],
+            namespace_kind=row["namespace_kind"],
+            namespace_id=row["namespace_id"],
+            scopes=json.loads(row["scopes_json"]),
+            status=row["status"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            revoked_at=self._decode_dt(row["revoked_at"]),
+        )
+
+    def _apply_migrations(self, conn: sqlite3.Connection) -> None:
+        columns = {
+            "runs": [
+                ("namespace_kind", "TEXT NOT NULL DEFAULT 'user'"),
+                ("namespace_id", "TEXT NOT NULL DEFAULT 'local'"),
+                ("actor_user_id", "TEXT"),
+                ("actor_org_id", "TEXT"),
+                ("api_key_id", "TEXT"),
+                ("public_namespace_slug", "TEXT"),
+                ("public_index_state", "TEXT NOT NULL DEFAULT 'private'"),
+                ("dedupe_key", "TEXT"),
+            ],
+            "sources": [
+                ("namespace_kind", "TEXT NOT NULL DEFAULT 'user'"),
+                ("namespace_id", "TEXT NOT NULL DEFAULT 'local'"),
+                ("actor_user_id", "TEXT"),
+                ("actor_org_id", "TEXT"),
+                ("api_key_id", "TEXT"),
+                ("public_namespace_slug", "TEXT"),
+                ("public_index_state", "TEXT NOT NULL DEFAULT 'private'"),
+                ("dedupe_key", "TEXT"),
+            ],
+            "annotations": [
+                ("namespace_kind", "TEXT NOT NULL DEFAULT 'user'"),
+                ("namespace_id", "TEXT NOT NULL DEFAULT 'local'"),
+                ("actor_user_id", "TEXT"),
+                ("actor_org_id", "TEXT"),
+                ("api_key_id", "TEXT"),
+                ("public_namespace_slug", "TEXT"),
+                ("public_index_state", "TEXT NOT NULL DEFAULT 'private'"),
+                ("dedupe_key", "TEXT"),
+            ],
+            "findings": [
+                ("namespace_kind", "TEXT NOT NULL DEFAULT 'user'"),
+                ("namespace_id", "TEXT NOT NULL DEFAULT 'local'"),
+                ("actor_user_id", "TEXT"),
+                ("actor_org_id", "TEXT"),
+                ("api_key_id", "TEXT"),
+                ("public_namespace_slug", "TEXT"),
+                ("public_index_state", "TEXT NOT NULL DEFAULT 'private'"),
+                ("dedupe_key", "TEXT"),
+            ],
+            "reports": [
+                ("namespace_kind", "TEXT NOT NULL DEFAULT 'user'"),
+                ("namespace_id", "TEXT NOT NULL DEFAULT 'local'"),
+                ("actor_user_id", "TEXT"),
+                ("actor_org_id", "TEXT"),
+                ("api_key_id", "TEXT"),
+                ("public_namespace_slug", "TEXT"),
+                ("public_index_state", "TEXT NOT NULL DEFAULT 'private'"),
+                ("dedupe_key", "TEXT"),
+            ],
+        }
+        for table, column_defs in columns.items():
+            existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            for name, column_def in column_defs:
+                if name not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {column_def}")
+
+        for table in ("runs", "sources", "annotations", "findings", "reports"):
+            conn.execute(
+                f"""
+                UPDATE {table}
+                SET namespace_kind = COALESCE(namespace_kind, 'user'),
+                    namespace_id = COALESCE(namespace_id, 'local'),
+                    public_namespace_slug = COALESCE(public_namespace_slug, namespace_id),
+                    public_index_state = CASE
+                        WHEN visibility = 'public' AND (public_index_state IS NULL OR public_index_state = 'private') THEN 'included'
+                        WHEN visibility = 'private' AND public_index_state IS NULL THEN 'private'
+                        ELSE COALESCE(public_index_state, 'private')
+                    END
+                """
+            )
+
+        for table in ("runs", "sources", "annotations", "findings", "reports"):
+            conn.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_dedupe_key ON {table}(dedupe_key) WHERE dedupe_key IS NOT NULL")
+
+    def _public_index_state_for_visibility(
+        self,
+        visibility: str,
+        *,
+        include_in_global_index: bool = False,
+    ) -> PublicIndexState:
+        if visibility == "private":
+            return "private"
+        return "included" if include_in_global_index else "namespace_only"
+
+    def _write_metadata(
+        self,
+        namespace_kind: str,
+        namespace_id: str,
+        auth: AuthContext | None,
+    ) -> dict[str, str | None]:
+        if auth is None:
+            return {
+                "namespace_kind": namespace_kind,
+                "namespace_id": namespace_id,
+                "actor_user_id": None,
+                "actor_org_id": None,
+                "api_key_id": None,
+                "public_namespace_slug": namespace_id,
+            }
+        if not auth.has_scope("ingest") and not auth.is_admin:
+            raise PermissionError("ingest scope required")
+        if auth.is_admin:
+            resolved_namespace_kind = namespace_kind
+            resolved_namespace_id = namespace_id
+        else:
+            resolved_namespace_kind = auth.namespace_kind
+            resolved_namespace_id = auth.namespace_id
+        return {
+            "namespace_kind": resolved_namespace_kind,
+            "namespace_id": resolved_namespace_id,
+            "actor_user_id": auth.actor_user_id,
+            "actor_org_id": auth.actor_org_id,
+            "api_key_id": auth.api_key_id,
+            "public_namespace_slug": resolved_namespace_id,
+        }
+
+    def _row_namespace_matches_auth(self, row: sqlite3.Row, auth: AuthContext) -> bool:
+        return row["namespace_kind"] == auth.namespace_kind and row["namespace_id"] == auth.namespace_id
+
+    def _fetch_existing_by_dedupe_key(
+        self,
+        conn: sqlite3.Connection,
+        table: str,
+        dedupe_key: str | None,
+    ) -> sqlite3.Row | None:
+        if not dedupe_key:
+            return None
+        return conn.execute(f"SELECT * FROM {table} WHERE dedupe_key = ? LIMIT 1", (dedupe_key,)).fetchone()
+
+    def _record_audit(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        action: str,
+        kind: str | None,
+        record_id: str | None,
+        auth: AuthContext | None,
+        details: dict,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO audit_log (
+                id, action, kind, record_id, api_key_id, actor_user_id, actor_org_id, details_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                self._new_id("audit"),
+                action,
+                kind,
+                record_id,
+                auth.api_key_id if auth else None,
+                auth.actor_user_id if auth else None,
+                auth.actor_org_id if auth else None,
+                json.dumps(details, sort_keys=True),
+                utc_now().isoformat(),
+            ),
         )
 
     def _annotation_staleness_reason(self, row: sqlite3.Row, source: SourceRecord) -> str | None:

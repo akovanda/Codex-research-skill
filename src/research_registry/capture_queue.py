@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime
-import json
 from pathlib import Path
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from .backend_client import RegistryBackend
 from .models import (
     AnnotationCreate,
+    BackendStatus,
     FindingCreate,
     ReportCreate,
     RunCreate,
@@ -70,6 +71,10 @@ class QueuedCaptureBundle(BaseModel):
     annotations: list[QueuedAnnotation] = Field(default_factory=list)
     findings: list[QueuedFinding] = Field(default_factory=list)
     report: QueuedReport
+    backend_url: str | None = None
+    backend_name: str | None = None
+    namespace_kind: str = "user"
+    namespace_id: str = "local"
     retry_count: int = 0
     last_error: str | None = None
     last_attempted_at: datetime | None = None
@@ -86,6 +91,7 @@ class QueuedCaptureBundle(BaseModel):
         annotations: list[QueuedAnnotation],
         findings: list[QueuedFinding],
         report: QueuedReport,
+        backend_status: BackendStatus | None = None,
     ) -> "QueuedCaptureBundle":
         return cls(
             queue_id=f"queue_{uuid4().hex[:12]}",
@@ -98,6 +104,10 @@ class QueuedCaptureBundle(BaseModel):
             annotations=annotations,
             findings=findings,
             report=report,
+            backend_url=backend_status.url if backend_status else None,
+            backend_name=backend_status.name if backend_status else None,
+            namespace_kind=backend_status.namespace_kind if backend_status else run.namespace_kind,
+            namespace_id=backend_status.namespace_id if backend_status else run.namespace_id,
         )
 
 
@@ -128,13 +138,17 @@ class CaptureQueue:
             bundles.append(QueuedCaptureBundle.model_validate_json(line))
         return bundles
 
-    def flush(self, service: RegistryService) -> QueueFlushResult:
+    def flush(self, backend: RegistryBackend) -> QueueFlushResult:
         pending = self.list_pending()
         remaining: list[QueuedCaptureBundle] = []
         result = QueueFlushResult()
+        status = backend.backend_status()
         for bundle in pending:
+            if not self._matches_backend(bundle, status):
+                remaining.append(bundle)
+                continue
             try:
-                replay_result = self._replay_bundle(service, bundle)
+                replay_result = self._replay_bundle(backend, bundle)
                 result.flushed_queue_ids.append(bundle.queue_id)
                 result.stored_report_ids.append(replay_result["report_id"])
             except Exception as exc:
@@ -155,31 +169,30 @@ class CaptureQueue:
                 handle.write(bundle.model_dump_json())
                 handle.write("\n")
 
-    def _replay_bundle(self, service: RegistryService, bundle: QueuedCaptureBundle) -> dict[str, str]:
-        run = self._ensure_run(service, bundle)
+    def _matches_backend(self, bundle: QueuedCaptureBundle, status: BackendStatus) -> bool:
+        if bundle.backend_url and status.url and bundle.backend_url.rstrip("/") != status.url.rstrip("/"):
+            return False
+        if bundle.namespace_kind != status.namespace_kind:
+            return False
+        return bundle.namespace_id == status.namespace_id
+
+    def _replay_bundle(self, backend: RegistryBackend, bundle: QueuedCaptureBundle) -> dict[str, str]:
+        run = self._ensure_run(backend, bundle)
         annotation_map: dict[str, str] = {}
         for annotation in bundle.annotations:
-            annotation_map[annotation.temp_id] = self._ensure_annotation(service, run.id, annotation, annotation_map)
+            annotation_map[annotation.temp_id] = self._ensure_annotation(backend, bundle, run.id, annotation, annotation_map)
         finding_map: dict[str, str] = {}
         for finding in bundle.findings:
             annotation_ids = [annotation_map[temp_id] for temp_id in finding.annotation_temp_ids]
-            finding_map[finding.temp_id] = self._ensure_finding(service, run.id, finding, annotation_ids)
+            finding_map[finding.temp_id] = self._ensure_finding(backend, bundle, run.id, finding, annotation_ids)
         finding_ids = [finding_map[temp_id] for temp_id in bundle.report.finding_temp_ids]
-        report_id = self._ensure_report(service, run.id, bundle.report, finding_ids)
+        report_id = self._ensure_report(backend, bundle, run.id, bundle.report, finding_ids)
         return {"run_id": run.id, "report_id": report_id}
 
-    def _ensure_run(self, service: RegistryService, bundle: QueuedCaptureBundle):
-        marker = f"capture_queue_id={bundle.queue_id}"
-        with service.connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM runs WHERE notes = ? OR notes LIKE ? LIMIT 1",
-                (marker, f"%{marker}%"),
-            ).fetchone()
-        if row:
-            return service._run_from_row(row)
+    def _ensure_run(self, backend: RegistryBackend, bundle: QueuedCaptureBundle):
         notes = bundle.run.notes.strip() if bundle.run.notes else ""
-        notes = f"{notes}\n{marker}".strip()
-        return service.create_run(
+        notes = f"{notes}\ncapture_queue_id={bundle.queue_id}".strip()
+        return backend.create_run(
             RunCreate(
                 question=bundle.run.question,
                 model_name=bundle.run.model_name,
@@ -188,50 +201,29 @@ class CaptureQueue:
                 visibility=bundle.run.visibility,
                 author_type=bundle.run.author_type,
                 freshness_ttl_days=bundle.run.freshness_ttl_days,
+                namespace_kind=bundle.namespace_kind,
+                namespace_id=bundle.namespace_id,
+                dedupe_key=f"{bundle.queue_id}:run",
             )
         )
 
     def _ensure_annotation(
         self,
-        service: RegistryService,
+        backend: RegistryBackend,
+        bundle: QueuedCaptureBundle,
         run_id: str,
         annotation: QueuedAnnotation,
         annotation_map: dict[str, str],
     ) -> str:
-        source = service.create_source(annotation.source)
-        quote_text = annotation.quote_text or annotation.selector.exact
-        quote_hash = service._hash_text(quote_text) if quote_text else None
-        fingerprint = service._anchor_fingerprint(source.id, annotation.selector, quote_hash)
         parent_id = annotation_map.get(annotation.parent_annotation_temp_id or "")
-        with service.connect() as conn:
-            row = conn.execute(
-                """
-                SELECT id
-                FROM annotations
-                WHERE source_id = ?
-                  AND anchor_fingerprint = ?
-                  AND subject = ?
-                  AND note = ?
-                  AND COALESCE(quote_hash, '') = COALESCE(?, '')
-                  AND COALESCE(model_name, '') = COALESCE(?, '')
-                  AND COALESCE(model_version, '') = COALESCE(?, '')
-                LIMIT 1
-                """,
-                (
-                    source.id,
-                    fingerprint,
-                    annotation.subject,
-                    annotation.note,
-                    quote_hash,
-                    annotation.model_name,
-                    annotation.model_version,
-                ),
-            ).fetchone()
-        if row:
-            return row["id"]
-        created = service.create_annotation(
+        created = backend.create_annotation(
             AnnotationCreate(
-                source_id=source.id,
+                source=annotation.source.model_copy(
+                    update={
+                        "namespace_kind": bundle.namespace_kind,
+                        "namespace_id": bundle.namespace_id,
+                    }
+                ),
                 run_id=run_id,
                 subject=annotation.subject,
                 note=annotation.note,
@@ -245,42 +237,22 @@ class CaptureQueue:
                 model_version=annotation.model_version,
                 parent_annotation_id=parent_id,
                 tags=annotation.tags,
+                namespace_kind=bundle.namespace_kind,
+                namespace_id=bundle.namespace_id,
+                dedupe_key=f"{bundle.queue_id}:annotation:{annotation.temp_id}",
             )
         )
         return created.id
 
     def _ensure_finding(
         self,
-        service: RegistryService,
+        backend: RegistryBackend,
+        bundle: QueuedCaptureBundle,
         run_id: str,
         finding: QueuedFinding,
         annotation_ids: list[str],
     ) -> str:
-        with service.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT id
-                FROM findings
-                WHERE title = ?
-                  AND subject = ?
-                  AND claim = ?
-                  AND COALESCE(model_name, '') = COALESCE(?, '')
-                  AND COALESCE(model_version, '') = COALESCE(?, '')
-                """,
-                (
-                    finding.title,
-                    finding.subject,
-                    finding.claim,
-                    finding.model_name,
-                    finding.model_version,
-                ),
-            ).fetchall()
-        target_ids = sorted(annotation_ids)
-        for row in rows:
-            existing = service.get_finding(row["id"], include_private=True)
-            if sorted(existing.annotation_ids) == target_ids:
-                return existing.id
-        created = service.create_finding(
+        created = backend.create_finding(
             FindingCreate(
                 title=finding.title,
                 subject=finding.subject,
@@ -292,42 +264,22 @@ class CaptureQueue:
                 model_version=finding.model_version,
                 run_id=run_id,
                 confidence=finding.confidence,
+                namespace_kind=bundle.namespace_kind,
+                namespace_id=bundle.namespace_id,
+                dedupe_key=f"{bundle.queue_id}:finding:{finding.temp_id}",
             )
         )
         return created.id
 
     def _ensure_report(
         self,
-        service: RegistryService,
+        backend: RegistryBackend,
+        bundle: QueuedCaptureBundle,
         run_id: str,
         report: QueuedReport,
         finding_ids: list[str],
     ) -> str:
-        with service.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT id
-                FROM reports
-                WHERE question = ?
-                  AND subject = ?
-                  AND summary_md = ?
-                  AND COALESCE(model_name, '') = COALESCE(?, '')
-                  AND COALESCE(model_version, '') = COALESCE(?, '')
-                """,
-                (
-                    report.question,
-                    report.subject,
-                    report.summary_md,
-                    report.model_name,
-                    report.model_version,
-                ),
-            ).fetchall()
-        target_ids = sorted(finding_ids)
-        for row in rows:
-            existing = service.get_report(row["id"], include_private=True)
-            if sorted(existing.finding_ids) == target_ids:
-                return existing.id
-        created = service.create_report(
+        created = backend.create_report(
             ReportCreate(
                 question=report.question,
                 subject=report.subject,
@@ -338,6 +290,9 @@ class CaptureQueue:
                 model_name=report.model_name,
                 model_version=report.model_version,
                 run_id=run_id,
+                namespace_kind=bundle.namespace_kind,
+                namespace_id=bundle.namespace_id,
+                dedupe_key=f"{bundle.queue_id}:report",
             )
         )
         return created.id

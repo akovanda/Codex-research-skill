@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from research_registry.capture_queue import CaptureQueue, QueuedAnnotation, QueuedCaptureBundle, QueuedFinding, QueuedReport
-from research_registry.models import RunCreate, SourceCreate, SourceSelector
+from research_registry.models import BackendStatus, RunCreate, SourceCreate, SourceSelector
 from research_registry.research_capture import CaptureSummary, format_capture_summary, is_research_request, specialized_skill_for_prompt
 from research_registry.service import RegistryService
 
@@ -128,6 +128,30 @@ def test_queue_replay_is_idempotent_for_same_bundle(tmp_path: Path) -> None:
     assert len(service.dashboard(include_private=True, limit=20).annotations) == 2
     assert len(service.dashboard(include_private=True, limit=20).findings) == 1
     assert len(service.dashboard(include_private=True, limit=20).reports) == 1
+
+
+def test_queue_flush_respects_selected_backend_namespace(tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    service.set_backend_status(
+        BackendStatus(
+            name="team-b",
+            kind="local",
+            selection_source="test",
+            url=None,
+            namespace_kind="org",
+            namespace_id="team-b",
+            api_key_present=False,
+        )
+    )
+    queue = CaptureQueue(tmp_path / "pending-research-captures.jsonl")
+    bundle = make_queue_bundle().model_copy(update={"namespace_kind": "org", "namespace_id": "team-a"})
+
+    queue.enqueue(bundle)
+    result = queue.flush(service)
+
+    assert result.flushed_queue_ids == []
+    assert result.failed_queue_ids == []
+    assert [item.queue_id for item in queue.list_pending()] == [bundle.queue_id]
 
 
 def test_capture_summary_mentions_reuse_storage_and_queue() -> None:

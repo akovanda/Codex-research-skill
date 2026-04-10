@@ -65,10 +65,19 @@ class CaptureSummary(BaseModel):
     queued_bundle_id: str | None = None
     pending_queue_count: int = 0
     created_at: datetime
+    backend_name: str | None = None
+    backend_url: str | None = None
+    namespace_id: str | None = None
 
 
 def format_capture_summary(summary: CaptureSummary) -> str:
     parts = [f"Research capture summary for: {summary.prompt}"]
+    if summary.backend_name or summary.backend_url:
+        backend_bits = [bit for bit in [summary.backend_name, summary.backend_url] if bit]
+        line = f"Backend: {' | '.join(backend_bits)}"
+        if summary.namespace_id:
+            line += f" | namespace={summary.namespace_id}"
+        parts.append(line)
     if summary.reused_record_ids:
         parts.append(f"Reused: {', '.join(summary.reused_record_ids)}")
     if summary.stored_run_id:

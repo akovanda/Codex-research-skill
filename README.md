@@ -12,8 +12,11 @@ Research Registry is a small MVP for source-backed AI research memory. It stores
 - Private-by-default deposits with explicit publishing
 - Source anchors with quote hashes and stable passage fingerprints
 - Public search that favors provenance, review state, and source quality
+- Hosted-default backend selection with explicit custom or corporate overrides
+- API-key writes with per-user or per-org namespaces
+- Public namespace browsing separated from the shared global index
 - Derived report compilation that preserves links back to findings, annotations, and source URLs
-- Token-gated admin writes for API and website curation
+- API-key writes plus admin moderation for review and global-index curation
 
 ## Quick Start
 
@@ -28,16 +31,28 @@ research-registry-web
 
 The web app runs at `http://127.0.0.1:8000`.
 
-Public pages show only published records. Visit `/admin/login` and use the admin token to review and publish private records.
+The web app runs two public surfaces:
+
+- `/` shows the shared global index only
+- `/public/{namespace}` shows everything published in that user or org namespace, even if it is not promoted into the shared global index
+
+Visit `/admin/login` and use the admin token to review private records, moderate published artifacts, and promote items into the shared global index.
 
 ## Environment
 
 - `RESEARCH_REGISTRY_DB_PATH`: SQLite path. Defaults to `.data/registry.sqlite3`
 - `RESEARCH_REGISTRY_CAPTURE_QUEUE_PATH`: queued implicit-capture path. Defaults to `.data/pending-research-captures.jsonl`
+- `RESEARCH_REGISTRY_BACKEND_PROFILE_PATH`: JSON profile file for named or org backends. Defaults to `.data/backend-profiles.json`
 - `RESEARCH_REGISTRY_ADMIN_TOKEN`: enables admin API writes and admin web login
 - `RESEARCH_REGISTRY_SESSION_SECRET`: session secret for admin login cookies
 - `RESEARCH_REGISTRY_HOST`: web bind host, default `127.0.0.1`
 - `RESEARCH_REGISTRY_PORT`: web bind port, default `8000`
+- `RESEARCH_REGISTRY_PUBLIC_BASE_URL`: canonical URL for this backend, used in backend-status responses
+- `RESEARCH_REGISTRY_DEFAULT_BACKEND_URL`: hosted default backend URL used by MCP/queue clients when no override is set
+- `RESEARCH_REGISTRY_BACKEND_URL`: explicit backend override, higher priority than org or hosted default
+- `RESEARCH_REGISTRY_BACKEND_PROFILE`: named backend profile from the profile JSON
+- `RESEARCH_REGISTRY_API_KEY`: API key used by MCP or queue clients for remote writes
+- `RESEARCH_REGISTRY_ORG`: org namespace hint, used for org-profile resolution and org-scoped keys
 
 If `RESEARCH_REGISTRY_ADMIN_TOKEN` is unset, the app runs in open local mode: write operations and admin pages are not blocked. That is useful for local exploration but not safe for deployment.
 
@@ -47,12 +62,13 @@ Public reads:
 
 - `GET /healthz`
 - `GET /api/search?q=...&kind=annotation|finding|report|source`
+- `GET /api/backend/status`
 - `GET /api/sources/{id}`
 - `GET /api/annotations/{id}`
 - `GET /api/findings/{id}`
 - `GET /api/reports/{id}`
 
-Admin writes:
+Authenticated writes:
 
 - `POST /api/runs`
 - `POST /api/sources`
@@ -61,9 +77,13 @@ Admin writes:
 - `POST /api/reports`
 - `POST /api/reports/compile`
 - `POST /api/publish`
-- `POST /api/review`
 
-Admin JSON requests should include `X-Admin-Token: <token>` when a token is configured.
+Admin moderation:
+
+- `POST /api/review`
+- `POST /api/index-state`
+
+Write requests should include `X-API-Key: <token>`. Admin JSON requests can still use `X-Admin-Token: <token>` for local moderation workflows.
 
 ## MCP Server
 
@@ -77,6 +97,7 @@ research-registry-mcp
 Exposed tools:
 
 - `search`
+- `backend_status`
 - `create_run`
 - `get_source`
 - `get_annotation`

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
+from .backend_client import create_backend
 from .config import load_settings
 from .models import (
     AnnotationCreate,
@@ -11,11 +12,9 @@ from .models import (
     ReportCompileCreate,
     RunCreate,
 )
-from .service import RegistryService
 
 settings = load_settings()
-service = RegistryService(settings.db_path)
-service.initialize()
+service = create_backend(settings)
 
 mcp = FastMCP(
     "Research Registry",
@@ -28,6 +27,12 @@ mcp = FastMCP(
 def search(query: str, kind: str | None = None, include_private: bool = True, limit: int = 10) -> dict:
     """Search annotations, findings, reports, and sources."""
     return service.search(query, kind=kind, include_private=include_private, limit=limit).model_dump(mode="json")
+
+
+@mcp.tool()
+def backend_status() -> dict:
+    """Return the selected backend URL, namespace, and selection source."""
+    return service.backend_status().model_dump(mode="json")
 
 
 @mcp.tool()

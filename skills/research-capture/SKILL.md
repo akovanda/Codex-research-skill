@@ -17,7 +17,8 @@ Use this skill as the default workflow for research intent. Search existing regi
 ## Backend Check
 
 - Prefer the Research Registry MCP tools when they are available.
-- Expect these tools at minimum: `search`, `create_run`, `get_source`, `get_annotation`, `get_finding`, `get_report`, `add_annotation`, `create_finding`, and either `create_report` or `compile_report`.
+- Expect these tools at minimum: `search`, `backend_status`, `create_run`, `get_source`, `get_annotation`, `get_finding`, `get_report`, `add_annotation`, `create_finding`, and either `create_report` or `compile_report`.
+- Assume backend selection precedence is: explicit override, named profile, org profile, hosted default, then embedded local fallback.
 - Before new research, try to flush pending capture bundles with `research-registry-capture-queue flush` if that command exists.
 
 ## Delegation
@@ -44,7 +45,7 @@ Use this skill as the default workflow for research intent. Search existing regi
 8. Always create a report.
    Store a private report for every implicit research session. Prefer `create_report` when you already have a real synthesis; use `compile_report` only when a skeletal summary is acceptable.
 9. Summarize explicitly to the user.
-   State what was reused, what was stored, what report was created, and what was queued.
+   State what backend and namespace were used, what was reused, what was stored, what report was created, and what was queued.
 
 ## Queue Fallback
 
@@ -76,4 +77,5 @@ Use this skill as the default workflow for research intent. Search existing regi
 
 - Keep the storage flow generic across topics.
 - Do not publish implicitly.
+- Treat public namespace publishing and shared global-index inclusion as separate states.
 - Prefer MCP when available, but use the queue fallback when storage is temporarily unavailable.

@@ -175,8 +175,8 @@ def seed_memory_retrieval(service: RegistryService) -> dict[str, str]:
     ]:
         service.review(ReviewRequest(kind=kind, record_id=record_id))
 
-    service.publish(PublishRequest(kind="finding", record_id=rerank_finding.id))
-    service.publish(PublishRequest(kind="report", record_id=failure_report.id))
+    service.publish(PublishRequest(kind="finding", record_id=rerank_finding.id, include_in_global_index=True))
+    service.publish(PublishRequest(kind="report", record_id=failure_report.id, include_in_global_index=True))
 
     return {
         "run_id": run.id,

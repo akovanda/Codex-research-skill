@@ -8,6 +8,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 Visibility = Literal["private", "public"]
 AuthorType = Literal["human", "agent"]
 RecordKind = Literal["source", "annotation", "finding", "report"]
+NamespaceKind = Literal["user", "org"]
+PublicIndexState = Literal["private", "namespace_only", "included", "suppressed"]
+ApiKeyScope = Literal["ingest", "publish", "read_private", "admin"]
+ApiKeyStatus = Literal["active", "revoked", "blocked"]
 
 
 class SourceSelector(BaseModel):
@@ -30,6 +34,9 @@ class RunCreate(BaseModel):
     visibility: Visibility = "private"
     author_type: AuthorType = "agent"
     freshness_ttl_days: int = Field(default=30, ge=1, le=3650)
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+    dedupe_key: str | None = None
 
 
 class RunRecord(RunCreate):
@@ -37,6 +44,11 @@ class RunRecord(RunCreate):
     started_at: datetime
     finished_at: datetime
     created_at: datetime
+    actor_user_id: str | None = None
+    actor_org_id: str | None = None
+    api_key_id: str | None = None
+    public_namespace_slug: str | None = None
+    public_index_state: PublicIndexState = "private"
 
 
 class SourceCreate(BaseModel):
@@ -54,11 +66,19 @@ class SourceCreate(BaseModel):
     snapshot_present: bool = False
     last_verified_at: datetime | None = None
     visibility: Visibility = "private"
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+    dedupe_key: str | None = None
 
 
 class SourceRecord(SourceCreate):
     id: str
     created_at: datetime
+    actor_user_id: str | None = None
+    actor_org_id: str | None = None
+    api_key_id: str | None = None
+    public_namespace_slug: str | None = None
+    public_index_state: PublicIndexState = "private"
 
 
 class AnnotationCreate(BaseModel):
@@ -77,6 +97,9 @@ class AnnotationCreate(BaseModel):
     model_version: str | None = None
     parent_annotation_id: str | None = None
     tags: list[str] = Field(default_factory=list)
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+    dedupe_key: str | None = None
 
     @model_validator(mode="after")
     def validate_source_reference(self) -> "AnnotationCreate":
@@ -108,6 +131,14 @@ class AnnotationRecord(BaseModel):
     human_reviewed: bool = False
     is_stale: bool = False
     staleness_reason: str | None = None
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+    actor_user_id: str | None = None
+    actor_org_id: str | None = None
+    api_key_id: str | None = None
+    public_namespace_slug: str | None = None
+    public_index_state: PublicIndexState = "private"
+    dedupe_key: str | None = None
 
 
 class FindingCreate(BaseModel):
@@ -121,6 +152,9 @@ class FindingCreate(BaseModel):
     model_version: str | None = None
     run_id: str | None = None
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+    dedupe_key: str | None = None
 
 
 class FindingRecord(BaseModel):
@@ -139,6 +173,14 @@ class FindingRecord(BaseModel):
     human_reviewed: bool = False
     is_stale: bool = False
     staleness_reason: str | None = None
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+    actor_user_id: str | None = None
+    actor_org_id: str | None = None
+    api_key_id: str | None = None
+    public_namespace_slug: str | None = None
+    public_index_state: PublicIndexState = "private"
+    dedupe_key: str | None = None
 
 
 class ReportCompileCreate(BaseModel):
@@ -150,6 +192,9 @@ class ReportCompileCreate(BaseModel):
     model_name: str | None = None
     model_version: str | None = None
     run_id: str | None = None
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+    dedupe_key: str | None = None
 
 
 class ReportCreate(BaseModel):
@@ -162,6 +207,9 @@ class ReportCreate(BaseModel):
     model_name: str | None = None
     model_version: str | None = None
     run_id: str | None = None
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+    dedupe_key: str | None = None
 
 
 class ReportRecord(BaseModel):
@@ -181,12 +229,21 @@ class ReportRecord(BaseModel):
     human_reviewed: bool = False
     is_stale: bool = False
     staleness_reason: str | None = None
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+    actor_user_id: str | None = None
+    actor_org_id: str | None = None
+    api_key_id: str | None = None
+    public_namespace_slug: str | None = None
+    public_index_state: PublicIndexState = "private"
+    dedupe_key: str | None = None
 
 
 class PublishRequest(BaseModel):
     kind: RecordKind
     record_id: str
     cascade_linked_sources: bool = True
+    include_in_global_index: bool = False
 
 
 class ReviewRequest(BaseModel):
@@ -207,6 +264,10 @@ class SearchHit(BaseModel):
     url: str
     source_title: str | None = None
     human_reviewed: bool = False
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+    public_namespace_slug: str | None = None
+    public_index_state: PublicIndexState = "private"
 
 
 class SearchResponse(BaseModel):
@@ -218,3 +279,72 @@ class DashboardData(BaseModel):
     reports: list[ReportRecord]
     findings: list[FindingRecord]
     annotations: list[AnnotationRecord]
+
+
+class UserRecord(BaseModel):
+    id: str
+    display_name: str
+    created_at: datetime
+
+
+class OrganizationRecord(BaseModel):
+    id: str
+    display_name: str
+    created_at: datetime
+
+
+class ApiKeyCreate(BaseModel):
+    label: str
+    actor_user_id: str
+    actor_org_id: str | None = None
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str | None = None
+    scopes: list[ApiKeyScope] = Field(default_factory=lambda: ["ingest", "publish", "read_private"])
+
+
+class ApiKeyRecord(BaseModel):
+    id: str
+    label: str
+    actor_user_id: str
+    actor_org_id: str | None = None
+    namespace_kind: NamespaceKind
+    namespace_id: str
+    scopes: list[ApiKeyScope]
+    status: ApiKeyStatus
+    created_at: datetime
+    revoked_at: datetime | None = None
+
+
+class IssuedApiKey(BaseModel):
+    token: str
+    record: ApiKeyRecord
+
+
+class AuthContext(BaseModel):
+    api_key_id: str | None = None
+    actor_user_id: str | None = None
+    actor_org_id: str | None = None
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+    scopes: list[ApiKeyScope] = Field(default_factory=list)
+    is_admin: bool = False
+
+    def has_scope(self, scope: ApiKeyScope) -> bool:
+        return self.is_admin or scope in self.scopes
+
+
+class IndexStateRequest(BaseModel):
+    kind: RecordKind
+    record_id: str
+    state: PublicIndexState
+
+
+class BackendStatus(BaseModel):
+    name: str
+    kind: str
+    selection_source: str
+    url: str | None = None
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+    api_key_present: bool = False
+    org: str | None = None
