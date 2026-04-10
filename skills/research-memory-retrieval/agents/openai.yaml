@@ -1,0 +1,6 @@
+interface:
+  display_name: "Research Memory Retrieval"
+  short_description: "Research LLM memory and retrieval workflows"
+  default_prompt: "Use $research-memory-retrieval to research agent memory, RAG retrieval quality, or provenance-backed recall issues."
+policy:
+  allow_implicit_invocation: true

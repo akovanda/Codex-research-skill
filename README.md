@@ -75,11 +75,26 @@ research-registry-mcp
 Exposed tools:
 
 - `search`
+- `create_run`
 - `get_source`
+- `get_annotation`
+- `get_finding`
+- `get_report`
 - `add_annotation`
 - `create_finding`
 - `compile_report`
 - `publish`
+
+## Memory/Retrieval Skill
+
+This repo now includes a reusable Codex skill at [`skills/research-memory-retrieval`](/home/akovanda/dev/llmresearch/skills/research-memory-retrieval) plus a domain seed script for memory/retrieval dry runs.
+
+```bash
+. .venv/bin/activate
+research-registry-seed-memory-retrieval
+```
+
+See [`docs/memory-retrieval-skill.md`](/home/akovanda/dev/llmresearch/docs/memory-retrieval-skill.md) for install, dry-run, and validation steps.
 
 ## Testing
 
