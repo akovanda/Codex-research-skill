@@ -9,10 +9,12 @@ description: Research LLM memory and retrieval topics with a source-backed workf
 
 Use this skill to research memory and retrieval topics against a Research Registry backend. Search existing registry content first, reuse mature artifacts when they already answer the question, add new source-anchored annotations only when the registry is missing evidence, then synthesize findings and optionally compile a report.
 
+This skill may be invoked directly or delegated to by `$research-capture` when a general research request falls into the memory/retrieval domain.
+
 ## Backend Check
 
 - Confirm that the Research Registry MCP tools are available before doing any work.
-- Expect these tools at minimum: `search`, `create_run`, `get_source`, `get_annotation`, `get_finding`, `get_report`, `add_annotation`, `create_finding`, `compile_report`, and `publish`.
+- Expect these tools at minimum: `search`, `create_run`, `get_source`, `get_annotation`, `get_finding`, `get_report`, `add_annotation`, `create_finding`, `create_report` or `compile_report`, and `publish`.
 - If those tools are unavailable, stop and say the skill requires a configured Research Registry MCP server. Do not invent stored memory and do not silently fall back to unsupported ad hoc notes.
 
 ## Workflow

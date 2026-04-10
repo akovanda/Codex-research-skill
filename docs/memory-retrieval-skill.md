@@ -2,6 +2,8 @@
 
 This document covers the local install and dry-run path for the `research-memory-retrieval` Codex skill.
 
+It can be used directly or as a delegated specialist behind the general `research-capture` skill.
+
 ## What It Needs
 
 - the skill folder at [`skills/research-memory-retrieval`](/home/akovanda/dev/llmresearch/skills/research-memory-retrieval)
