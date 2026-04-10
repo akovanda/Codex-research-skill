@@ -28,6 +28,7 @@ dev = [
 research-registry-web = "research_registry.__main__:main"
 research-registry-mcp = "research_registry.mcp_server:main"
 research-registry-seed = "research_registry.seed_demo:main"
+research-registry-seed-memory-retrieval = "research_registry.seed_memory_retrieval:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -3,7 +3,13 @@ from __future__ import annotations
 from mcp.server.fastmcp import FastMCP
 
 from .config import load_settings
-from .models import AnnotationCreate, FindingCreate, PublishRequest, ReportCompileCreate
+from .models import (
+    AnnotationCreate,
+    FindingCreate,
+    PublishRequest,
+    ReportCompileCreate,
+    RunCreate,
+)
 from .service import RegistryService
 
 settings = load_settings()
@@ -24,9 +30,34 @@ def search(query: str, kind: str | None = None, include_private: bool = True, li
 
 
 @mcp.tool()
+def create_run(payload: dict) -> dict:
+    """Create a research run for provenance and grouping."""
+    run = service.create_run(RunCreate.model_validate(payload))
+    return run.model_dump(mode="json")
+
+
+@mcp.tool()
 def get_source(source_id: str, include_private: bool = True) -> dict:
     """Fetch a single source by id."""
     return service.get_source(source_id, include_private=include_private).model_dump(mode="json")
+
+
+@mcp.tool()
+def get_annotation(annotation_id: str, include_private: bool = True) -> dict:
+    """Fetch a single annotation by id."""
+    return service.get_annotation(annotation_id, include_private=include_private).model_dump(mode="json")
+
+
+@mcp.tool()
+def get_finding(finding_id: str, include_private: bool = True) -> dict:
+    """Fetch a single finding by id."""
+    return service.get_finding(finding_id, include_private=include_private).model_dump(mode="json")
+
+
+@mcp.tool()
+def get_report(report_id: str, include_private: bool = True) -> dict:
+    """Fetch a single report by id."""
+    return service.get_report(report_id, include_private=include_private).model_dump(mode="json")
 
 
 @mcp.tool()
