@@ -32,7 +32,9 @@ Backend selection precedence for MCP and queue replay:
 2. `RESEARCH_REGISTRY_BACKEND_PROFILE`
 3. org profile matched by `RESEARCH_REGISTRY_ORG`
 4. `RESEARCH_REGISTRY_DEFAULT_BACKEND_URL`
-5. embedded local backend when none of the above are set
+5. localhost default at `RESEARCH_REGISTRY_PUBLIC_BASE_URL` when none of the above are set
+
+In that localhost-default case, the repo still uses the embedded local backend directly. The `localhost` URL is there so the selected backend is visible and consistent, not because the skill now requires an HTTP round-trip for local work.
 
 Queued bundles are scoped to the selected backend and namespace so a bundle created for one org or backend is not replayed into another by mistake.
 

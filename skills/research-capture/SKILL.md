@@ -18,7 +18,7 @@ Use this skill as the default workflow for research intent. Search existing regi
 
 - Prefer the Research Registry MCP tools when they are available.
 - Expect these tools at minimum: `search`, `backend_status`, `create_run`, `get_source`, `get_annotation`, `get_finding`, `get_report`, `add_annotation`, `create_finding`, and either `create_report` or `compile_report`.
-- Assume backend selection precedence is: explicit override, named profile, org profile, hosted default, then embedded local fallback.
+- Assume backend selection precedence is: explicit override, named profile, org profile, hosted default, then localhost default.
 - Before new research, try to flush pending capture bundles with `research-registry-capture-queue flush` if that command exists.
 
 ## Delegation

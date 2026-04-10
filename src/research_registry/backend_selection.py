@@ -83,10 +83,10 @@ def resolve_backend(settings: Settings) -> BackendStatus:
         )
 
     return BackendStatus(
-        name="embedded-local",
+        name="localhost-default",
         kind="local",
-        selection_source="embedded_local",
-        url=None,
+        selection_source="localhost_default",
+        url=settings.public_base_url,
         namespace_kind="org" if settings.backend_org else "user",
         namespace_id=settings.backend_org or "local",
         api_key_present=False,

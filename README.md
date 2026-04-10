@@ -54,6 +54,11 @@ Visit `/admin/login` and use the admin token to review private records, moderate
 - `RESEARCH_REGISTRY_API_KEY`: API key used by MCP or queue clients for remote writes
 - `RESEARCH_REGISTRY_ORG`: org namespace hint, used for org-profile resolution and org-scoped keys
 
+Local development default:
+
+- if no backend override/profile/default is set, MCP and queue clients present the backend as `RESEARCH_REGISTRY_PUBLIC_BASE_URL` and default that to `http://127.0.0.1:8000`
+- that localhost default still uses the embedded local service directly, so local skill work does not require a running HTTP server or an API key
+
 If `RESEARCH_REGISTRY_ADMIN_TOKEN` is unset, the app runs in open local mode: write operations and admin pages are not blocked. That is useful for local exploration but not safe for deployment.
 
 ## API Surface

@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from research_registry.app import create_app
+from research_registry.backend_client import create_backend
 from research_registry.backend_selection import resolve_backend
 from research_registry.config import Settings
 from research_registry.models import AnnotationCreate, ApiKeyCreate, FindingCreate, PublishRequest, ReportCompileCreate, ReviewRequest, RunCreate, SourceCreate, SourceSelector
@@ -335,3 +336,31 @@ def test_backend_selection_precedence(tmp_path: Path) -> None:
     default = resolve_backend(base_settings)
     assert default.url == "https://default.example.com"
     assert default.selection_source == "default_hosted"
+
+
+def test_localhost_default_backend_stays_embedded_local(tmp_path: Path) -> None:
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        db_path=tmp_path / "local.sqlite3",
+        capture_queue_path=tmp_path / "data" / "queue.jsonl",
+        backend_profile_path=tmp_path / "data" / "profiles.json",
+        admin_token=None,
+        session_secret="secret",
+        host="127.0.0.1",
+        port=8000,
+        default_backend_url=None,
+        backend_url=None,
+        backend_api_key=None,
+        backend_org=None,
+        backend_profile=None,
+        public_base_url="http://127.0.0.1:8000",
+    )
+
+    status = resolve_backend(settings)
+    assert status.name == "localhost-default"
+    assert status.selection_source == "localhost_default"
+    assert status.url == "http://127.0.0.1:8000"
+
+    backend = create_backend(settings)
+    assert isinstance(backend, RegistryService)
+    assert backend.backend_status().selection_source == "localhost_default"
