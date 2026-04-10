@@ -1,0 +1,4 @@
+[console_scripts]
+research-registry-mcp = research_registry.mcp_server:main
+research-registry-seed = research_registry.seed_demo:main
+research-registry-web = research_registry.__main__:main

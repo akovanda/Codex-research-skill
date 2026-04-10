@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Admin Login{% endblock %}
+{% block content %}
+<section class="panel narrow">
+  <p class="eyebrow">Admin Workspace</p>
+  <h1>Unlock curation tools</h1>
+  <p class="lede">Use the configured admin token to review, publish, and inspect private registry objects.</p>
+  <form class="stack" action="/admin/login" method="post">
+    <input type="password" name="token" placeholder="Admin token">
+    <button type="submit">Enter workspace</button>
+  </form>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ finding.title }}{% endblock %}
+{% block content %}
+<section class="detail panel">
+  <div class="badge-row">
+    <span class="badge">finding</span>
+    <span class="badge">{{ finding.visibility }}</span>
+    {% if finding.human_reviewed %}<span class="badge reviewed">reviewed</span>{% endif %}
+    {% if finding.is_stale %}<span class="badge stale">{{ finding.staleness_reason }}</span>{% endif %}
+  </div>
+  <h1>{{ finding.title }}</h1>
+  <p class="lede">{{ finding.claim }}</p>
+  <dl class="meta-grid">
+    <dt>Subject</dt><dd>{{ finding.subject }}</dd>
+    <dt>Annotations</dt><dd>{{ finding.annotation_ids|length }}</dd>
+    <dt>Confidence</dt><dd>{{ "%.2f"|format(finding.confidence) }}</dd>
+    <dt>Created</dt><dd>{{ finding.created_at }}</dd>
+  </dl>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Supporting Annotations</h2>
+    <span>{{ annotations|length }}</span>
+  </div>
+  <div class="stack">
+    {% for annotation in annotations %}
+    <article class="card">
+      <h3><a href="/annotations/{{ annotation.id }}">{{ annotation.subject }}</a></h3>
+      <p>{{ annotation.note }}</p>
+      <p class="muted">Source: <a href="/sources/{{ sources[annotation.source_id].id }}">{{ sources[annotation.source_id].title }}</a></p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

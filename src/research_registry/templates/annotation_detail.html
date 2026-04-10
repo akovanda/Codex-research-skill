@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ annotation.subject }}{% endblock %}
+{% block content %}
+<section class="detail panel">
+  <div class="badge-row">
+    <span class="badge">annotation</span>
+    <span class="badge">{{ annotation.visibility }}</span>
+    {% if annotation.human_reviewed %}<span class="badge reviewed">reviewed</span>{% endif %}
+    {% if annotation.is_stale %}<span class="badge stale">{{ annotation.staleness_reason }}</span>{% endif %}
+  </div>
+  <h1>{{ annotation.subject }}</h1>
+  <p class="lede">{{ annotation.note }}</p>
+  {% if annotation.quote_text %}
+  <blockquote>{{ annotation.quote_text }}</blockquote>
+  {% endif %}
+  <dl class="meta-grid">
+    <dt>Source</dt><dd><a href="/sources/{{ source.id }}">{{ source.title }}</a></dd>
+    <dt>Deep link</dt><dd>{% if annotation.selector.deep_link %}<a href="{{ annotation.selector.deep_link }}">{{ annotation.selector.deep_link }}</a>{% else %}n/a{% endif %}</dd>
+    <dt>Anchor</dt><dd><code>{{ annotation.anchor_fingerprint[:16] }}</code></dd>
+    <dt>Confidence</dt><dd>{{ "%.2f"|format(annotation.confidence) }}</dd>
+    <dt>Model</dt><dd>{{ annotation.model_name or "n/a" }} {{ annotation.model_version or "" }}</dd>
+    <dt>Created</dt><dd>{{ annotation.created_at }}</dd>
+  </dl>
+</section>
+{% endblock %}

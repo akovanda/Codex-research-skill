@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{{ source.title }}{% endblock %}
+{% block content %}
+<section class="detail panel">
+  <div class="badge-row">
+    <span class="badge">{{ source.source_type }}</span>
+    <span class="badge">{{ source.visibility }}</span>
+    {% if source.snapshot_required and not source.snapshot_present %}<span class="badge stale">snapshot missing</span>{% endif %}
+  </div>
+  <h1>{{ source.title }}</h1>
+  <p class="lede"><a href="{{ source.canonical_url }}">{{ source.canonical_url }}</a></p>
+  {% if source.snippet %}<p>{{ source.snippet }}</p>{% endif %}
+  <dl class="meta-grid">
+    <dt>Site</dt><dd>{{ source.site_name or "n/a" }}</dd>
+    <dt>Author</dt><dd>{{ source.author or "n/a" }}</dd>
+    <dt>Snapshot</dt><dd>{% if source.snapshot_url %}<a href="{{ source.snapshot_url }}">{{ source.snapshot_url }}</a>{% else %}n/a{% endif %}</dd>
+    <dt>Created</dt><dd>{{ source.created_at }}</dd>
+  </dl>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Linked Annotations</h2>
+    <span>{{ annotations|length }}</span>
+  </div>
+  <div class="stack">
+    {% for annotation in annotations %}
+    <article class="card">
+      <h3><a href="/annotations/{{ annotation.id }}">{{ annotation.subject }}</a></h3>
+      <p>{{ annotation.note }}</p>
+    </article>
+    {% else %}
+    <p class="empty">No visible annotations link to this source.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

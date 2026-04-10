@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ report.question }}{% endblock %}
+{% block content %}
+<section class="detail panel">
+  <div class="badge-row">
+    <span class="badge">report</span>
+    <span class="badge">{{ report.visibility }}</span>
+    {% if report.human_reviewed %}<span class="badge reviewed">reviewed</span>{% endif %}
+    {% if report.is_stale %}<span class="badge stale">{{ report.staleness_reason }}</span>{% endif %}
+  </div>
+  <h1>{{ report.question }}</h1>
+  <p class="lede">{{ report.subject }}</p>
+  <pre class="report-body">{{ report.summary_md }}</pre>
+</section>
+
+<section class="grid two-up">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Findings</h2>
+      <span>{{ findings|length }}</span>
+    </div>
+    <div class="stack">
+      {% for finding in findings %}
+      <article class="card">
+        <h3><a href="/findings/{{ finding.id }}">{{ finding.title }}</a></h3>
+        <p>{{ finding.claim }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Sources</h2>
+      <span>{{ sources|length }}</span>
+    </div>
+    <div class="stack">
+      {% for source in sources.values() %}
+      <article class="card">
+        <h3><a href="/sources/{{ source.id }}">{{ source.title }}</a></h3>
+        <p class="muted"><a href="{{ source.canonical_url }}">{{ source.canonical_url }}</a></p>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

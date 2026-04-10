@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Research Registry{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">Source-backed AI research memory</p>
+  <h1>Capture passage-level evidence first. Publish findings and reports second.</h1>
+  <p class="lede">This registry stores annotations anchored to exact source passages, then derives reusable findings and reports without breaking provenance.</p>
+  <form class="search-bar" action="/" method="get">
+    <input type="search" name="q" value="{{ results.query }}" placeholder="Search zebras, fly avoidance, documentation, papers...">
+    <button type="submit">Search</button>
+  </form>
+</section>
+
+{% if results.query %}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Search Results</h2>
+    <span>{{ results.hits|length }} hit(s)</span>
+  </div>
+  <div class="stack">
+    {% for hit in results.hits %}
+    <article class="card hit-card">
+      <div class="badge-row">
+        <span class="badge">{{ hit.kind }}</span>
+        {% if hit.human_reviewed %}<span class="badge reviewed">reviewed</span>{% endif %}
+      </div>
+      <h3><a href="{{ hit.url }}">{{ hit.title }}</a></h3>
+      <p>{{ hit.summary }}</p>
+      <p class="muted">{{ hit.subject }} • score {{ "%.1f"|format(hit.score) }} {% if hit.source_title %}• source {{ hit.source_title }}{% endif %}</p>
+    </article>
+    {% else %}
+    <p class="empty">No public results matched that query.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="grid two-up">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Published Reports</h2>
+      <span>{{ dashboard.reports|length }}</span>
+    </div>
+    <div class="stack">
+      {% for report in dashboard.reports %}
+      <article class="card">
+        <h3><a href="/reports/{{ report.id }}">{{ report.question }}</a></h3>
+        <p>{{ report.subject }}</p>
+        <p class="muted">{{ report.created_at.date() }} • {{ report.finding_ids|length }} finding(s)</p>
+      </article>
+      {% else %}
+      <p class="empty">No published reports yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Published Findings</h2>
+      <span>{{ dashboard.findings|length }}</span>
+    </div>
+    <div class="stack">
+      {% for finding in dashboard.findings %}
+      <article class="card">
+        <h3><a href="/findings/{{ finding.id }}">{{ finding.title }}</a></h3>
+        <p>{{ finding.claim }}</p>
+        <p class="muted">{{ finding.subject }} • {{ finding.annotation_ids|length }} annotation(s)</p>
+      </article>
+      {% else %}
+      <p class="empty">No published findings yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Published Annotations</h2>
+    <span>{{ dashboard.annotations|length }}</span>
+  </div>
+  <div class="stack">
+    {% for annotation in dashboard.annotations %}
+    <article class="card">
+      <div class="badge-row">
+        {% if annotation.human_reviewed %}<span class="badge reviewed">reviewed</span>{% endif %}
+        {% if annotation.is_stale %}<span class="badge stale">{{ annotation.staleness_reason }}</span>{% endif %}
+      </div>
+      <h3><a href="/annotations/{{ annotation.id }}">{{ annotation.subject }}</a></h3>
+      <p>{{ annotation.note }}</p>
+      <p class="muted">{{ annotation.created_at.date() }} • confidence {{ "%.2f"|format(annotation.confidence) }}</p>
+    </article>
+    {% else %}
+    <p class="empty">No published annotations yet.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
