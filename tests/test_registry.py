@@ -173,9 +173,12 @@ def test_staleness_reasons_cover_source_change_snapshot_missing_and_freshness(tm
 
 
 def test_api_hides_private_records_without_admin_token(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
     db_path = tmp_path / "app.sqlite3"
     settings = Settings(
+        data_dir=data_dir,
         db_path=db_path,
+        capture_queue_path=data_dir / "pending-research-captures.jsonl",
         admin_token="secret",
         session_secret="session-secret",
         host="127.0.0.1",

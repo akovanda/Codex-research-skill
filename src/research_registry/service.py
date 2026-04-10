@@ -17,6 +17,7 @@ from .models import (
     FindingRecord,
     PublishRequest,
     RecordKind,
+    ReportCreate,
     ReportCompileCreate,
     ReportRecord,
     ReviewRequest,
@@ -331,14 +332,10 @@ class RegistryService:
         annotations = self._annotations_for_finding(finding_id, include_private=include_private)
         return self._finding_from_row(row, annotations=annotations)
 
-    def compile_report(self, payload: ReportCompileCreate) -> ReportRecord:
+    def create_report(self, payload: ReportCreate) -> ReportRecord:
         findings = [self.get_finding(finding_id, include_private=True) for finding_id in payload.finding_ids]
-        annotation_ids = sorted({annotation_id for finding in findings for annotation_id in finding.annotation_ids})
-        annotations = [self.get_annotation(annotation_id, include_private=True) for annotation_id in annotation_ids]
-        sources = [self.get_source(source_id, include_private=True) for source_id in sorted({annotation.source_id for annotation in annotations})]
         report_id = self._new_id("rpt")
         created_at = utc_now()
-        summary_md = self._compile_summary(payload.question, findings, annotations, sources)
         with self.connect() as conn:
             conn.execute(
                 """
@@ -351,7 +348,7 @@ class RegistryService:
                     report_id,
                     payload.question,
                     payload.subject,
-                    summary_md,
+                    payload.summary_md,
                     payload.visibility,
                     payload.author_type,
                     payload.model_name,
@@ -367,6 +364,26 @@ class RegistryService:
             )
             row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
         return self._report_from_row(row, findings=findings)
+
+    def compile_report(self, payload: ReportCompileCreate) -> ReportRecord:
+        findings = [self.get_finding(finding_id, include_private=True) for finding_id in payload.finding_ids]
+        annotation_ids = sorted({annotation_id for finding in findings for annotation_id in finding.annotation_ids})
+        annotations = [self.get_annotation(annotation_id, include_private=True) for annotation_id in annotation_ids]
+        sources = [self.get_source(source_id, include_private=True) for source_id in sorted({annotation.source_id for annotation in annotations})]
+        summary_md = self._compile_summary(payload.question, findings, annotations, sources)
+        return self.create_report(
+            ReportCreate(
+                question=payload.question,
+                subject=payload.subject,
+                summary_md=summary_md,
+                finding_ids=payload.finding_ids,
+                visibility=payload.visibility,
+                author_type=payload.author_type,
+                model_name=payload.model_name,
+                model_version=payload.model_version,
+                run_id=payload.run_id,
+            )
+        )
 
     def get_report(self, report_id: str, include_private: bool = False) -> ReportRecord:
         row = self._fetch_row("reports", report_id)

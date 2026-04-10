@@ -13,6 +13,7 @@ from .models import (
     AnnotationCreate,
     FindingCreate,
     PublishRequest,
+    ReportCreate,
     ReportCompileCreate,
     ReviewRequest,
     RunCreate,
@@ -172,6 +173,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/findings")
     def api_create_finding(payload: FindingCreate, _: bool = Depends(_admin_guard)):
         return service.create_finding(payload)
+
+    @app.post("/api/reports")
+    def api_create_report(payload: ReportCreate, _: bool = Depends(_admin_guard)):
+        return service.create_report(payload)
 
     @app.post("/api/reports/compile")
     def api_compile_report(payload: ReportCompileCreate, _: bool = Depends(_admin_guard)):

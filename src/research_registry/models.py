@@ -152,6 +152,18 @@ class ReportCompileCreate(BaseModel):
     run_id: str | None = None
 
 
+class ReportCreate(BaseModel):
+    question: str
+    subject: str
+    summary_md: str
+    finding_ids: list[str] = Field(min_length=1)
+    visibility: Visibility = "private"
+    author_type: AuthorType = "agent"
+    model_name: str | None = None
+    model_version: str | None = None
+    run_id: str | None = None
+
+
 class ReportRecord(BaseModel):
     id: str
     question: str

@@ -7,6 +7,7 @@ from .models import (
     AnnotationCreate,
     FindingCreate,
     PublishRequest,
+    ReportCreate,
     ReportCompileCreate,
     RunCreate,
 )
@@ -72,6 +73,13 @@ def create_finding(payload: dict) -> dict:
     """Create a finding from one or more annotation ids."""
     finding = service.create_finding(FindingCreate.model_validate(payload))
     return finding.model_dump(mode="json")
+
+
+@mcp.tool()
+def create_report(payload: dict) -> dict:
+    """Create a report with explicit summary markdown from one or more finding ids."""
+    report = service.create_report(ReportCreate.model_validate(payload))
+    return report.model_dump(mode="json")
 
 
 @mcp.tool()

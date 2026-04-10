@@ -33,6 +33,7 @@ Public pages show only published records. Visit `/admin/login` and use the admin
 ## Environment
 
 - `RESEARCH_REGISTRY_DB_PATH`: SQLite path. Defaults to `.data/registry.sqlite3`
+- `RESEARCH_REGISTRY_CAPTURE_QUEUE_PATH`: queued implicit-capture path. Defaults to `.data/pending-research-captures.jsonl`
 - `RESEARCH_REGISTRY_ADMIN_TOKEN`: enables admin API writes and admin web login
 - `RESEARCH_REGISTRY_SESSION_SECRET`: session secret for admin login cookies
 - `RESEARCH_REGISTRY_HOST`: web bind host, default `127.0.0.1`
@@ -57,6 +58,7 @@ Admin writes:
 - `POST /api/sources`
 - `POST /api/annotations`
 - `POST /api/findings`
+- `POST /api/reports`
 - `POST /api/reports/compile`
 - `POST /api/publish`
 - `POST /api/review`
@@ -82,6 +84,7 @@ Exposed tools:
 - `get_report`
 - `add_annotation`
 - `create_finding`
+- `create_report`
 - `compile_report`
 - `publish`
 
@@ -95,6 +98,20 @@ research-registry-seed-memory-retrieval
 ```
 
 See [`docs/memory-retrieval-skill.md`](/home/akovanda/dev/llmresearch/docs/memory-retrieval-skill.md) for install, dry-run, and validation steps.
+
+## Implicit Research Capture
+
+This repo also includes a general implicit research skill at [`skills/research-capture`](/home/akovanda/dev/llmresearch/skills/research-capture). It is designed to trigger on research intent, store research privately by default, and queue captures locally when the registry path is unavailable.
+
+Queue inspection and replay:
+
+```bash
+. .venv/bin/activate
+research-registry-capture-queue list
+research-registry-capture-queue flush
+```
+
+See [`docs/implicit-research-capture.md`](/home/akovanda/dev/llmresearch/docs/implicit-research-capture.md) for install and behavior details.
 
 ## Testing
 
