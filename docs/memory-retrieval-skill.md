@@ -72,9 +72,20 @@ Expected skill exercise prompts:
 - `Use $research-memory-retrieval to investigate stale indexes and memory retrieval failures.`
 - `Use $research-memory-retrieval to research evaluation metrics for agent memory and deposit source-backed findings.`
 
+Harness run:
+
+```bash
+cd /home/akovanda/dev/llmresearch
+. .venv/bin/activate
+research-registry-memory-retrieval-harness --scenario reuse-optimization
+research-registry-memory-retrieval-harness --scenario synthesis-failures
+research-registry-memory-retrieval-harness --scenario gap-fill-metrics
+```
+
 Expected behavior:
 
 - existing reranking content is found before any new deposition
 - stale-index failure material can be synthesized into a report
 - new agent-memory-evaluation work creates a run, annotations, and a finding
 - unsupported claims are refused rather than deposited
+- summaries include explicit sections for reusable knowledge, carry-forward context, evidence, and registry state

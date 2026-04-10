@@ -121,6 +121,7 @@ This repo now includes a reusable Codex skill at [`skills/research-memory-retrie
 ```bash
 . .venv/bin/activate
 research-registry-seed-memory-retrieval
+research-registry-memory-retrieval-harness --scenario reuse-optimization
 ```
 
 See [`docs/memory-retrieval-skill.md`](/home/akovanda/dev/llmresearch/docs/memory-retrieval-skill.md) for install, dry-run, and validation steps.

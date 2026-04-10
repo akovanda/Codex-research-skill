@@ -33,6 +33,8 @@ This skill may be invoked directly or delegated to by `$research-capture` when a
    Use a report when the user wants a higher-level synthesis or when multiple findings need to be combined. Skip the report for exploratory or under-evidenced work.
 7. Publish only when explicitly asked.
    Human review and publication are separate workflows. Default to private artifacts.
+8. Return a context-carrying summary.
+   Every answer should preserve the supported claims, the operational context, the evidence links, and the registry ids that matter for follow-up work.
 
 ## Decision Rules
 
@@ -54,6 +56,7 @@ This skill may be invoked directly or delegated to by `$research-capture` when a
 - For gap-filling research, produce new annotations and at least one finding tied to the run.
 - For mature topics, compile a report that still points back to the underlying findings, annotations, and sources.
 - Surface uncertainty explicitly when sources disagree, freshness is questionable, or the available corpus is thin.
+- Structure summaries so future sessions can reuse them as working context, not just as a chat recap.
 
 ## Examples
 
@@ -67,3 +70,4 @@ This skill may be invoked directly or delegated to by `$research-capture` when a
 - Keep the skill generic. Do not hard-code repo-local paths into the reasoning.
 - Treat this as a research workflow skill, not a publish/review skill.
 - Prefer MCP over HTTP. Use the website only for inspection when needed.
+- Use [references/summary-contract.md](references/summary-contract.md) for the required summary shape.
