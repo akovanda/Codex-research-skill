@@ -1,47 +1,39 @@
 # Workflow
 
-Use this sequence unless the user explicitly asks for retrieval-only behavior.
+Use this sequence unless the user explicitly wants retrieval-only behavior.
 
 ## 1. Search Existing Registry Content
 
-- Search the exact query first.
-- Search at least two nearby variants from the topic taxonomy.
-- Inspect the top relevant findings or reports before deciding to add new content.
-- Fetch underlying annotations or sources when the existing artifacts seem close but incomplete.
+- search the exact query first
+- search nearby variants from the topic taxonomy
+- inspect the top relevant claims or reports before adding anything new
+- fetch underlying excerpts or sources when stored guidance seems close but incomplete
 
 ## 2. Decide Whether to Reuse or Extend
 
-- Reuse existing content when the registry already has a well-supported answer.
-- Extend the registry when the existing artifacts are stale, missing anchors, too shallow, or aimed at a different subtopic.
-- Stop entirely when no source-backed research can be gathered.
+- reuse existing content when the registry already has fresh, well-supported guidance
+- extend the registry when the stored artifacts are stale, shallow, or aimed at a different subtopic
+- stop entirely when no source-backed research can be gathered
 
-## 3. Create a Run for New Work
+## 3. Create A Session For New Work
 
-- Create a run before the first new annotation.
-- Keep one run per user question or tightly related batch of questions.
-- Carry the run id forward into every new annotation, finding, and report.
+- keep one session per user question or tightly related batch
+- carry the session id into every new excerpt, claim, and report
 
-## 4. Add Annotations
+## 4. Add Excerpts
 
-- Anchor every annotation to a specific source passage.
-- Prefer `selector.exact` plus `selector.deep_link` whenever available.
-- Keep the note tied to the cited passage. Do not hide synthesis inside the annotation note.
-- Use tags that help future searchers: topic, failure mode, metric, or method.
+- anchor every excerpt to a specific source passage
+- prefer `selector.exact` plus `selector.deep_link` when available
+- keep the note tied to the cited passage
 
-## 5. Create Findings
+## 5. Create Claims
 
-- Build findings only after the annotations exist.
-- Prefer at least two annotations for broad claims.
-- Keep the title short and the claim falsifiable.
-- Avoid duplicating an existing finding unless the new evidence materially changes the conclusion.
+- build claims only after the excerpts exist
+- keep claims narrow and falsifiable
+- avoid duplicating an existing claim unless new evidence materially changes the guidance
 
-## 6. Compile a Report When Mature
+## 6. Create A Guidance Report
 
-- Compile a report only when the question needs synthesis across findings or when the user explicitly wants a report.
-- Leave work at the finding level when the topic is exploratory or when evidence is still thin.
-- Treat reports as derived artifacts, not the canonical storage unit.
-
-## 7. Publish Only on Request
-
-- Default to private artifacts.
-- Do not publish or mark human-reviewed unless the user asks for that workflow.
+- create a report when the topic is mature enough to carry forward
+- treat reports as reusable guidance artifacts, not final truth
+- include gaps, needs, wants, and follow-up questions

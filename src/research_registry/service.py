@@ -92,6 +92,10 @@ class RegistryService:
         with self.connect() as conn:
             conn.execute("SELECT 1").fetchone()
 
+    @property
+    def database_label(self) -> str:
+        return self.database.label
+
     def initialize(self) -> None:
         with self.connect() as conn:
             version = None

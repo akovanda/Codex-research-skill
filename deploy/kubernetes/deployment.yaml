@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: research-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: research-registry
+  template:
+    metadata:
+      labels:
+        app: research-registry
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/research-registry:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: research-registry-config
+            - secretRef:
+                name: research-registry-secrets
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000

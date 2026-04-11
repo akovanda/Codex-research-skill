@@ -17,9 +17,10 @@ Queue a JSON bundle that includes:
 - `normalized_topic`
 - `model_name`
 - `model_version`
-- `run`
-- `annotations`
-- `findings`
+- `question`
+- `session`
+- `excerpts`
+- `claims`
 - `report`
 
 ## CLI Usage
@@ -37,4 +38,4 @@ Queue a JSON bundle that includes:
 
 - Queue items are private-by-default research captures.
 - Replay should be attempted before the next research request begins.
-- Replaying the same queued bundle should not duplicate annotations, findings, or reports.
+- Replaying the same queued bundle should not duplicate excerpts, claims, or reports.

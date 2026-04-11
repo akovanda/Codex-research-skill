@@ -1,87 +1,143 @@
 # Research Registry
 
-Research Registry is a small MVP for source-backed AI research memory. It stores source-anchored annotations as the canonical unit, then derives findings and reports from those annotations. The same registry is exposed through:
+Research Registry is a **local-first research memory for humans and agents**. It stores a research question, the evidence collected for it, the claims supported by that evidence, and a reusable guidance report on top.
 
-- a FastAPI JSON API
-- a public website for browse and inspection
-- a lightweight MCP server for agent workflows
+This repo is currently a **developer preview** aimed at:
 
-## What it implements
+- a single developer running on `localhost`
+- a small team sharing one self-hosted registry
+- Codex and MCP workflows that want durable, source-backed research memory
 
-- Immutable core records: `Source`, `Annotation`, `Finding`, `Report`, and `Run`
-- Private-by-default deposits with explicit publishing
-- Source anchors with quote hashes and stable passage fingerprints
-- Public search that favors provenance, review state, and source quality
-- Hosted-default backend selection with explicit custom or corporate overrides
-- API-key writes with per-user or per-org namespaces
-- Public namespace browsing separated from the shared global index
-- Derived report compilation that preserves links back to findings, annotations, and source URLs
-- API-key writes plus admin moderation for review and global-index curation
-- Implicit specialist routing for memory/retrieval, inference optimization, and LLM eval topics
+The future public/shared network is not the current product target. The current target is **usable local-first software** with a clear path to **self-hosted shared org deployments**.
+
+## Core Model
+
+Canonical records:
+
+- `Question`
+- `ResearchSession`
+- `Source`
+- `Excerpt`
+- `Claim`
+- `Report`
+
+Reports are guidance-first. They carry:
+
+- current guidance
+- evidence that supports it right now
+- gaps
+- needs
+- wants
+- linked follow-up questions
+
+Legacy aliases such as `annotation` and `finding` still exist for compatibility, but they are not the canonical model for new integrations.
 
 ## Quick Start
+
+### Local default
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
 export RESEARCH_REGISTRY_ADMIN_TOKEN=change-me
-research-registry-seed
+export RESEARCH_REGISTRY_SESSION_SECRET=change-me-too
 research-registry-web
 ```
 
-The web app runs at `http://127.0.0.1:8000`.
+The app starts at `http://127.0.0.1:8000`.
 
-The web app runs two public surfaces:
+Local default behavior:
 
-- `/` shows the shared global index only
-- `/public/{namespace}` shows everything published in that user or org namespace, even if it is not promoted into the shared global index
+- embedded backend
+- SQLite storage
+- no external service required
+- backend status resolves to localhost unless you explicitly point clients elsewhere
 
-Visit `/admin/login` and use the admin token to review private records, moderate published artifacts, and promote items into the shared global index.
+Optional demo data:
 
-## Environment
+```bash
+. .venv/bin/activate
+research-registry-seed
+research-registry-seed-memory-retrieval
+```
 
-- `RESEARCH_REGISTRY_DB_PATH`: SQLite path. Defaults to `.data/registry.sqlite3`
-- `RESEARCH_REGISTRY_CAPTURE_QUEUE_PATH`: queued implicit-capture path. Defaults to `.data/pending-research-captures.jsonl`
-- `RESEARCH_REGISTRY_BACKEND_PROFILE_PATH`: JSON profile file for named or org backends. Defaults to `.data/backend-profiles.json`
-- `RESEARCH_REGISTRY_ADMIN_TOKEN`: enables admin API writes and admin web login
-- `RESEARCH_REGISTRY_SESSION_SECRET`: session secret for admin login cookies
-- `RESEARCH_REGISTRY_HOST`: web bind host, default `127.0.0.1`
-- `RESEARCH_REGISTRY_PORT`: web bind port, default `8000`
-- `RESEARCH_REGISTRY_PUBLIC_BASE_URL`: canonical URL for this backend, used in backend-status responses
-- `RESEARCH_REGISTRY_DEFAULT_BACKEND_URL`: hosted default backend URL used by MCP/queue clients when no override is set
-- `RESEARCH_REGISTRY_BACKEND_URL`: explicit backend override, higher priority than org or hosted default
-- `RESEARCH_REGISTRY_BACKEND_PROFILE`: named backend profile from the profile JSON
-- `RESEARCH_REGISTRY_API_KEY`: API key used by MCP or queue clients for remote writes
-- `RESEARCH_REGISTRY_ORG`: org namespace hint, used for org-profile resolution and org-scoped keys
+### Shared self-hosted mode
 
-Local development default:
+Use Postgres and point clients at a shared server:
 
-- if no backend override/profile/default is set, MCP and queue clients present the backend as `RESEARCH_REGISTRY_PUBLIC_BASE_URL` and default that to `http://127.0.0.1:8000`
-- that localhost default still uses the embedded local service directly, so local skill work does not require a running HTTP server or an API key
+- [Compose deployment](docs/deploy-shared-compose.md)
+- [Kubernetes deployment](docs/deploy-kubernetes.md)
 
-If `RESEARCH_REGISTRY_ADMIN_TOKEN` is unset, the app runs in open local mode: write operations and admin pages are not blocked. That is useful for local exploration but not safe for deployment.
+## Configuration
 
-## API Surface
+Canonical server/runtime settings:
+
+- `RESEARCH_REGISTRY_DATABASE_URL`
+- `RESEARCH_REGISTRY_ADMIN_TOKEN`
+- `RESEARCH_REGISTRY_SESSION_SECRET`
+- `RESEARCH_REGISTRY_HOST`
+- `RESEARCH_REGISTRY_PORT`
+- `RESEARCH_REGISTRY_PUBLIC_BASE_URL`
+- `RESEARCH_REGISTRY_CAPTURE_QUEUE_PATH`
+- `RESEARCH_REGISTRY_BACKEND_PROFILE_PATH`
+
+Client/backend-selection settings:
+
+- `RESEARCH_REGISTRY_BACKEND_URL`
+- `RESEARCH_REGISTRY_BACKEND_PROFILE`
+- `RESEARCH_REGISTRY_API_KEY`
+- `RESEARCH_REGISTRY_ORG`
+- `RESEARCH_REGISTRY_DEFAULT_BACKEND_URL`
+
+Compatibility fallback:
+
+- `RESEARCH_REGISTRY_DB_PATH` remains supported for local SQLite setups. If `RESEARCH_REGISTRY_DATABASE_URL` is unset, the app derives a local SQLite URL from that path.
+
+Backend selection precedence for clients:
+
+1. `RESEARCH_REGISTRY_BACKEND_URL`
+2. `RESEARCH_REGISTRY_BACKEND_PROFILE`
+3. org profile matched by `RESEARCH_REGISTRY_ORG`
+4. `RESEARCH_REGISTRY_DEFAULT_BACKEND_URL`
+5. localhost default
+
+## Health And Bootstrap
+
+Health endpoints:
+
+- `GET /healthz` for process liveness
+- `GET /readyz` for storage readiness
+
+Admin bootstrap endpoints:
+
+- `POST /api/admin/organizations`
+- `POST /api/admin/api-keys`
+
+These are guarded by the admin token and are intended for self-hosted setup workflows.
+
+## Canonical API Surface
 
 Public reads:
 
-- `GET /healthz`
-- `GET /api/search?q=...&kind=annotation|finding|report|source`
+- `GET /api/search`
 - `GET /api/backend/status`
+- `GET /api/questions/{id}`
+- `GET /api/sessions/{id}`
 - `GET /api/sources/{id}`
-- `GET /api/annotations/{id}`
-- `GET /api/findings/{id}`
+- `GET /api/excerpts/{id}`
+- `GET /api/claims/{id}`
 - `GET /api/reports/{id}`
 
 Authenticated writes:
 
-- `POST /api/runs`
+- `POST /api/questions`
+- `POST /api/questions/{id}/status`
+- `POST /api/sessions`
 - `POST /api/sources`
-- `POST /api/annotations`
-- `POST /api/findings`
+- `POST /api/excerpts`
+- `POST /api/claims`
 - `POST /api/reports`
-- `POST /api/reports/compile`
 - `POST /api/publish`
 
 Admin moderation:
@@ -89,93 +145,61 @@ Admin moderation:
 - `POST /api/review`
 - `POST /api/index-state`
 
-Write requests should include `X-API-Key: <token>`. Admin JSON requests can still use `X-Admin-Token: <token>` for local moderation workflows.
+Compatibility aliases:
 
-## MCP Server
+- `/api/annotations/{id}` maps to excerpts
+- `/api/findings/{id}` maps to claims
 
-Start the MCP server with stdio transport:
+## MCP And Skills
+
+The web app and API are the primary product surface. MCP and Codex skills sit on top of that:
+
+- MCP server: `research-registry-mcp`
+- implicit capture skill: [`skills/research-capture`](skills/research-capture/SKILL.md)
+- memory/retrieval skill: [`skills/research-memory-retrieval`](skills/research-memory-retrieval/SKILL.md)
+
+## Deployment
+
+- [Architecture](docs/architecture.md)
+- [Local deployment](docs/deploy-local.md)
+- [Shared Compose deployment](docs/deploy-shared-compose.md)
+- [Kubernetes deployment](docs/deploy-kubernetes.md)
+- [Implicit research capture](docs/implicit-research-capture.md)
+- [Memory/retrieval skill](docs/memory-retrieval-skill.md)
+- [Research pass suite](docs/research-pass-suite.md)
+
+Container assets:
+
+- `Dockerfile`
+- `deploy/compose.yaml`
+- `deploy/kubernetes/`
+
+## Developer Tooling
+
+Migrate storage explicitly:
 
 ```bash
 . .venv/bin/activate
-research-registry-mcp
+research-registry-migrate
 ```
 
-Exposed tools:
-
-- `search`
-- `backend_status`
-- `create_run`
-- `get_source`
-- `get_annotation`
-- `get_finding`
-- `get_report`
-- `add_annotation`
-- `create_finding`
-- `create_report`
-- `compile_report`
-- `publish`
-
-## Memory/Retrieval Skill
-
-This repo now includes a reusable Codex skill at [`skills/research-memory-retrieval`](/home/akovanda/dev/llmresearch/skills/research-memory-retrieval) plus a domain seed script for memory/retrieval dry runs.
+Run tests:
 
 ```bash
 . .venv/bin/activate
-research-registry-seed-memory-retrieval
-research-registry-memory-retrieval-harness --scenario reuse-optimization
+pytest -q
 ```
 
-See [`docs/memory-retrieval-skill.md`](/home/akovanda/dev/llmresearch/docs/memory-retrieval-skill.md) for install, dry-run, and validation steps.
-
-## Specialist Domain Harness
-
-The implicit capture path also includes built-in specialist harnesses for:
-
-- memory/retrieval
-- inference optimization
-- LLM evals
-
-Run the broader harness directly:
+Run the grounded pass runner:
 
 ```bash
 . .venv/bin/activate
-research-registry-domain-harness --scenario inference-reuse
-research-registry-domain-harness --scenario evals-gap-fill
-```
-
-## Implicit Research Capture
-
-This repo also includes a general implicit research skill at [`skills/research-capture`](/home/akovanda/dev/llmresearch/skills/research-capture). It is designed to trigger on research intent, store research privately by default, and queue captures locally when the registry path is unavailable.
-
-For memory/retrieval, inference optimization, and LLM eval topics, the implicit path now routes through tested specialist harnesses. Memory uses the explicit [`skills/research-memory-retrieval`](/home/akovanda/dev/llmresearch/skills/research-memory-retrieval) flow directly, while the other domains use the same reuse vs synthesis vs gap-fill contract internally.
-
-Queue inspection and replay:
-
-```bash
-. .venv/bin/activate
-research-registry-capture-queue list
-research-registry-capture-queue flush
-```
-
-See [`docs/implicit-research-capture.md`](/home/akovanda/dev/llmresearch/docs/implicit-research-capture.md) for install and behavior details.
-
-## Real Research Passes
-
-This repo includes a grounded pass suite based on the current long-memory project work in `dnd2`, `continuity-benchmarks`, `continuity-core`, and `choose-game`.
-
-```bash
-. .venv/bin/activate
-research-registry-pass-suite
-research-registry-pass-suite --check-routing
-research-registry-pass-suite --format markdown
 research-registry-pass-runner --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2
 ```
 
-See [`docs/research-pass-suite.md`](/home/akovanda/dev/llmresearch/docs/research-pass-suite.md) for the intended workflow.
+## Preview Notes
 
-## Testing
-
-```bash
-. .venv/bin/activate
-pytest
-```
+- Localhost is the default.
+- Shared org mode is self-hosted, not multi-tenant cloud.
+- API keys plus admin token are the supported auth model for this preview.
+- Postgres is the intended backend for shared deployments.

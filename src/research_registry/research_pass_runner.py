@@ -164,7 +164,7 @@ def execute_passes(
 
     return ResearchPassRunReport(
         generated_at=datetime.now(timezone.utc),
-        db_path=str(service.db_path),
+        db_path=service.database_label,
         rounds=rounds,
         source_contexts=sorted({signal.split(":", 1)[0] for spec in specs for signal in spec.source_signals if ":" in signal}),
         executions=executions,

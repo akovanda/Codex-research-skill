@@ -9,7 +9,7 @@ The passes are derived from:
 - `continuity-core`
 - `choose-game`
 
-The canonical pass list lives in [src/research_registry/research_pass_suite.py](/home/akovanda/dev/llmresearch/src/research_registry/research_pass_suite.py).
+The canonical pass list lives in [`src/research_registry/research_pass_suite.py`](../src/research_registry/research_pass_suite.py).
 
 ## What It Gives You
 

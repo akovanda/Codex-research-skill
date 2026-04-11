@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: research-registry-config
+data:
+  RESEARCH_REGISTRY_HOST: "0.0.0.0"
+  RESEARCH_REGISTRY_PORT: "8000"
+  RESEARCH_REGISTRY_PUBLIC_BASE_URL: "https://research-registry.example.internal"

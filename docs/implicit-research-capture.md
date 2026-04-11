@@ -1,101 +1,63 @@
 # Implicit Research Capture
 
-This document covers the general `research-capture` skill, the private-by-default research storage flow, and the queue fallback for backend outages.
+This document describes the default Codex workflow for research intent.
 
-## What It Adds
+Primary pieces:
 
-- a global implicit skill at [`skills/research-capture`](/home/akovanda/dev/llmresearch/skills/research-capture)
-- topic delegation to [`skills/research-memory-retrieval`](/home/akovanda/dev/llmresearch/skills/research-memory-retrieval)
-- a local queue for pending research captures
-- a queue CLI for inspect and replay
-- hosted-default backend selection with explicit custom and org overrides
-- per-user or per-org namespace routing for queued replay
-- specialist routing for memory/retrieval prompts through the same tested harness used by `research-memory-retrieval`
-- built-in specialist routing for inference optimization and LLM eval prompts through the same summary contract
+- [`skills/research-capture`](../skills/research-capture/SKILL.md)
+- [`skills/research-memory-retrieval`](../skills/research-memory-retrieval/SKILL.md)
+- local queue fallback
+- backend selection with localhost default and optional shared backend overrides
 
-## Install The Skill Globally
+## Behavior
 
-```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-ln -sfn "/home/akovanda/dev/llmresearch/skills/research-capture" "${CODEX_HOME:-$HOME/.codex}/skills/research-capture"
-```
+When a request is clearly research-shaped, the capture workflow should:
 
-The memory skill can remain installed as a separate delegated skill:
+1. search the registry first
+2. reuse fresh guidance when it already covers the question
+3. perform new source-backed research when needed
+4. store private question/session/excerpt/claim/report artifacts
+5. create follow-up questions for gaps, needs, or wants
+6. queue the capture if the backend is temporarily unavailable
 
-```bash
-ln -sfn "/home/akovanda/dev/llmresearch/skills/research-memory-retrieval" "${CODEX_HOME:-$HOME/.codex}/skills/research-memory-retrieval"
-```
+Memory/retrieval research routes to the specialist skill and still writes into the same registry model.
 
-## Queue Behavior
+## Backend selection
 
-Backend selection precedence for MCP and queue replay:
+Precedence:
 
 1. `RESEARCH_REGISTRY_BACKEND_URL`
 2. `RESEARCH_REGISTRY_BACKEND_PROFILE`
 3. org profile matched by `RESEARCH_REGISTRY_ORG`
 4. `RESEARCH_REGISTRY_DEFAULT_BACKEND_URL`
-5. localhost default at `RESEARCH_REGISTRY_PUBLIC_BASE_URL` when none of the above are set
+5. localhost default
 
-In that localhost-default case, the repo still uses the embedded local backend directly. The `localhost` URL is there so the selected backend is visible and consistent, not because the skill now requires an HTTP round-trip for local work.
+When no remote backend is configured, local skill use stays on the embedded local backend.
 
-Queued bundles are scoped to the selected backend and namespace so a bundle created for one org or backend is not replayed into another by mistake.
+## Queue
 
-Default queue path:
-
-```bash
-${RESEARCH_REGISTRY_CAPTURE_QUEUE_PATH:-/home/akovanda/dev/llmresearch/.data/pending-research-captures.jsonl}
-```
-
-Inspect:
+Inspect pending bundles:
 
 ```bash
-cd /home/akovanda/dev/llmresearch
 . .venv/bin/activate
 research-registry-capture-queue list
 ```
 
-Replay:
+Replay pending bundles:
 
 ```bash
-cd /home/akovanda/dev/llmresearch
 . .venv/bin/activate
 research-registry-capture-queue flush
 ```
 
-## Validate
+## Expected summary shape
 
-```bash
-cd /home/akovanda/dev/llmresearch
-. .venv/bin/activate
-pytest -q
-research-registry-domain-harness --scenario inference-reuse
-research-registry-domain-harness --scenario evals-gap-fill
-python3 /home/akovanda/.codex/skills/.system/skill-creator/scripts/quick_validate.py /home/akovanda/dev/llmresearch/skills/research-capture
-python3 /home/akovanda/.codex/skills/.system/skill-creator/scripts/quick_validate.py /home/akovanda/dev/llmresearch/skills/research-memory-retrieval
-```
+Implicit capture summaries should carry:
 
-## Expected Behavior
-
-- research-shaped requests trigger `research-capture`
-- memory/retrieval research routes to `research-memory-retrieval`
-- implicit memory/retrieval requests use the same reuse, synthesis, and gap-fill logic as explicit specialist invocations
-- inference optimization and LLM eval prompts route through built-in specialist harnesses with the same reuse, synthesis, and gap-fill modes
-- registry content is searched before new storage
-- new research stores private annotations, findings, and a report
-- remote writes use API keys and preserve namespace plus actor attribution
-- self-published artifacts appear in their public namespace before they are promoted into the shared global index
-- if storage is unavailable, a queue bundle is written and replayed later
-- the user gets an explicit summary of reuse, storage, or queue status
-
-Current specialist-domain coverage:
-
-- memory/retrieval
-- inference optimization
-- LLM evals
-
-For specialist-routed domains, implicit answers now carry forward:
-
-- supported claims in `Knowledge To Reuse`
-- follow-up tradeoffs and failure modes in `Context To Carry Forward`
-- visible evidence URLs
-- explicit registry ids for reused or newly created artifacts
+- current guidance
+- evidence that supports it right now
+- gaps
+- needs
+- wants
+- follow-up questions
+- registry ids for the stored or reused artifacts

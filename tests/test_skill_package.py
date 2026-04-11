@@ -23,7 +23,7 @@ def test_memory_skill_instructions_cover_search_first_and_guardrails() -> None:
     assert "Refuse to create unsupported artifacts" in content
     assert "Publish only when explicitly asked" in content
     assert "requires a configured Research Registry MCP server" in content
-    assert "delegated to by `$research-capture`" in content
+    assert "delegated to by `$research-capture`" in content or "invoked directly or delegated to by `$research-capture`" in content
 
 
 def test_memory_skill_metadata_has_no_todo_placeholders() -> None:
@@ -50,7 +50,7 @@ def test_capture_skill_instructions_cover_implicit_capture_and_queue() -> None:
     assert "trigger on research intent" in content.lower() or "research intent" in content.lower()
     assert "Flush pending queue items first" in content
     assert "`$research-memory-retrieval`" in content
-    assert "Always create a report" in content
+    assert "Always create a guidance report" in content
     assert "research-registry-capture-queue enqueue" in (CAPTURE_SKILL_DIR / "references" / "queue-fallback.md").read_text()
     assert 'allow_implicit_invocation: true' in openai_yaml
     assert "[TODO:" not in content

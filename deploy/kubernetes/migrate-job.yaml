@@ -1,0 +1,17 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: research-registry-migrate
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: ghcr.io/example/research-registry:latest
+          command: ["research-registry-migrate"]
+          envFrom:
+            - configMapRef:
+                name: research-registry-config
+            - secretRef:
+                name: research-registry-secrets
