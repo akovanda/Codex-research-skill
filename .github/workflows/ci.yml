@@ -43,7 +43,7 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q tests/test_postgres_smoke.py
 
-  packaging-and-docs:
+  packaging-and-assets:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +52,21 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
-      - run: pytest -q tests/test_docs_contract.py tests/test_skill_package.py
+      - run: python -m build
+      - run: |
+          python -m venv /tmp/research-registry-wheel
+          /tmp/research-registry-wheel/bin/pip install --upgrade pip
+          /tmp/research-registry-wheel/bin/pip install dist/*.whl
+          /tmp/research-registry-wheel/bin/python -c "import importlib.metadata; print(importlib.metadata.version('research-registry'))"
+          /tmp/research-registry-wheel/bin/python -m research_registry.local_install --help
+          /tmp/research-registry-wheel/bin/python -m research_registry.local_status
+      - run: |
+          python -m venv /tmp/research-registry-sdist
+          /tmp/research-registry-sdist/bin/pip install --upgrade pip
+          /tmp/research-registry-sdist/bin/pip install dist/*.tar.gz
+          /tmp/research-registry-sdist/bin/python -c "import importlib.metadata; print(importlib.metadata.version('research-registry'))"
+          /tmp/research-registry-sdist/bin/python -m research_registry.local_install --help
+          /tmp/research-registry-sdist/bin/python -m research_registry.local_status
       - run: docker build -t research-registry:test .
       - run: cp deploy/.env.example deploy/.env
       - run: docker compose -f deploy/compose.yaml --env-file deploy/.env config
@@ -65,3 +79,25 @@ jobs:
               assert "apiVersion:" in content, path
               assert "kind:" in content, path
           PY
+
+  local-installer-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - run: RUN_LOCAL_INSTALL_SMOKE=1 pytest -q tests/test_local_install_smoke.py
+
+  shared-compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - run: RUN_SHARED_COMPOSE_SMOKE=1 pytest -q tests/test_shared_compose_smoke.py

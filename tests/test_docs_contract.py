@@ -80,11 +80,12 @@ def test_package_metadata_matches_preview_contract() -> None:
 
     assert project["name"] == "research-registry"
     assert project["version"] == "0.1.0"
-    assert project["license"]["file"] == "LICENSE"
+    assert project["license"] == "Apache-2.0"
+    assert project["license-files"] == ["LICENSE"]
     assert any(author["name"] == "Research Registry contributors" for author in project["authors"])
     assert "research" in project["keywords"]
     assert "mcp" in project["keywords"]
-    assert "License :: OSI Approved :: Apache Software License" in project["classifiers"]
+    assert "Programming Language :: Python :: 3.12" in project["classifiers"]
 
     urls = project.get("urls", {})
     assert not any("github.com/example/research-registry" in value for value in urls.values())

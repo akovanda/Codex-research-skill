@@ -20,7 +20,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8000:8000"
+      - "${RESEARCH_REGISTRY_BIND_HOST:-127.0.0.1}:${RESEARCH_REGISTRY_BIND_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy

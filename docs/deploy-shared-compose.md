@@ -33,6 +33,12 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env up --build
 
 The app runs migrations on startup before serving traffic.
 
+Optional bind overrides:
+
+- `RESEARCH_REGISTRY_BIND_HOST` defaults to `127.0.0.1`
+- `RESEARCH_REGISTRY_BIND_PORT` defaults to `8000`
+- keep `RESEARCH_REGISTRY_PUBLIC_BASE_URL` aligned with the URL clients should use
+
 ## Required environment
 
 - `RESEARCH_REGISTRY_DATABASE_URL`
