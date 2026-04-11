@@ -1,22 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 
-from research_registry.capture_queue import CaptureQueue, QueuedAnnotation, QueuedCaptureBundle, QueuedFinding, QueuedReport
-from research_registry.models import BackendStatus, RunCreate, SourceCreate, SourceSelector
-from research_registry.memory_retrieval_skill import optimization_gap_fill_bundle
 from research_registry.research_capture import (
-    CaptureSummary,
     format_capture_summary,
     is_research_request,
     run_implicit_research_capture,
     specialized_domain_for_prompt,
     specialized_skill_for_prompt,
 )
-from research_registry.seed_memory_retrieval import seed_memory_retrieval
 from research_registry.service import RegistryService
-from research_registry.specialist_domains import inference_optimization_gap_fill_bundle, llm_evals_gap_fill_bundle, seed_specialist_domains
 
 
 def make_service(tmp_path: Path) -> RegistryService:
@@ -25,78 +18,25 @@ def make_service(tmp_path: Path) -> RegistryService:
     return service
 
 
-def make_queue_bundle() -> QueuedCaptureBundle:
-    return QueuedCaptureBundle.create(
-        prompt="Research long-term memory structure for LLM agents.",
-        normalized_topic="long-term memory structure",
-        model_name="gpt-5.4",
-        model_version="2026-04-10",
-        run=RunCreate(
-            question="What structure works best for long-term memory in LLM agents?",
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
-            notes="implicit capture test",
-        ),
-        annotations=[
-            QueuedAnnotation(
-                temp_id="ann_1",
-                source=SourceCreate(
-                    canonical_url="https://example.org/ltm-episodic",
-                    title="Episodic memory for agents",
-                    source_type="paper",
-                    snapshot_required=True,
-                    snapshot_present=True,
-                ),
-                subject="long-term memory structure",
-                note="This source supports separating episodic events from stable semantic profile memory.",
-                selector=SourceSelector(
-                    exact="Agent memory works better when episodic traces and stable semantic profiles are stored separately.",
-                    deep_link="https://example.org/ltm-episodic#results",
-                ),
-                model_name="gpt-5.4",
-                model_version="2026-04-10",
-                tags=["memory", "episodic", "semantic"],
-            ),
-            QueuedAnnotation(
-                temp_id="ann_2",
-                source=SourceCreate(
-                    canonical_url="https://example.org/ltm-retrieval-policy",
-                    title="Retrieval policies for long-term agent memory",
-                    source_type="paper",
-                    snapshot_required=True,
-                    snapshot_present=True,
-                ),
-                subject="long-term memory structure",
-                note="This source supports storing provenance and freshness alongside retrieved memories.",
-                selector=SourceSelector(
-                    exact="Long-term memory retrieval remains trustworthy only when each memory record carries freshness and provenance metadata.",
-                    deep_link="https://example.org/ltm-retrieval-policy#discussion",
-                ),
-                model_name="gpt-5.4",
-                model_version="2026-04-10",
-                tags=["memory", "provenance", "freshness"],
-            ),
-        ],
-        findings=[
-            QueuedFinding(
-                temp_id="fdg_1",
-                title="Long-term memory should separate event traces from stable profiles",
-                subject="long-term memory structure",
-                claim="A durable long-term memory structure should split episodic event traces from stable semantic or profile memory and retain provenance metadata for both.",
-                annotation_temp_ids=["ann_1", "ann_2"],
-                model_name="gpt-5.4",
-                model_version="2026-04-10",
-            )
-        ],
-        report=QueuedReport(
-            question="What structure works best for long-term memory in LLM agents?",
-            subject="long-term memory structure",
-            summary_md="# Long-term memory structure\n\nStore episodic traces separately from stable semantic memory and attach provenance/freshness metadata to each memory record.",
-            finding_temp_ids=["fdg_1"],
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
-        ),
+def make_branch_private_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "choose-game"
+    (repo / "src" / "choose_game").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    (repo / "README.md").write_text(
+        "Branch-private memory keeps divergent narrative and coding branches isolated while preserving typed anchors.\n",
+        encoding="utf-8",
     )
+    (repo / "src" / "choose_game" / "freeform_regression.py").write_text(
+        "def verify_branch_private_memory():\n"
+        "    note = 'coding branch isolation remains branch-private and does not leak across divergent branches'\n",
+        encoding="utf-8",
+    )
+    (repo / "tests" / "test_branch_private.py").write_text(
+        "def test_branch_private_isolation():\n"
+        "    assert 'branch-private' in 'branch-private memory isolation'\n",
+        encoding="utf-8",
+    )
+    return repo
 
 
 def test_research_prompt_classification_and_specialized_delegation() -> None:
@@ -106,234 +46,55 @@ def test_research_prompt_classification_and_specialized_delegation() -> None:
 
     assert specialized_skill_for_prompt("Research long-term memory structure for LLMs.") == "research-memory-retrieval"
     assert specialized_domain_for_prompt("Research long-term memory structure for LLMs.") == "memory-retrieval"
-    assert specialized_domain_for_prompt("Research coverage gaps between the current public long-horizon benchmark suites for continuity systems.") == "llm-evals"
-    assert specialized_domain_for_prompt("Research LLM inference latency and batching tradeoffs.") == "inference-optimization"
     assert specialized_domain_for_prompt("Research judge model calibration and benchmark drift.") == "llm-evals"
+    assert specialized_domain_for_prompt("Research LLM inference latency and batching tradeoffs.") == "inference-optimization"
     assert specialized_skill_for_prompt("Research restaurant options in Boston.") is None
 
 
-def test_capture_queue_round_trip_and_flush(tmp_path: Path) -> None:
+def test_implicit_capture_runs_live_research_then_reuses_on_second_pass(tmp_path: Path) -> None:
     service = make_service(tmp_path)
-    queue = CaptureQueue(tmp_path / "pending-research-captures.jsonl")
-    bundle = make_queue_bundle()
+    repo = make_branch_private_repo(tmp_path)
 
-    queue.enqueue(bundle)
-    reloaded = queue.list_pending()
-    assert [item.queue_id for item in reloaded] == [bundle.queue_id]
-
-    result = queue.flush(service)
-    assert result.flushed_queue_ids == [bundle.queue_id]
-    assert result.failed_queue_ids == []
-
-    report_hits = service.search("long-term memory structure", kind="report", include_private=True)
-    assert any(hit.title == "What structure works best for long-term memory in LLM agents?" for hit in report_hits.hits)
-
-
-def test_queue_replay_is_idempotent_for_same_bundle(tmp_path: Path) -> None:
-    service = make_service(tmp_path)
-    queue = CaptureQueue(tmp_path / "pending-research-captures.jsonl")
-    bundle = make_queue_bundle()
-
-    queue.enqueue(bundle)
-    queue.flush(service)
-    queue.enqueue(bundle)
-    queue.flush(service)
-
-    assert len(service.dashboard(include_private=True, limit=20).annotations) == 2
-    assert len(service.dashboard(include_private=True, limit=20).findings) == 1
-    assert len(service.dashboard(include_private=True, limit=20).reports) == 1
-
-
-def test_queue_flush_respects_selected_backend_namespace(tmp_path: Path) -> None:
-    service = make_service(tmp_path)
-    service.set_backend_status(
-        BackendStatus(
-            name="team-b",
-            kind="local",
-            selection_source="test",
-            url=None,
-            namespace_kind="org",
-            namespace_id="team-b",
-            api_key_present=False,
-        )
+    first = run_implicit_research_capture(
+        "Research branch-private memory isolation strategies for divergent narrative and coding branches.",
+        backend=service,
+        source_signals=["choose-game: full stack verification checks coding branch isolation"],
+        source_roots=[repo],
     )
-    queue = CaptureQueue(tmp_path / "pending-research-captures.jsonl")
-    bundle = make_queue_bundle().model_copy(update={"namespace_kind": "org", "namespace_id": "team-a"})
+    assert first.specialized_domain == "memory-retrieval"
+    assert first.specialist_mode == "live_research"
+    assert first.capture_summary.stored_question_id is not None
+    assert first.capture_summary.stored_report_id is not None
+    assert first.capture_summary.stored_claim_ids
+    assert first.summary_contract_passed is True
 
-    queue.enqueue(bundle)
-    result = queue.flush(service)
-
-    assert result.flushed_queue_ids == []
-    assert result.failed_queue_ids == []
-    assert [item.queue_id for item in queue.list_pending()] == [bundle.queue_id]
-
-
-def test_capture_summary_mentions_reuse_storage_and_queue() -> None:
-    summary = CaptureSummary(
-        prompt="Research long-term memory structure",
-        reused_record_ids=["fdg_existing"],
-        stored_run_id="run_123",
-        stored_annotation_ids=["ann_1", "ann_2"],
-        stored_finding_ids=["fdg_1"],
-        stored_report_id="rpt_1",
-        queued_bundle_id="queue_1",
-        pending_queue_count=2,
-        created_at=datetime.now(timezone.utc),
-        flushed_queue_ids=["queue_old"],
+    second = run_implicit_research_capture(
+        "Research branch-private memory isolation strategies for divergent narrative and coding branches.",
+        backend=service,
+        source_signals=["choose-game: full stack verification checks coding branch isolation"],
+        source_roots=[repo],
     )
+    assert second.specialist_mode == "reuse"
+    assert second.capture_summary.reused_record_ids
+    assert second.capture_summary.stored_session_id is not None
+    assert second.summary_contract_passed is True
+    assert "Stored session" in format_capture_summary(second.capture_summary)
 
-    formatted = format_capture_summary(summary)
-    assert "fdg_existing" in formatted
-    assert "Stored report: rpt_1" in formatted
-    assert "Queued for retry: queue_1" in formatted
-    assert "Flushed queue items: queue_old" in formatted
 
-
-def test_implicit_capture_routes_memory_prompt_through_specialist_harness(tmp_path: Path) -> None:
+def test_implicit_capture_records_insufficient_evidence_without_report(tmp_path: Path) -> None:
     service = make_service(tmp_path)
-    seeded = seed_memory_retrieval(service)
+    empty_repo = tmp_path / "empty"
+    empty_repo.mkdir()
 
     outcome = run_implicit_research_capture(
-        "Research LLM memory retrieval optimization and reranking precision.",
+        "Research temporal provenance reconciliation for branch-scoped memory invalidation.",
         backend=service,
+        source_signals=["empty: no matching evidence here"],
+        source_roots=[empty_repo],
     )
 
-    assert outcome.specialized_skill == "research-memory-retrieval"
-    assert outcome.specialist_mode == "reuse"
-    assert seeded["rerank_finding_id"] in outcome.capture_summary.reused_record_ids
+    assert outcome.specialist_mode == "insufficient_evidence"
+    assert outcome.capture_summary.stored_question_id is not None
+    assert outcome.capture_summary.stored_session_id is not None
     assert outcome.capture_summary.stored_report_id is None
-    assert outcome.summary_contract_passed is True
-    assert outcome.narrative_summary_md is not None
-    assert "## Knowledge To Reuse" in outcome.narrative_summary_md
-    assert "## Context To Carry Forward" in outcome.narrative_summary_md
-
-
-def test_implicit_capture_can_synthesize_memory_context_and_store_report(tmp_path: Path) -> None:
-    service = make_service(tmp_path)
-    seed_memory_retrieval(service)
-
-    outcome = run_implicit_research_capture(
-        "Research LLM memory retrieval optimization failure modes and mitigation context.",
-        backend=service,
-    )
-
-    assert outcome.specialized_skill == "research-memory-retrieval"
-    assert outcome.specialist_mode == "synthesis"
-    assert outcome.capture_summary.stored_report_id is not None
-    assert outcome.summary_contract_passed is True
-    assert outcome.narrative_summary_md is not None
-    assert "stale indexes" in outcome.narrative_summary_md.lower()
-    assert "reranking" in outcome.narrative_summary_md.lower()
-
-
-def test_implicit_capture_flushes_queue_before_specialist_run(tmp_path: Path) -> None:
-    service = make_service(tmp_path)
-    seed_memory_retrieval(service)
-    queue = CaptureQueue(tmp_path / "pending-research-captures.jsonl")
-    bundle = make_queue_bundle()
-    queue.enqueue(bundle)
-
-    outcome = run_implicit_research_capture(
-        "Research long-term memory structure for LLM agents.",
-        backend=service,
-        queue=queue,
-    )
-
-    assert outcome.capture_summary.flushed_queue_ids == [bundle.queue_id]
-    assert outcome.capture_summary.pending_queue_count == 0
-    assert queue.list_pending() == []
-    assert outcome.specialized_skill == "research-memory-retrieval"
-
-
-def test_implicit_capture_can_queue_specialist_gap_fill_when_backend_write_fails(tmp_path: Path) -> None:
-    service = make_service(tmp_path)
-    queue = CaptureQueue(tmp_path / "pending-research-captures.jsonl")
-
-    class FailingBackend:
-        def __init__(self, wrapped: RegistryService):
-            self.wrapped = wrapped
-
-        def backend_status(self):
-            return self.wrapped.backend_status()
-
-        def search(self, query: str, *, kind: str | None = None, include_private: bool = False, limit: int = 20):
-            return self.wrapped.search(query, kind=kind, include_private=include_private, limit=limit)
-
-        def create_run(self, payload):
-            raise RuntimeError("backend unavailable")
-
-        def get_source(self, source_id: str, include_private: bool = False):
-            return self.wrapped.get_source(source_id, include_private=include_private)
-
-        def get_annotation(self, annotation_id: str, include_private: bool = False):
-            return self.wrapped.get_annotation(annotation_id, include_private=include_private)
-
-        def get_finding(self, finding_id: str, include_private: bool = False):
-            return self.wrapped.get_finding(finding_id, include_private=include_private)
-
-        def get_report(self, report_id: str, include_private: bool = False):
-            return self.wrapped.get_report(report_id, include_private=include_private)
-
-        def create_annotation(self, payload):
-            raise RuntimeError("backend unavailable")
-
-        def create_finding(self, payload):
-            raise RuntimeError("backend unavailable")
-
-        def create_report(self, payload):
-            raise RuntimeError("backend unavailable")
-
-        def compile_report(self, payload):
-            raise RuntimeError("backend unavailable")
-
-        def publish(self, payload):
-            raise RuntimeError("backend unavailable")
-
-    outcome = run_implicit_research_capture(
-        "Research counterfactual retention scoring and temporal relevance metrics for long-term memory retrieval.",
-        backend=FailingBackend(service),
-        queue=queue,
-        gap_fill=optimization_gap_fill_bundle(),
-    )
-
-    assert outcome.specialized_skill == "research-memory-retrieval"
-    assert outcome.capture_summary.queued_bundle_id is not None
-    assert outcome.capture_summary.pending_queue_count == 1
-    pending = queue.list_pending()
-    assert len(pending) == 1
-    assert pending[0].queue_id == outcome.capture_summary.queued_bundle_id
-
-
-def test_implicit_capture_routes_inference_domain_through_specialist_harness(tmp_path: Path) -> None:
-    service = make_service(tmp_path)
-    seed_specialist_domains(service)
-
-    outcome = run_implicit_research_capture(
-        "Research LLM inference latency throughput tradeoffs and speculative decoding context.",
-        backend=service,
-    )
-
-    assert outcome.specialized_domain == "inference-optimization"
-    assert outcome.specialized_skill is None
-    assert outcome.specialist_mode == "synthesis"
-    assert outcome.capture_summary.stored_report_id is not None
-    assert outcome.summary_contract_passed is True
-    assert outcome.narrative_summary_md is not None
-    assert "acceptance rate" in outcome.narrative_summary_md.lower()
-
-
-def test_implicit_capture_routes_llm_evals_gap_fill(tmp_path: Path) -> None:
-    service = make_service(tmp_path)
-    seed_specialist_domains(service)
-
-    outcome = run_implicit_research_capture(
-        "Research audit sampling and online regression checks for LLM eval reliability.",
-        backend=service,
-        gap_fill=llm_evals_gap_fill_bundle(),
-    )
-
-    assert outcome.specialized_domain == "llm-evals"
-    assert outcome.specialist_mode == "gap_fill"
-    assert outcome.capture_summary.stored_run_id is not None
-    assert outcome.capture_summary.stored_report_id is not None
     assert outcome.summary_contract_passed is True

@@ -1,36 +1,34 @@
 {% extends "base.html" %}
-{% block title %}{{ source.title }}{% endblock %}
+{% block title %}Source{% endblock %}
 {% block content %}
-<section class="detail panel">
-  <div class="badge-row">
-    <span class="badge">{{ source.source_type }}</span>
-    <span class="badge">{{ source.visibility }}</span>
-    {% if source.snapshot_required and not source.snapshot_present %}<span class="badge stale">snapshot missing</span>{% endif %}
+<section class="hero compact detail">
+  <div>
+    <p class="eyebrow">Source</p>
+    <h1>{{ source.title }}</h1>
+    <p class="lede">{{ source.snippet or source.locator }}</p>
   </div>
-  <h1>{{ source.title }}</h1>
-  <p class="lede"><a href="{{ source.canonical_url }}">{{ source.canonical_url }}</a></p>
-  {% if source.snippet %}<p>{{ source.snippet }}</p>{% endif %}
   <dl class="meta-grid">
-    <dt>Site</dt><dd>{{ source.site_name or "n/a" }}</dd>
-    <dt>Author</dt><dd>{{ source.author or "n/a" }}</dd>
-    <dt>Snapshot</dt><dd>{% if source.snapshot_url %}<a href="{{ source.snapshot_url }}">{{ source.snapshot_url }}</a>{% else %}n/a{% endif %}</dd>
+    <dt>Locator</dt><dd>{{ source.locator }}</dd>
+    <dt>Type</dt><dd>{{ source.source_type }}</dd>
     <dt>Created</dt><dd>{{ source.created_at }}</dd>
+    <dt>Snapshot</dt><dd>{{ "present" if source.snapshot_present else "not captured" }}</dd>
   </dl>
 </section>
 
 <section class="panel">
   <div class="panel-head">
-    <h2>Linked Annotations</h2>
-    <span>{{ annotations|length }}</span>
+    <h2>Evidence Excerpts</h2>
+    <span>{{ excerpts|length }}</span>
   </div>
   <div class="stack">
-    {% for annotation in annotations %}
+    {% for excerpt in excerpts %}
     <article class="card">
-      <h3><a href="/annotations/{{ annotation.id }}">{{ annotation.subject }}</a></h3>
-      <p>{{ annotation.note }}</p>
+      <h3><a href="/excerpts/{{ excerpt.id }}">{{ excerpt.focal_label }}</a></h3>
+      <p>{{ excerpt.note }}</p>
+      <blockquote>{{ excerpt.quote_text }}</blockquote>
     </article>
     {% else %}
-    <p class="empty">No visible annotations link to this source.</p>
+    <p class="empty">No excerpts linked to this source.</p>
     {% endfor %}
   </div>
 </section>

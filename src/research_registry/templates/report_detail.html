@@ -1,30 +1,35 @@
 {% extends "base.html" %}
-{% block title %}{{ report.question }}{% endblock %}
+{% block title %}Report{% endblock %}
 {% block content %}
-<section class="detail panel">
-  <div class="badge-row">
-    <span class="badge">report</span>
-    <span class="badge">{{ report.visibility }}</span>
-    {% if report.human_reviewed %}<span class="badge reviewed">reviewed</span>{% endif %}
-    {% if report.is_stale %}<span class="badge stale">{{ report.staleness_reason }}</span>{% endif %}
+<section class="hero compact detail">
+  <div>
+    <p class="eyebrow">Report</p>
+    <h1>{{ report.title }}</h1>
+    <p class="lede">{{ report.focal_label }}</p>
   </div>
-  <h1>{{ report.question }}</h1>
-  <p class="lede">{{ report.subject }}</p>
-  <pre class="report-body">{{ report.summary_md }}</pre>
+  <dl class="meta-grid">
+    <dt>Question</dt><dd><a href="/questions/{{ question.id }}">{{ question.prompt }}</a></dd>
+    <dt>Created</dt><dd>{{ report.created_at }}</dd>
+    <dt>Claims</dt><dd>{{ report.claim_ids|length }}</dd>
+    <dt>Sources</dt><dd>{{ report.source_ids|length }}</dd>
+  </dl>
 </section>
 
 <section class="grid two-up">
   <div class="panel">
     <div class="panel-head">
-      <h2>Findings</h2>
-      <span>{{ findings|length }}</span>
+      <h2>Claims</h2>
+      <span>{{ claims|length }}</span>
     </div>
     <div class="stack">
-      {% for finding in findings %}
+      {% for claim in claims %}
       <article class="card">
-        <h3><a href="/findings/{{ finding.id }}">{{ finding.title }}</a></h3>
-        <p>{{ finding.claim }}</p>
+        <h3><a href="/claims/{{ claim.id }}">{{ claim.title }}</a></h3>
+        <p>{{ claim.statement }}</p>
+        <p class="muted">{{ claim.focal_label }} • {{ claim.excerpt_ids|length }} excerpt(s)</p>
       </article>
+      {% else %}
+      <p class="empty">No claims linked to this report.</p>
       {% endfor %}
     </div>
   </div>
@@ -37,10 +42,20 @@
       {% for source in sources.values() %}
       <article class="card">
         <h3><a href="/sources/{{ source.id }}">{{ source.title }}</a></h3>
-        <p class="muted"><a href="{{ source.canonical_url }}">{{ source.canonical_url }}</a></p>
+        <p>{{ source.snippet or source.locator }}</p>
+        <p class="muted">{{ source.source_type }}</p>
       </article>
+      {% else %}
+      <p class="empty">No sources linked to this report.</p>
       {% endfor %}
     </div>
   </div>
+</section>
+
+<section class="panel detail">
+  <div class="panel-head">
+    <h2>Stored Summary</h2>
+  </div>
+  <pre class="report-body">{{ report.summary_md }}</pre>
 </section>
 {% endblock %}

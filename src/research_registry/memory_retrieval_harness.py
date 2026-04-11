@@ -3,35 +3,28 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from . import mcp_server
-from .memory_retrieval_skill import MemoryRetrievalSkillHarness, optimization_gap_fill_bundle
-from .seed_memory_retrieval import seed_memory_retrieval
+from .research_capture import format_capture_summary, run_implicit_research_capture
 from .service import RegistryService
 
 
-def build_harness(db_path: Path) -> MemoryRetrievalSkillHarness:
+def build_service(db_path: Path) -> RegistryService:
     service = RegistryService(db_path)
     service.initialize()
-    seed_memory_retrieval(service)
-    mcp_server.service = service
-    return MemoryRetrievalSkillHarness(mcp_server)
+    return service
 
 
-def run_scenario(harness: MemoryRetrievalSkillHarness, scenario: str):
+def scenario_prompt(scenario: str) -> str:
     if scenario == "reuse-optimization":
-        return harness.research("Research LLM memory retrieval optimization and reranking precision.")
+        return "Research LLM memory retrieval optimization and reranking precision."
     if scenario == "synthesis-failures":
-        return harness.research("Research LLM memory retrieval optimization failure modes and mitigation context.")
+        return "Research LLM memory retrieval optimization failure modes and mitigation context."
     if scenario == "gap-fill-metrics":
-        return harness.research(
-            "Research optimization metrics for long-term memory retrieval.",
-            gap_fill=optimization_gap_fill_bundle(),
-        )
+        return "Research optimization metrics for long-term memory retrieval."
     raise ValueError(f"unknown scenario: {scenario}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the memory/retrieval specialist skill harness against the registry.")
+    parser = argparse.ArgumentParser(description="Run a memory/retrieval research scenario against the registry.")
     parser.add_argument(
         "--scenario",
         choices=["reuse-optimization", "synthesis-failures", "gap-fill-metrics"],
@@ -45,13 +38,14 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    harness = build_harness(Path(args.db_path))
-    result = run_scenario(harness, args.scenario)
+    service = build_service(Path(args.db_path))
+    result = run_implicit_research_capture(scenario_prompt(args.scenario), backend=service)
 
-    print(f"mode={result.mode}")
-    print(f"passed={result.summary_check.passed}")
-    print(f"created_report_id={result.created_report_id or 'none'}")
-    print(result.summary_md)
+    print(f"mode={result.specialist_mode}")
+    print(f"passed={result.summary_contract_passed}")
+    print(format_capture_summary(result.capture_summary))
+    if result.narrative_summary_md:
+        print(result.narrative_summary_md)
 
 
 if __name__ == "__main__":

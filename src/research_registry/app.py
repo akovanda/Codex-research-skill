@@ -6,26 +6,31 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
 from .config import Settings, load_settings
 from .models import (
-    AnnotationCreate,
     AuthContext,
     BackendStatus,
-    FindingCreate,
+    ClaimCreate,
+    ExcerptCreate,
     IndexStateRequest,
     PublishRequest,
+    QuestionCreate,
     ReportCreate,
-    ReportCompileCreate,
+    ResearchSessionCreate,
     ReviewRequest,
-    RunCreate,
     SearchResponse,
     SourceCreate,
 )
 from .service import RegistryService
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+
+
+class QuestionStatusUpdate(BaseModel):
+    status: str
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -86,46 +91,67 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         )
 
+    @app.get("/questions/{question_id}", response_class=HTMLResponse)
+    def question_detail(question_id: str, request: Request) -> HTMLResponse:
+        question = _safe_get(lambda: service.get_question(question_id, include_private=_is_admin(request)))
+        claims = service.list_claims_for_question(question.id, include_private=_is_admin(request))
+        reports = service.list_reports_for_question(question.id, include_private=_is_admin(request))
+        return TEMPLATES.TemplateResponse(
+            request,
+            "question_detail.html",
+            {"request": request, "question": question, "claims": claims, "reports": reports, "is_admin": _is_admin(request)},
+        )
+
     @app.get("/sources/{source_id}", response_class=HTMLResponse)
     def source_detail(source_id: str, request: Request) -> HTMLResponse:
         source = _safe_get(lambda: service.get_source(source_id, include_private=_is_admin(request)))
-        linked_annotations = [annotation for annotation in service.dashboard(include_private=_is_admin(request), limit=100).annotations if annotation.source_id == source.id]
+        excerpts = service.list_excerpts_for_source(source.id, include_private=_is_admin(request))
         return TEMPLATES.TemplateResponse(
             request,
             "source_detail.html",
-            {"request": request, "source": source, "annotations": linked_annotations, "is_admin": _is_admin(request)},
+            {"request": request, "source": source, "excerpts": excerpts, "is_admin": _is_admin(request)},
+        )
+
+    @app.get("/excerpts/{excerpt_id}", response_class=HTMLResponse)
+    def excerpt_detail(excerpt_id: str, request: Request) -> HTMLResponse:
+        excerpt = _safe_get(lambda: service.get_excerpt(excerpt_id, include_private=_is_admin(request)))
+        source = service.get_source(excerpt.source_id, include_private=True)
+        return TEMPLATES.TemplateResponse(
+            request,
+            "excerpt_detail.html",
+            {"request": request, "excerpt": excerpt, "source": source, "is_admin": _is_admin(request)},
         )
 
     @app.get("/annotations/{annotation_id}", response_class=HTMLResponse)
     def annotation_detail(annotation_id: str, request: Request) -> HTMLResponse:
-        annotation = _safe_get(lambda: service.get_annotation(annotation_id, include_private=_is_admin(request)))
-        source = service.get_source(annotation.source_id, include_private=True)
+        return excerpt_detail(annotation_id, request)
+
+    @app.get("/claims/{claim_id}", response_class=HTMLResponse)
+    def claim_detail(claim_id: str, request: Request) -> HTMLResponse:
+        claim = _safe_get(lambda: service.get_claim(claim_id, include_private=_is_admin(request)))
+        excerpts = service.list_excerpts_for_claim(claim.id, include_private=True)
+        sources = {excerpt.source_id: service.get_source(excerpt.source_id, include_private=True) for excerpt in excerpts}
+        question = service.get_question(claim.question_id, include_private=True)
         return TEMPLATES.TemplateResponse(
             request,
-            "annotation_detail.html",
-            {"request": request, "annotation": annotation, "source": source, "is_admin": _is_admin(request)},
+            "claim_detail.html",
+            {"request": request, "claim": claim, "question": question, "excerpts": excerpts, "sources": sources, "is_admin": _is_admin(request)},
         )
 
     @app.get("/findings/{finding_id}", response_class=HTMLResponse)
     def finding_detail(finding_id: str, request: Request) -> HTMLResponse:
-        finding = _safe_get(lambda: service.get_finding(finding_id, include_private=_is_admin(request)))
-        annotations = [service.get_annotation(annotation_id, include_private=True) for annotation_id in finding.annotation_ids]
-        sources = {annotation.source_id: service.get_source(annotation.source_id, include_private=True) for annotation in annotations}
-        return TEMPLATES.TemplateResponse(
-            request,
-            "finding_detail.html",
-            {"request": request, "finding": finding, "annotations": annotations, "sources": sources, "is_admin": _is_admin(request)},
-        )
+        return claim_detail(finding_id, request)
 
     @app.get("/reports/{report_id}", response_class=HTMLResponse)
     def report_detail(report_id: str, request: Request) -> HTMLResponse:
         report = _safe_get(lambda: service.get_report(report_id, include_private=_is_admin(request)))
-        findings = [service.get_finding(finding_id, include_private=True) for finding_id in report.finding_ids]
+        question = service.get_question(report.question_id, include_private=True)
+        claims = [service.get_claim(claim_id, include_private=True) for claim_id in report.claim_ids]
         sources = {source_id: service.get_source(source_id, include_private=True) for source_id in report.source_ids}
         return TEMPLATES.TemplateResponse(
             request,
             "report_detail.html",
-            {"request": request, "report": report, "findings": findings, "sources": sources, "is_admin": _is_admin(request)},
+            {"request": request, "report": report, "question": question, "claims": claims, "sources": sources, "is_admin": _is_admin(request)},
         )
 
     @app.get("/admin/login", response_class=HTMLResponse)
@@ -205,49 +231,72 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         )
 
+    @app.get("/api/questions/{question_id}")
+    def api_get_question(question_id: str, request: Request, include_private: bool = False):
+        auth = _optional_auth(request)
+        return _safe_get(lambda: service.get_question(question_id, include_private=include_private and auth is not None, auth=auth))
+
+    @app.post("/api/questions")
+    def api_create_question(payload: QuestionCreate, auth: AuthContext = Depends(_ingest_guard)):
+        return service.create_question(payload, auth=auth)
+
+    @app.post("/api/questions/{question_id}/status")
+    def api_set_question_status(question_id: str, payload: QuestionStatusUpdate, auth: AuthContext = Depends(_ingest_guard)):
+        service.set_question_status(question_id, payload.status)
+        return {"status": "ok"}
+
+    @app.get("/api/sessions/{session_id}")
+    def api_get_session(session_id: str, request: Request, include_private: bool = False):
+        auth = _optional_auth(request)
+        return _safe_get(lambda: service.get_session(session_id, include_private=include_private and auth is not None, auth=auth))
+
+    @app.post("/api/sessions")
+    def api_create_session(payload: ResearchSessionCreate, auth: AuthContext = Depends(_ingest_guard)):
+        return service.create_session(payload, auth=auth)
+
     @app.get("/api/sources/{source_id}")
     def api_get_source(source_id: str, request: Request, include_private: bool = False):
         auth = _optional_auth(request)
         return _safe_get(lambda: service.get_source(source_id, include_private=include_private and auth is not None, auth=auth))
 
+    @app.post("/api/sources")
+    def api_create_source(payload: SourceCreate, auth: AuthContext = Depends(_ingest_guard)):
+        return service.create_source(payload, auth=auth)
+
+    @app.get("/api/excerpts/{excerpt_id}")
+    def api_get_excerpt(excerpt_id: str, request: Request, include_private: bool = False):
+        auth = _optional_auth(request)
+        return _safe_get(lambda: service.get_excerpt(excerpt_id, include_private=include_private and auth is not None, auth=auth))
+
     @app.get("/api/annotations/{annotation_id}")
     def api_get_annotation(annotation_id: str, request: Request, include_private: bool = False):
+        return api_get_excerpt(annotation_id, request, include_private=include_private)
+
+    @app.post("/api/excerpts")
+    def api_create_excerpt(payload: ExcerptCreate, auth: AuthContext = Depends(_ingest_guard)):
+        return service.create_excerpt(payload, auth=auth)
+
+    @app.get("/api/claims/{claim_id}")
+    def api_get_claim(claim_id: str, request: Request, include_private: bool = False):
         auth = _optional_auth(request)
-        return _safe_get(lambda: service.get_annotation(annotation_id, include_private=include_private and auth is not None, auth=auth))
+        return _safe_get(lambda: service.get_claim(claim_id, include_private=include_private and auth is not None, auth=auth))
 
     @app.get("/api/findings/{finding_id}")
     def api_get_finding(finding_id: str, request: Request, include_private: bool = False):
-        auth = _optional_auth(request)
-        return _safe_get(lambda: service.get_finding(finding_id, include_private=include_private and auth is not None, auth=auth))
+        return api_get_claim(finding_id, request, include_private=include_private)
+
+    @app.post("/api/claims")
+    def api_create_claim(payload: ClaimCreate, auth: AuthContext = Depends(_ingest_guard)):
+        return service.create_claim(payload, auth=auth)
 
     @app.get("/api/reports/{report_id}")
     def api_get_report(report_id: str, request: Request, include_private: bool = False):
         auth = _optional_auth(request)
         return _safe_get(lambda: service.get_report(report_id, include_private=include_private and auth is not None, auth=auth))
 
-    @app.post("/api/runs")
-    def api_create_run(payload: RunCreate, auth: AuthContext = Depends(_ingest_guard)):
-        return service.create_run(payload, auth=auth)
-
-    @app.post("/api/sources")
-    def api_create_source(payload: SourceCreate, auth: AuthContext = Depends(_ingest_guard)):
-        return service.create_source(payload, auth=auth)
-
-    @app.post("/api/annotations")
-    def api_create_annotation(payload: AnnotationCreate, auth: AuthContext = Depends(_ingest_guard)):
-        return service.create_annotation(payload, auth=auth)
-
-    @app.post("/api/findings")
-    def api_create_finding(payload: FindingCreate, auth: AuthContext = Depends(_ingest_guard)):
-        return service.create_finding(payload, auth=auth)
-
     @app.post("/api/reports")
     def api_create_report(payload: ReportCreate, auth: AuthContext = Depends(_ingest_guard)):
         return service.create_report(payload, auth=auth)
-
-    @app.post("/api/reports/compile")
-    def api_compile_report(payload: ReportCompileCreate, auth: AuthContext = Depends(_ingest_guard)):
-        return service.compile_report(payload, auth=auth)
 
     @app.post("/api/publish")
     def api_publish(payload: PublishRequest, auth: AuthContext = Depends(_publish_guard)):
@@ -321,17 +370,21 @@ def _require_auth(request: Request, scope: str | None = None) -> AuthContext:
     return auth
 
 
-def _admin_guard(request: Request) -> AuthContext:
-    _require_admin(request)
-    return _admin_auth()
-
-
 def _ingest_guard(request: Request) -> AuthContext:
     return _require_auth(request, "ingest")
 
 
 def _publish_guard(request: Request) -> AuthContext:
     return _require_auth(request, "publish")
+
+
+def _admin_guard(request: Request) -> AuthContext:
+    auth = _optional_auth(request)
+    if auth is None:
+        raise HTTPException(status_code=401, detail="admin token required")
+    if not auth.is_admin:
+        raise HTTPException(status_code=403, detail="admin scope required")
+    return auth
 
 
 app = create_app()

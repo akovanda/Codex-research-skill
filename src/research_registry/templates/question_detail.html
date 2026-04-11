@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Question{% endblock %}
+{% block content %}
+<section class="hero compact detail">
+  <div>
+    <p class="eyebrow">Question</p>
+    <h1>{{ question.prompt }}</h1>
+    <p class="lede">{{ question.focus.label }}</p>
+  </div>
+  <dl class="meta-grid">
+    <dt>Status</dt><dd>{{ question.status }}</dd>
+    <dt>Created</dt><dd>{{ question.created_at }}</dd>
+    <dt>Topic</dt><dd>{{ question.topic_id }}</dd>
+    <dt>Latest Report</dt><dd>{{ question.latest_report_id or "none" }}</dd>
+  </dl>
+</section>
+
+<section class="grid two-up">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Reports</h2>
+      <span>{{ reports|length }}</span>
+    </div>
+    <div class="stack">
+      {% for report in reports %}
+      <article class="card">
+        <h3><a href="/reports/{{ report.id }}">{{ report.title }}</a></h3>
+        <p>{{ report.focal_label }}</p>
+        <p class="muted">{{ report.claim_ids|length }} claim(s)</p>
+      </article>
+      {% else %}
+      <p class="empty">No reports for this question.</p>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Claims</h2>
+      <span>{{ claims|length }}</span>
+    </div>
+    <div class="stack">
+      {% for claim in claims %}
+      <article class="card">
+        <h3><a href="/claims/{{ claim.id }}">{{ claim.title }}</a></h3>
+        <p>{{ claim.statement }}</p>
+        <p class="muted">{{ claim.status }} • {{ claim.excerpt_ids|length }} excerpt(s)</p>
+      </article>
+      {% else %}
+      <p class="empty">No claims for this question.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -7,18 +7,20 @@ import httpx
 from .backend_selection import load_backend_profiles, resolve_backend
 from .config import Settings
 from .models import (
-    AnnotationCreate,
-    AnnotationRecord,
     BackendStatus,
-    FindingCreate,
-    FindingRecord,
+    ClaimCreate,
+    ClaimRecord,
+    ExcerptCreate,
+    ExcerptRecord,
     PublishRequest,
+    QuestionCreate,
+    QuestionRecord,
     ReportCreate,
-    ReportCompileCreate,
     ReportRecord,
-    RunCreate,
-    RunRecord,
+    ResearchSessionCreate,
+    ResearchSessionRecord,
     SearchResponse,
+    SourceCreate,
     SourceRecord,
 )
 from .service import RegistryService
@@ -26,15 +28,18 @@ from .service import RegistryService
 
 class RegistryBackend(Protocol):
     def search(self, query: str, *, kind: str | None = None, include_private: bool = False, limit: int = 20) -> SearchResponse: ...
+    def get_question(self, question_id: str, include_private: bool = False) -> QuestionRecord: ...
     def get_source(self, source_id: str, include_private: bool = False) -> SourceRecord: ...
-    def get_annotation(self, annotation_id: str, include_private: bool = False) -> AnnotationRecord: ...
-    def get_finding(self, finding_id: str, include_private: bool = False) -> FindingRecord: ...
+    def get_excerpt(self, excerpt_id: str, include_private: bool = False) -> ExcerptRecord: ...
+    def get_claim(self, claim_id: str, include_private: bool = False) -> ClaimRecord: ...
     def get_report(self, report_id: str, include_private: bool = False) -> ReportRecord: ...
-    def create_run(self, payload: RunCreate) -> RunRecord: ...
-    def create_annotation(self, payload: AnnotationCreate) -> AnnotationRecord: ...
-    def create_finding(self, payload: FindingCreate) -> FindingRecord: ...
+    def create_question(self, payload: QuestionCreate) -> QuestionRecord: ...
+    def create_session(self, payload: ResearchSessionCreate) -> ResearchSessionRecord: ...
+    def create_source(self, payload: SourceCreate) -> SourceRecord: ...
+    def create_excerpt(self, payload: ExcerptCreate) -> ExcerptRecord: ...
+    def create_claim(self, payload: ClaimCreate) -> ClaimRecord: ...
     def create_report(self, payload: ReportCreate) -> ReportRecord: ...
-    def compile_report(self, payload: ReportCompileCreate) -> ReportRecord: ...
+    def set_question_status(self, question_id: str, status: str) -> None: ...
     def publish(self, payload: PublishRequest) -> None: ...
     def backend_status(self) -> BackendStatus: ...
 
@@ -53,36 +58,46 @@ class RegistryApiClient:
         )
         return SearchResponse.model_validate(payload)
 
+    def get_question(self, question_id: str, include_private: bool = False) -> QuestionRecord:
+        payload = self._request("GET", f"/api/questions/{question_id}", params={"include_private": str(include_private).lower()})
+        return QuestionRecord.model_validate(payload)
+
     def get_source(self, source_id: str, include_private: bool = False) -> SourceRecord:
         payload = self._request("GET", f"/api/sources/{source_id}", params={"include_private": str(include_private).lower()})
         return SourceRecord.model_validate(payload)
 
-    def get_annotation(self, annotation_id: str, include_private: bool = False) -> AnnotationRecord:
-        payload = self._request("GET", f"/api/annotations/{annotation_id}", params={"include_private": str(include_private).lower()})
-        return AnnotationRecord.model_validate(payload)
+    def get_excerpt(self, excerpt_id: str, include_private: bool = False) -> ExcerptRecord:
+        payload = self._request("GET", f"/api/excerpts/{excerpt_id}", params={"include_private": str(include_private).lower()})
+        return ExcerptRecord.model_validate(payload)
 
-    def get_finding(self, finding_id: str, include_private: bool = False) -> FindingRecord:
-        payload = self._request("GET", f"/api/findings/{finding_id}", params={"include_private": str(include_private).lower()})
-        return FindingRecord.model_validate(payload)
+    def get_claim(self, claim_id: str, include_private: bool = False) -> ClaimRecord:
+        payload = self._request("GET", f"/api/claims/{claim_id}", params={"include_private": str(include_private).lower()})
+        return ClaimRecord.model_validate(payload)
 
     def get_report(self, report_id: str, include_private: bool = False) -> ReportRecord:
         payload = self._request("GET", f"/api/reports/{report_id}", params={"include_private": str(include_private).lower()})
         return ReportRecord.model_validate(payload)
 
-    def create_run(self, payload: RunCreate) -> RunRecord:
-        return RunRecord.model_validate(self._request("POST", "/api/runs", json=payload.model_dump(mode="json")))
+    def create_question(self, payload: QuestionCreate) -> QuestionRecord:
+        return QuestionRecord.model_validate(self._request("POST", "/api/questions", json=payload.model_dump(mode="json")))
 
-    def create_annotation(self, payload: AnnotationCreate) -> AnnotationRecord:
-        return AnnotationRecord.model_validate(self._request("POST", "/api/annotations", json=payload.model_dump(mode="json")))
+    def create_session(self, payload: ResearchSessionCreate) -> ResearchSessionRecord:
+        return ResearchSessionRecord.model_validate(self._request("POST", "/api/sessions", json=payload.model_dump(mode="json")))
 
-    def create_finding(self, payload: FindingCreate) -> FindingRecord:
-        return FindingRecord.model_validate(self._request("POST", "/api/findings", json=payload.model_dump(mode="json")))
+    def create_source(self, payload: SourceCreate) -> SourceRecord:
+        return SourceRecord.model_validate(self._request("POST", "/api/sources", json=payload.model_dump(mode="json")))
+
+    def create_excerpt(self, payload: ExcerptCreate) -> ExcerptRecord:
+        return ExcerptRecord.model_validate(self._request("POST", "/api/excerpts", json=payload.model_dump(mode="json")))
+
+    def create_claim(self, payload: ClaimCreate) -> ClaimRecord:
+        return ClaimRecord.model_validate(self._request("POST", "/api/claims", json=payload.model_dump(mode="json")))
 
     def create_report(self, payload: ReportCreate) -> ReportRecord:
         return ReportRecord.model_validate(self._request("POST", "/api/reports", json=payload.model_dump(mode="json")))
 
-    def compile_report(self, payload: ReportCompileCreate) -> ReportRecord:
-        return ReportRecord.model_validate(self._request("POST", "/api/reports/compile", json=payload.model_dump(mode="json")))
+    def set_question_status(self, question_id: str, status: str) -> None:
+        self._request("POST", f"/api/questions/{question_id}/status", json={"status": status})
 
     def publish(self, payload: PublishRequest) -> None:
         self._request("POST", "/api/publish", json=payload.model_dump(mode="json"))

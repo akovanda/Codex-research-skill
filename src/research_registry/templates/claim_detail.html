@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Claim{% endblock %}
+{% block content %}
+<section class="hero compact detail">
+  <div>
+    <p class="eyebrow">Claim</p>
+    <h1>{{ claim.title }}</h1>
+    <p class="lede">{{ claim.statement }}</p>
+  </div>
+  <dl class="meta-grid">
+    <dt>Focus</dt><dd>{{ claim.focal_label }}</dd>
+    <dt>Status</dt><dd>{{ claim.status }}</dd>
+    <dt>Confidence</dt><dd>{{ "%.2f"|format(claim.confidence) }}</dd>
+    <dt>Question</dt><dd><a href="/questions/{{ question.id }}">{{ question.prompt }}</a></dd>
+  </dl>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Evidence Excerpts</h2>
+    <span>{{ excerpts|length }}</span>
+  </div>
+  <div class="stack">
+    {% for excerpt in excerpts %}
+    <article class="card">
+      <h3><a href="/excerpts/{{ excerpt.id }}">{{ sources[excerpt.source_id].title }}</a></h3>
+      <p>{{ excerpt.note }}</p>
+      <blockquote>{{ excerpt.quote_text }}</blockquote>
+      <p class="muted">{{ excerpt.selector.deep_link or sources[excerpt.source_id].locator }}</p>
+    </article>
+    {% else %}
+    <p class="empty">No excerpts linked to this claim.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

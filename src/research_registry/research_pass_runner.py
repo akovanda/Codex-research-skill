@@ -8,16 +8,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from .memory_retrieval_skill import optimization_gap_fill_bundle
 from .research_capture import run_implicit_research_capture
 from .research_pass_suite import ResearchPassSpec, load_research_pass_suite
-from .seed_memory_retrieval import seed_memory_retrieval
 from .service import RegistryService
-from .specialist_domains import (
-    inference_optimization_gap_fill_bundle,
-    llm_evals_gap_fill_bundle,
-    seed_specialist_domains,
-)
 
 
 class ResearchPassExecution(BaseModel):
@@ -32,13 +25,13 @@ class ResearchPassExecution(BaseModel):
     specialist_mode: str | None
     summary_contract_passed: bool | None
     reused_record_count: int
-    stored_annotation_count: int
-    stored_finding_count: int
+    stored_source_count: int
+    stored_excerpt_count: int
+    stored_claim_count: int
     stored_report: bool
-    queued: bool
-    stored_run_id: str | None
+    stored_question_id: str | None
+    stored_session_id: str | None
     stored_report_id: str | None
-    queued_bundle_id: str | None
     narrative_preview: str | None = None
 
 
@@ -50,7 +43,7 @@ class ResearchPassRoundSummary(BaseModel):
     contract_pass_rate: float
     reused_records: int
     stored_reports: int
-    queued_passes: int
+    insufficient_evidence_passes: int
 
 
 class ResearchPassTransition(BaseModel):
@@ -66,20 +59,10 @@ class ResearchPassRunReport(BaseModel):
     generated_at: datetime
     db_path: str
     rounds: int
-    seeded_domains: list[str]
+    source_contexts: list[str]
     executions: list[ResearchPassExecution]
     round_summaries: list[ResearchPassRoundSummary]
     transitions: list[ResearchPassTransition] = Field(default_factory=list)
-
-
-def _gap_fill_for_domain(domain: str | None):
-    if domain == "memory-retrieval":
-        return optimization_gap_fill_bundle()
-    if domain == "inference-optimization":
-        return inference_optimization_gap_fill_bundle()
-    if domain == "llm-evals":
-        return llm_evals_gap_fill_bundle()
-    return None
 
 
 def _preview(summary_md: str | None) -> str | None:
@@ -97,8 +80,6 @@ def build_seeded_service(db_path: Path, *, reset: bool = False) -> RegistryServi
         db_path.unlink()
     service = RegistryService(db_path)
     service.initialize()
-    seed_memory_retrieval(service)
-    seed_specialist_domains(service)
     return service
 
 
@@ -107,6 +88,7 @@ def execute_passes(
     specs: list[ResearchPassSpec],
     *,
     rounds: int = 2,
+    source_roots: list[Path] | None = None,
 ) -> ResearchPassRunReport:
     executions: list[ResearchPassExecution] = []
     round_summaries: list[ResearchPassRoundSummary] = []
@@ -114,13 +96,11 @@ def execute_passes(
     for round_index in range(1, rounds + 1):
         round_rows: list[ResearchPassExecution] = []
         for spec in specs:
-            gap_fill = None
-            if round_index == 1 and spec.expected_initial_outcome == "gap_fill":
-                gap_fill = _gap_fill_for_domain(spec.expected_domain)
             outcome = run_implicit_research_capture(
                 spec.prompt,
                 backend=service,
-                gap_fill=gap_fill,
+                source_signals=spec.source_signals,
+                source_roots=source_roots,
             )
             row = ResearchPassExecution(
                 round_index=round_index,
@@ -134,13 +114,13 @@ def execute_passes(
                 specialist_mode=outcome.specialist_mode,
                 summary_contract_passed=outcome.summary_contract_passed,
                 reused_record_count=len(outcome.capture_summary.reused_record_ids),
-                stored_annotation_count=len(outcome.capture_summary.stored_annotation_ids),
-                stored_finding_count=len(outcome.capture_summary.stored_finding_ids),
+                stored_source_count=len(outcome.capture_summary.stored_source_ids),
+                stored_excerpt_count=len(outcome.capture_summary.stored_excerpt_ids),
+                stored_claim_count=len(outcome.capture_summary.stored_claim_ids),
                 stored_report=outcome.capture_summary.stored_report_id is not None,
-                queued=outcome.capture_summary.queued_bundle_id is not None,
-                stored_run_id=outcome.capture_summary.stored_run_id,
+                stored_question_id=outcome.capture_summary.stored_question_id,
+                stored_session_id=outcome.capture_summary.stored_session_id,
                 stored_report_id=outcome.capture_summary.stored_report_id,
-                queued_bundle_id=outcome.capture_summary.queued_bundle_id,
                 narrative_preview=_preview(outcome.narrative_summary_md),
             )
             executions.append(row)
@@ -158,7 +138,7 @@ def execute_passes(
                 contract_pass_rate=contract_passes / len(round_rows) if round_rows else 0.0,
                 reused_records=sum(row.reused_record_count for row in round_rows),
                 stored_reports=sum(1 for row in round_rows if row.stored_report),
-                queued_passes=sum(1 for row in round_rows if row.queued),
+                insufficient_evidence_passes=sum(1 for row in round_rows if row.specialist_mode == "insufficient_evidence"),
             )
         )
 
@@ -186,7 +166,7 @@ def execute_passes(
         generated_at=datetime.now(timezone.utc),
         db_path=str(service.db_path),
         rounds=rounds,
-        seeded_domains=["memory-retrieval", "inference-optimization", "llm-evals"],
+        source_contexts=sorted({signal.split(":", 1)[0] for spec in specs for signal in spec.source_signals if ":" in signal}),
         executions=executions,
         round_summaries=round_summaries,
         transitions=transitions,
@@ -200,7 +180,7 @@ def render_report_markdown(report: ResearchPassRunReport) -> str:
         f"- Generated at: {report.generated_at.isoformat()}",
         f"- Database: `{report.db_path}`",
         f"- Rounds: {report.rounds}",
-        f"- Seeded domains: {', '.join(report.seeded_domains)}",
+        f"- Source contexts: {', '.join(report.source_contexts)}",
         "",
         "## Round Summaries",
         "",
@@ -214,7 +194,7 @@ def render_report_markdown(report: ResearchPassRunReport) -> str:
         lines.append(f"- Summary contract pass rate: {summary.contract_pass_rate:.2f}")
         lines.append(f"- Reused record count: {summary.reused_records}")
         lines.append(f"- Stored reports: {summary.stored_reports}")
-        lines.append(f"- Queued passes: {summary.queued_passes}")
+        lines.append(f"- Insufficient-evidence passes: {summary.insufficient_evidence_passes}")
         lines.append("")
     if report.transitions:
         lines.append("## Round 1 -> Round 2 Transitions")
@@ -239,8 +219,12 @@ def render_report_markdown(report: ResearchPassRunReport) -> str:
         lines.append(f"- Actual domain: {row.actual_domain or 'generic'}")
         lines.append(f"- Mode: {row.specialist_mode or 'none'}")
         lines.append(f"- Reused records: {row.reused_record_count}")
+        lines.append(f"- Stored sources: {row.stored_source_count}")
+        lines.append(f"- Stored excerpts: {row.stored_excerpt_count}")
+        lines.append(f"- Stored claims: {row.stored_claim_count}")
         lines.append(f"- Stored report: {row.stored_report}")
-        lines.append(f"- Stored run id: {row.stored_run_id or 'none'}")
+        lines.append(f"- Stored question id: {row.stored_question_id or 'none'}")
+        lines.append(f"- Stored session id: {row.stored_session_id or 'none'}")
         lines.append(f"- Stored report id: {row.stored_report_id or 'none'}")
         lines.append(f"- Summary contract passed: {row.summary_contract_passed}")
         if row.narrative_preview:
@@ -265,7 +249,7 @@ def main() -> None:
     parser.add_argument(
         "--reset",
         action="store_true",
-        help="Delete the existing runner database before seeding and execution.",
+        help="Delete the existing runner database before execution.",
     )
     parser.add_argument(
         "--json-out",
@@ -279,40 +263,32 @@ def main() -> None:
         "--format",
         choices=["summary", "json", "markdown"],
         default="summary",
-        help="Console output format.",
+        help="How to print the report to stdout.",
     )
     args = parser.parse_args()
 
-    specs = load_research_pass_suite()
     service = build_seeded_service(Path(args.db_path), reset=args.reset)
+    specs = load_research_pass_suite()
     report = execute_passes(service, specs, rounds=args.rounds)
 
     if args.json_out:
-        Path(args.json_out).write_text(json.dumps(report.model_dump(mode="json"), indent=2) + "\n")
+        json_path = Path(args.json_out)
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+
     if args.markdown_out:
-        Path(args.markdown_out).write_text(render_report_markdown(report))
+        markdown_path = Path(args.markdown_out)
+        markdown_path.parent.mkdir(parents=True, exist_ok=True)
+        markdown_path.write_text(render_report_markdown(report), encoding="utf-8")
 
     if args.format == "json":
-        print(json.dumps(report.model_dump(mode="json"), indent=2))
-        return
-    if args.format == "markdown":
+        print(report.model_dump_json(indent=2))
+    elif args.format == "markdown":
         print(render_report_markdown(report), end="")
-        return
-
-    for summary in report.round_summaries:
-        print(f"round={summary.round_index}")
-        print(f"total_passes={summary.total_passes}")
-        print(f"domain_counts={json.dumps(summary.domain_counts, sort_keys=True)}")
-        print(f"mode_counts={json.dumps(summary.mode_counts, sort_keys=True)}")
-        print(f"contract_pass_rate={summary.contract_pass_rate:.2f}")
-        print(f"reused_records={summary.reused_records}")
-        print(f"stored_reports={summary.stored_reports}")
-        print(f"queued_passes={summary.queued_passes}")
-    if report.transitions:
-        changed = sum(1 for item in report.transitions if item.mode_changed)
-        reused_later = sum(1 for item in report.transitions if not item.reused_on_round_1 and item.reused_on_round_2)
-        print(f"mode_changes={changed}")
-        print(f"new_reuse_on_round_2={reused_later}")
+    else:
+        latest = report.round_summaries[-1]
+        print(f"rounds={report.rounds} passes={latest.total_passes} mode_counts={json.dumps(latest.mode_counts, sort_keys=True)}")
+        print(f"contract_pass_rate={latest.contract_pass_rate:.2f} reused={latest.reused_records} stored_reports={latest.stored_reports}")
 
 
 if __name__ == "__main__":

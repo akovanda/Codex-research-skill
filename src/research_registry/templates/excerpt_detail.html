@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Excerpt{% endblock %}
+{% block content %}
+<section class="hero compact detail">
+  <div>
+    <p class="eyebrow">Excerpt</p>
+    <h1>{{ excerpt.focal_label }}</h1>
+    <p class="lede">{{ excerpt.note }}</p>
+  </div>
+  <dl class="meta-grid">
+    <dt>Source</dt><dd><a href="/sources/{{ source.id }}">{{ source.title }}</a></dd>
+    <dt>Confidence</dt><dd>{{ "%.2f"|format(excerpt.confidence) }}</dd>
+    <dt>Created</dt><dd>{{ excerpt.created_at }}</dd>
+    <dt>Deep Link</dt><dd>{{ excerpt.selector.deep_link or source.locator }}</dd>
+  </dl>
+</section>
+
+<section class="panel detail">
+  <div class="panel-head">
+    <h2>Quoted Evidence</h2>
+  </div>
+  <blockquote>{{ excerpt.quote_text }}</blockquote>
+</section>
+{% endblock %}

@@ -2,32 +2,44 @@
 {% block title %}Workspace{% endblock %}
 {% block content %}
 <section class="hero compact">
-  <p class="eyebrow">Admin Workspace</p>
-  <h1>Review private research before publishing it.</h1>
+  <div>
+    <p class="eyebrow">Workspace</p>
+    <h1>Private Research Memory</h1>
+    <p class="lede">Inspect private questions, claims, reports, and evidence before deciding what to publish.</p>
+  </div>
   <form class="search-bar" action="/admin" method="get">
-    <input type="search" name="q" value="{{ results.query }}" placeholder="Search all private and public research">
+    <input type="search" name="q" value="{{ results.query }}" placeholder="Search private research memory...">
     <button type="submit">Search</button>
   </form>
-  <form action="/admin/logout" method="post">
-    <button class="ghost" type="submit">Log out</button>
+  <form action="/admin/logout" method="post" class="action-row">
+    <button type="submit" class="ghost">Log Out</button>
   </form>
 </section>
 
 {% if results.query %}
 <section class="panel">
   <div class="panel-head">
-    <h2>All Results</h2>
-    <span>{{ results.hits|length }}</span>
+    <h2>Search Results</h2>
+    <span>{{ results.hits|length }} hit(s)</span>
   </div>
   <div class="stack">
     {% for hit in results.hits %}
     <article class="card">
       <div class="badge-row">
         <span class="badge">{{ hit.kind }}</span>
-        <span class="badge">{{ hit.visibility }}</span>
+        {% if hit.human_reviewed %}<span class="badge reviewed">reviewed</span>{% endif %}
       </div>
       <h3><a href="{{ hit.url }}">{{ hit.title }}</a></h3>
       <p>{{ hit.summary }}</p>
+      <p class="muted">{{ hit.subject }}</p>
+      <div class="action-row">
+        <form action="/admin/{{ hit.kind }}/{{ hit.id }}/review" method="post">
+          <button type="submit" class="ghost">Mark Reviewed</button>
+        </form>
+        <form action="/admin/{{ hit.kind }}/{{ hit.id }}/publish" method="post">
+          <button type="submit">Publish</button>
+        </form>
+      </div>
     </article>
     {% endfor %}
   </div>
@@ -37,46 +49,35 @@
 <section class="grid three-up">
   <div class="panel">
     <div class="panel-head">
-      <h2>Annotations</h2>
-      <span>{{ dashboard.annotations|length }}</span>
+      <h2>Questions</h2>
+      <span>{{ dashboard.questions|length }}</span>
     </div>
     <div class="stack">
-      {% for annotation in dashboard.annotations %}
+      {% for question in dashboard.questions %}
       <article class="card">
-        <div class="badge-row">
-          <span class="badge">{{ annotation.visibility }}</span>
-          {% if annotation.human_reviewed %}<span class="badge reviewed">reviewed</span>{% endif %}
-          {% if annotation.is_stale %}<span class="badge stale">{{ annotation.staleness_reason }}</span>{% endif %}
-        </div>
-        <h3><a href="/annotations/{{ annotation.id }}">{{ annotation.subject }}</a></h3>
-        <p>{{ annotation.note }}</p>
-        <div class="action-row">
-          <form action="/admin/annotation/{{ annotation.id }}/review" method="post"><button type="submit">Mark reviewed</button></form>
-          {% if annotation.visibility == "private" %}<form action="/admin/annotation/{{ annotation.id }}/publish" method="post"><button type="submit">Publish</button></form>{% endif %}
-        </div>
+        <h3><a href="/questions/{{ question.id }}">{{ question.prompt }}</a></h3>
+        <p>{{ question.focus.label }}</p>
+        <p class="muted">{{ question.status }}</p>
       </article>
+      {% else %}
+      <p class="empty">No stored questions.</p>
       {% endfor %}
     </div>
   </div>
   <div class="panel">
     <div class="panel-head">
-      <h2>Findings</h2>
-      <span>{{ dashboard.findings|length }}</span>
+      <h2>Claims</h2>
+      <span>{{ dashboard.claims|length }}</span>
     </div>
     <div class="stack">
-      {% for finding in dashboard.findings %}
+      {% for claim in dashboard.claims %}
       <article class="card">
-        <div class="badge-row">
-          <span class="badge">{{ finding.visibility }}</span>
-          {% if finding.human_reviewed %}<span class="badge reviewed">reviewed</span>{% endif %}
-        </div>
-        <h3><a href="/findings/{{ finding.id }}">{{ finding.title }}</a></h3>
-        <p>{{ finding.claim }}</p>
-        <div class="action-row">
-          <form action="/admin/finding/{{ finding.id }}/review" method="post"><button type="submit">Mark reviewed</button></form>
-          {% if finding.visibility == "private" %}<form action="/admin/finding/{{ finding.id }}/publish" method="post"><button type="submit">Publish</button></form>{% endif %}
-        </div>
+        <h3><a href="/claims/{{ claim.id }}">{{ claim.title }}</a></h3>
+        <p>{{ claim.statement }}</p>
+        <p class="muted">{{ claim.focal_label }}</p>
       </article>
+      {% else %}
+      <p class="empty">No stored claims.</p>
       {% endfor %}
     </div>
   </div>
@@ -88,18 +89,12 @@
     <div class="stack">
       {% for report in dashboard.reports %}
       <article class="card">
-        <div class="badge-row">
-          <span class="badge">{{ report.visibility }}</span>
-          {% if report.human_reviewed %}<span class="badge reviewed">reviewed</span>{% endif %}
-          {% if report.is_stale %}<span class="badge stale">{{ report.staleness_reason }}</span>{% endif %}
-        </div>
-        <h3><a href="/reports/{{ report.id }}">{{ report.question }}</a></h3>
-        <p>{{ report.subject }}</p>
-        <div class="action-row">
-          <form action="/admin/report/{{ report.id }}/review" method="post"><button type="submit">Mark reviewed</button></form>
-          {% if report.visibility == "private" %}<form action="/admin/report/{{ report.id }}/publish" method="post"><button type="submit">Publish</button></form>{% endif %}
-        </div>
+        <h3><a href="/reports/{{ report.id }}">{{ report.title }}</a></h3>
+        <p>{{ report.focal_label }}</p>
+        <p class="muted">{{ report.claim_ids|length }} claim(s)</p>
       </article>
+      {% else %}
+      <p class="empty">No stored reports.</p>
       {% endfor %}
     </div>
   </div>

@@ -2,11 +2,11 @@
 {% block title %}Research Registry{% endblock %}
 {% block content %}
 <section class="hero">
-  <p class="eyebrow">Source-backed AI research memory</p>
-  <h1>Capture passage-level evidence first. Publish findings and reports second.</h1>
-  <p class="lede">This registry stores annotations anchored to exact source passages, then derives reusable findings and reports without breaking provenance.</p>
-  <form class="search-bar" action="/" method="get">
-    <input type="search" name="q" value="{{ results.query }}" placeholder="Search zebras, fly avoidance, documentation, papers...">
+  <p class="eyebrow">Question-led Research Memory</p>
+  <h1>Store the question, the evidence, and the claims it actually supports.</h1>
+  <p class="lede">This registry treats source excerpts as evidence, claims as decontextualized propositions with essential context, and reports as reusable syntheses built on top of them.</p>
+  <form class="search-bar" action="{{ namespace_slug and ('/public/' ~ namespace_slug) or '/' }}" method="get">
+    <input type="search" name="q" value="{{ results.query }}" placeholder="Search branch-private isolation, judge calibration, typed anchors...">
     <button type="submit">Search</button>
   </form>
 </section>
@@ -29,7 +29,7 @@
       <p class="muted">{{ hit.subject }} • score {{ "%.1f"|format(hit.score) }} {% if hit.source_title %}• source {{ hit.source_title }}{% endif %}</p>
     </article>
     {% else %}
-    <p class="empty">No public results matched that query.</p>
+    <p class="empty">No visible records matched that query.</p>
     {% endfor %}
   </div>
 </section>
@@ -44,9 +44,9 @@
     <div class="stack">
       {% for report in dashboard.reports %}
       <article class="card">
-        <h3><a href="/reports/{{ report.id }}">{{ report.question }}</a></h3>
-        <p>{{ report.subject }}</p>
-        <p class="muted">{{ report.created_at.date() }} • {{ report.finding_ids|length }} finding(s)</p>
+        <h3><a href="/reports/{{ report.id }}">{{ report.title }}</a></h3>
+        <p>{{ report.focal_label }}</p>
+        <p class="muted">{{ report.created_at.date() }} • {{ report.claim_ids|length }} claim(s)</p>
       </article>
       {% else %}
       <p class="empty">No published reports yet.</p>
@@ -55,18 +55,18 @@
   </div>
   <div class="panel">
     <div class="panel-head">
-      <h2>Published Findings</h2>
-      <span>{{ dashboard.findings|length }}</span>
+      <h2>Published Claims</h2>
+      <span>{{ dashboard.claims|length }}</span>
     </div>
     <div class="stack">
-      {% for finding in dashboard.findings %}
+      {% for claim in dashboard.claims %}
       <article class="card">
-        <h3><a href="/findings/{{ finding.id }}">{{ finding.title }}</a></h3>
-        <p>{{ finding.claim }}</p>
-        <p class="muted">{{ finding.subject }} • {{ finding.annotation_ids|length }} annotation(s)</p>
+        <h3><a href="/claims/{{ claim.id }}">{{ claim.title }}</a></h3>
+        <p>{{ claim.statement }}</p>
+        <p class="muted">{{ claim.focal_label }} • {{ claim.excerpt_ids|length }} excerpt(s)</p>
       </article>
       {% else %}
-      <p class="empty">No published findings yet.</p>
+      <p class="empty">No published claims yet.</p>
       {% endfor %}
     </div>
   </div>
@@ -74,22 +74,18 @@
 
 <section class="panel">
   <div class="panel-head">
-    <h2>Published Annotations</h2>
-    <span>{{ dashboard.annotations|length }}</span>
+    <h2>Recent Questions</h2>
+    <span>{{ dashboard.questions|length }}</span>
   </div>
   <div class="stack">
-    {% for annotation in dashboard.annotations %}
+    {% for question in dashboard.questions %}
     <article class="card">
-      <div class="badge-row">
-        {% if annotation.human_reviewed %}<span class="badge reviewed">reviewed</span>{% endif %}
-        {% if annotation.is_stale %}<span class="badge stale">{{ annotation.staleness_reason }}</span>{% endif %}
-      </div>
-      <h3><a href="/annotations/{{ annotation.id }}">{{ annotation.subject }}</a></h3>
-      <p>{{ annotation.note }}</p>
-      <p class="muted">{{ annotation.created_at.date() }} • confidence {{ "%.2f"|format(annotation.confidence) }}</p>
+      <h3><a href="/questions/{{ question.id }}">{{ question.prompt }}</a></h3>
+      <p>{{ question.focus.label }}</p>
+      <p class="muted">{{ question.created_at.date() }} • status {{ question.status }}</p>
     </article>
     {% else %}
-    <p class="empty">No published annotations yet.</p>
+    <p class="empty">No visible questions yet.</p>
     {% endfor %}
   </div>
 </section>
