@@ -160,6 +160,9 @@ def ensure_codex_mcp_config(config: ManagedLocalConfig) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     current = path.read_text(encoding="utf-8") if path.exists() else ""
     updated = upsert_managed_codex_config(current, config)
+    if path.exists() and current != updated:
+        backup_path = path.with_name(f"{path.name}.research-registry.bak")
+        backup_path.write_text(current, encoding="utf-8")
     path.write_text(updated, encoding="utf-8")
     return path
 
