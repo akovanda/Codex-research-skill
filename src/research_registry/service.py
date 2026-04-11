@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -20,6 +20,7 @@ from .models import (
     ExcerptCreate,
     ExcerptRecord,
     FocusTuple,
+    GuidancePayload,
     IndexStateRequest,
     IssuedApiKey,
     OrganizationRecord,
@@ -44,7 +45,7 @@ from .models import (
     Visibility,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def utc_now() -> datetime:
@@ -100,10 +101,15 @@ class RegistryService:
             if "schema_meta" in tables:
                 row = conn.execute("SELECT version FROM schema_meta LIMIT 1").fetchone()
                 version = row["version"] if row else None
-            if version != SCHEMA_VERSION:
-                self._drop_managed_schema(conn)
+            if version is None:
+                self._create_schema(conn)
+            elif version < SCHEMA_VERSION:
+                self._migrate_schema(conn, version)
+                self._create_schema(conn)
+            elif version == SCHEMA_VERSION:
                 self._create_schema(conn)
             else:
+                self._drop_managed_schema(conn)
                 self._create_schema(conn)
 
     def create_topic(self, payload: TopicCreate, auth: AuthContext | None = None) -> TopicRecord:
@@ -194,10 +200,11 @@ class RegistryService:
                 """
                 INSERT INTO questions (
                     id, topic_id, prompt, normalized_prompt, focus_json, status,
-                    visibility, author_type, namespace_kind, namespace_id,
-                    actor_user_id, actor_org_id, api_key_id, public_namespace_slug,
-                    public_index_state, dedupe_key, human_reviewed, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    parent_question_id, generated_by_session_id, generation_reason, priority_score,
+                    visibility, author_type, namespace_kind, namespace_id, actor_user_id,
+                    actor_org_id, api_key_id, public_namespace_slug, public_index_state,
+                    dedupe_key, human_reviewed, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     question_id,
@@ -206,6 +213,10 @@ class RegistryService:
                     normalized_prompt,
                     topic.focus.model_dump_json(),
                     payload.status,
+                    payload.parent_question_id,
+                    payload.generated_by_session_id,
+                    payload.generation_reason,
+                    payload.priority_score,
                     payload.visibility,
                     payload.author_type,
                     metadata["namespace_kind"],
@@ -249,16 +260,17 @@ class RegistryService:
                 return self._session_from_row(existing)
             session_id = self._new_id("sess")
             created_at = utc_now()
+            expires_at = created_at + timedelta(days=payload.ttl_days)
             status = "insufficient_evidence" if payload.mode == "insufficient_evidence" else "completed"
             conn.execute(
                 """
                 INSERT INTO research_sessions (
                     id, question_id, prompt, model_name, model_version, mode, status,
                     source_signals_json, notes, visibility, author_type, namespace_kind,
-                    namespace_id, actor_user_id, actor_org_id, api_key_id,
-                    public_namespace_slug, public_index_state, dedupe_key,
-                    created_at, started_at, finished_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    namespace_id, actor_user_id, actor_org_id, api_key_id, public_namespace_slug,
+                    public_index_state, dedupe_key, ttl_days, expires_at, freshness_state,
+                    refresh_of_session_id, created_at, started_at, finished_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -280,6 +292,10 @@ class RegistryService:
                     metadata["public_namespace_slug"],
                     self._public_index_state_for_visibility(payload.visibility),
                     payload.dedupe_key,
+                    payload.ttl_days,
+                    expires_at.isoformat(),
+                    "fresh",
+                    payload.refresh_of_session_id,
                     created_at.isoformat(),
                     created_at.isoformat(),
                     created_at.isoformat(),
@@ -527,11 +543,11 @@ class RegistryService:
                 """
                 INSERT INTO reports (
                     id, question_id, session_id, title, focal_label, summary_md,
-                    visibility, author_type, model_name, model_version,
-                    namespace_kind, namespace_id, actor_user_id, actor_org_id,
-                    api_key_id, public_namespace_slug, public_index_state,
-                    dedupe_key, human_reviewed, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    report_kind, guidance_json, visibility, author_type, model_name,
+                    model_version, namespace_kind, namespace_id, actor_user_id, actor_org_id,
+                    api_key_id, public_namespace_slug, public_index_state, dedupe_key,
+                    human_reviewed, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     report_id,
@@ -540,6 +556,8 @@ class RegistryService:
                     payload.title,
                     payload.focal_label,
                     payload.summary_md,
+                    payload.report_kind,
+                    payload.guidance.model_dump_json(),
                     payload.visibility,
                     payload.author_type,
                     payload.model_name,
@@ -610,6 +628,43 @@ class RegistryService:
             ).fetchall()
         return [
             self._report_from_row(row)
+            for row in rows
+            if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=False, namespace_slug=None)
+        ]
+
+    def list_sessions_for_question(
+        self,
+        question_id: str,
+        *,
+        include_private: bool = False,
+        auth: AuthContext | None = None,
+    ) -> list[ResearchSessionRecord]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM research_sessions WHERE question_id = ? ORDER BY created_at DESC",
+                (question_id,),
+            ).fetchall()
+        records = [
+            self._session_from_row(row)
+            for row in rows
+            if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=False, namespace_slug=None)
+        ]
+        return sorted(records, key=lambda session: (not session.is_stale, session.created_at), reverse=True)
+
+    def list_child_questions(
+        self,
+        question_id: str,
+        *,
+        include_private: bool = False,
+        auth: AuthContext | None = None,
+    ) -> list[QuestionRecord]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM questions WHERE parent_question_id = ? ORDER BY priority_score DESC, created_at DESC",
+                (question_id,),
+            ).fetchall()
+        return [
+            self._question_from_row(row)
             for row in rows
             if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=False, namespace_slug=None)
         ]
@@ -947,6 +1002,10 @@ class RegistryService:
                 normalized_prompt TEXT NOT NULL,
                 focus_json TEXT NOT NULL,
                 status TEXT NOT NULL,
+                parent_question_id TEXT REFERENCES questions(id) ON DELETE SET NULL,
+                generated_by_session_id TEXT REFERENCES research_sessions(id) ON DELETE SET NULL,
+                generation_reason TEXT,
+                priority_score REAL NOT NULL DEFAULT 0,
                 visibility TEXT NOT NULL,
                 author_type TEXT NOT NULL,
                 namespace_kind TEXT NOT NULL DEFAULT 'user',
@@ -963,6 +1022,8 @@ class RegistryService:
 
             CREATE INDEX IF NOT EXISTS idx_questions_prompt_namespace
                 ON questions (normalized_prompt, namespace_kind, namespace_id);
+            CREATE INDEX IF NOT EXISTS idx_questions_parent
+                ON questions (parent_question_id, priority_score DESC, created_at DESC);
 
             CREATE TABLE IF NOT EXISTS research_sessions (
                 id TEXT PRIMARY KEY,
@@ -984,6 +1045,10 @@ class RegistryService:
                 public_namespace_slug TEXT,
                 public_index_state TEXT NOT NULL DEFAULT 'private',
                 dedupe_key TEXT UNIQUE,
+                ttl_days INTEGER NOT NULL DEFAULT 30,
+                expires_at TEXT,
+                freshness_state TEXT NOT NULL DEFAULT 'fresh',
+                refresh_of_session_id TEXT REFERENCES research_sessions(id) ON DELETE SET NULL,
                 created_at TEXT NOT NULL,
                 started_at TEXT NOT NULL,
                 finished_at TEXT NOT NULL
@@ -991,6 +1056,8 @@ class RegistryService:
 
             CREATE INDEX IF NOT EXISTS idx_sessions_question
                 ON research_sessions (question_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_sessions_expires_at
+                ON research_sessions (expires_at, freshness_state);
 
             CREATE TABLE IF NOT EXISTS sources (
                 id TEXT PRIMARY KEY,
@@ -1096,6 +1163,8 @@ class RegistryService:
                 title TEXT NOT NULL,
                 focal_label TEXT NOT NULL,
                 summary_md TEXT NOT NULL,
+                report_kind TEXT NOT NULL DEFAULT 'guidance',
+                guidance_json TEXT NOT NULL DEFAULT '{}',
                 visibility TEXT NOT NULL,
                 author_type TEXT NOT NULL,
                 model_name TEXT,
@@ -1170,6 +1239,59 @@ class RegistryService:
         conn.execute("DELETE FROM schema_meta")
         conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
 
+    def _migrate_schema(self, conn: sqlite3.Connection, version: int) -> None:
+        if version >= 3:
+            conn.execute("DELETE FROM schema_meta")
+            conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
+            return
+        if version < 2:
+            self._drop_managed_schema(conn)
+            self._create_schema(conn)
+            return
+
+        if not self._column_exists(conn, "questions", "parent_question_id"):
+            conn.execute("ALTER TABLE questions ADD COLUMN parent_question_id TEXT REFERENCES questions(id) ON DELETE SET NULL")
+        if not self._column_exists(conn, "questions", "generated_by_session_id"):
+            conn.execute("ALTER TABLE questions ADD COLUMN generated_by_session_id TEXT REFERENCES research_sessions(id) ON DELETE SET NULL")
+        if not self._column_exists(conn, "questions", "generation_reason"):
+            conn.execute("ALTER TABLE questions ADD COLUMN generation_reason TEXT")
+        if not self._column_exists(conn, "questions", "priority_score"):
+            conn.execute("ALTER TABLE questions ADD COLUMN priority_score REAL NOT NULL DEFAULT 0")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_questions_parent ON questions (parent_question_id, priority_score DESC, created_at DESC)"
+        )
+
+        if not self._column_exists(conn, "research_sessions", "ttl_days"):
+            conn.execute("ALTER TABLE research_sessions ADD COLUMN ttl_days INTEGER NOT NULL DEFAULT 30")
+        if not self._column_exists(conn, "research_sessions", "expires_at"):
+            conn.execute("ALTER TABLE research_sessions ADD COLUMN expires_at TEXT")
+        if not self._column_exists(conn, "research_sessions", "freshness_state"):
+            conn.execute("ALTER TABLE research_sessions ADD COLUMN freshness_state TEXT NOT NULL DEFAULT 'fresh'")
+        if not self._column_exists(conn, "research_sessions", "refresh_of_session_id"):
+            conn.execute("ALTER TABLE research_sessions ADD COLUMN refresh_of_session_id TEXT REFERENCES research_sessions(id) ON DELETE SET NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON research_sessions (expires_at, freshness_state)")
+        rows = conn.execute("SELECT id, created_at, ttl_days, expires_at FROM research_sessions").fetchall()
+        for row in rows:
+            ttl_days = row["ttl_days"] or 30
+            expires_at = row["expires_at"]
+            if expires_at:
+                continue
+            created_at = datetime.fromisoformat(row["created_at"])
+            conn.execute(
+                "UPDATE research_sessions SET ttl_days = ?, expires_at = ?, freshness_state = COALESCE(freshness_state, 'fresh') WHERE id = ?",
+                ((ttl_days or 30), (created_at + timedelta(days=ttl_days or 30)).isoformat(), row["id"]),
+            )
+
+        if not self._column_exists(conn, "reports", "report_kind"):
+            conn.execute("ALTER TABLE reports ADD COLUMN report_kind TEXT NOT NULL DEFAULT 'legacy_answer'")
+        if not self._column_exists(conn, "reports", "guidance_json"):
+            conn.execute("ALTER TABLE reports ADD COLUMN guidance_json TEXT NOT NULL DEFAULT '{}'")
+        conn.execute("UPDATE reports SET report_kind = COALESCE(report_kind, 'legacy_answer')")
+        conn.execute("UPDATE reports SET guidance_json = COALESCE(guidance_json, '{}')")
+
+        conn.execute("DELETE FROM schema_meta")
+        conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
+
     def _drop_managed_schema(self, conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys = OFF")
         for table in (
@@ -1197,6 +1319,10 @@ class RegistryService:
             conn.execute(f"DROP TABLE IF EXISTS {table}")
         conn.execute("PRAGMA foreign_keys = ON")
 
+    def _column_exists(self, conn: sqlite3.Connection, table: str, column: str) -> bool:
+        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        return any(row["name"] == column for row in rows)
+
     def _list_questions(
         self,
         *,
@@ -1208,11 +1334,13 @@ class RegistryService:
     ) -> list[QuestionRecord]:
         with self.connect() as conn:
             rows = conn.execute("SELECT * FROM questions ORDER BY created_at DESC").fetchall()
-        return [
+        records = [
             self._question_from_row(row)
             for row in rows
             if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
-        ][:limit]
+        ]
+        records.sort(key=lambda question: (question.status == "open", question.priority_score, not question.latest_session_is_stale, question.created_at), reverse=True)
+        return records[:limit]
 
     def _list_claims(
         self,
@@ -1225,11 +1353,13 @@ class RegistryService:
     ) -> list[ClaimRecord]:
         with self.connect() as conn:
             rows = conn.execute("SELECT * FROM claims ORDER BY created_at DESC").fetchall()
-        return [
+        records = [
             self._claim_from_row(row)
             for row in rows
             if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
-        ][:limit]
+        ]
+        records.sort(key=lambda claim: (not claim.is_stale, claim.created_at), reverse=True)
+        return records[:limit]
 
     def _list_reports(
         self,
@@ -1242,11 +1372,13 @@ class RegistryService:
     ) -> list[ReportRecord]:
         with self.connect() as conn:
             rows = conn.execute("SELECT * FROM reports ORDER BY created_at DESC").fetchall()
-        return [
+        records = [
             self._report_from_row(row)
             for row in rows
             if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
-        ][:limit]
+        ]
+        records.sort(key=lambda report: (not report.is_stale, report.created_at), reverse=True)
+        return records[:limit]
 
     def _search_questions(
         self,
@@ -1260,7 +1392,15 @@ class RegistryService:
         hits: list[SearchHit] = []
         for question in self._list_questions(include_private=include_private, limit=100, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug):
             haystack = " ".join([question.prompt, question.focus.label or "", *question.focus.parts()]).lower()
-            score = self._search_score(normalized, haystack, source_type="question", human_reviewed=False, created_at=question.created_at, provenance_fields=[question.topic_id, question.latest_report_id, question.latest_session_id])
+            score = self._search_score(
+                normalized,
+                haystack,
+                source_type="question",
+                human_reviewed=False,
+                created_at=question.created_at,
+                provenance_fields=[question.topic_id, question.latest_report_id, question.latest_session_id],
+                is_stale=question.latest_session_is_stale,
+            )
             if score <= 0:
                 continue
             hits.append(
@@ -1275,6 +1415,9 @@ class RegistryService:
                     score=score,
                     url=f"/questions/{question.id}",
                     human_reviewed=False,
+                    freshness_state=question.latest_session_freshness_state,
+                    expires_at=question.latest_session_expires_at,
+                    is_stale=question.latest_session_is_stale,
                     namespace_kind=question.namespace_kind,
                     namespace_id=question.namespace_id,
                     public_namespace_slug=question.public_namespace_slug,
@@ -1295,7 +1438,15 @@ class RegistryService:
         hits: list[SearchHit] = []
         for claim in self._list_claims(include_private=include_private, limit=100, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug):
             haystack = " ".join([claim.title, claim.focal_label, claim.statement]).lower()
-            score = self._search_score(normalized, haystack, source_type="claim", human_reviewed=claim.human_reviewed, created_at=claim.created_at, provenance_fields=[claim.session_id, *claim.excerpt_ids])
+            score = self._search_score(
+                normalized,
+                haystack,
+                source_type="claim",
+                human_reviewed=claim.human_reviewed,
+                created_at=claim.created_at,
+                provenance_fields=[claim.session_id, *claim.excerpt_ids],
+                is_stale=claim.is_stale,
+            )
             if score <= 0:
                 continue
             hits.append(
@@ -1310,6 +1461,9 @@ class RegistryService:
                     score=score,
                     url=f"/claims/{claim.id}",
                     human_reviewed=claim.human_reviewed,
+                    freshness_state=claim.freshness_state,
+                    expires_at=claim.expires_at,
+                    is_stale=claim.is_stale,
                     namespace_kind=claim.namespace_kind,
                     namespace_id=claim.namespace_id,
                     public_namespace_slug=claim.public_namespace_slug,
@@ -1330,7 +1484,15 @@ class RegistryService:
         hits: list[SearchHit] = []
         for report in self._list_reports(include_private=include_private, limit=100, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug):
             haystack = " ".join([report.title, report.focal_label, report.summary_md]).lower()
-            score = self._search_score(normalized, haystack, source_type="report", human_reviewed=report.human_reviewed, created_at=report.created_at, provenance_fields=[report.session_id, *report.claim_ids, *report.source_ids])
+            score = self._search_score(
+                normalized,
+                haystack,
+                source_type="report",
+                human_reviewed=report.human_reviewed,
+                created_at=report.created_at,
+                provenance_fields=[report.session_id, *report.claim_ids, *report.source_ids],
+                is_stale=report.is_stale,
+            )
             if score <= 0:
                 continue
             hits.append(
@@ -1345,6 +1507,9 @@ class RegistryService:
                     score=score,
                     url=f"/reports/{report.id}",
                     human_reviewed=report.human_reviewed,
+                    freshness_state=report.freshness_state,
+                    expires_at=report.expires_at,
+                    is_stale=report.is_stale,
                     namespace_kind=report.namespace_kind,
                     namespace_id=report.namespace_id,
                     public_namespace_slug=report.public_namespace_slug,
@@ -1410,7 +1575,15 @@ class RegistryService:
             excerpt = self._excerpt_from_row(row)
             source = self.get_source(excerpt.source_id, include_private=True)
             haystack = " ".join([excerpt.focal_label, excerpt.note, excerpt.quote_text, " ".join(excerpt.tags), source.title]).lower()
-            score = self._search_score(normalized, haystack, source_type=source.source_type, human_reviewed=excerpt.human_reviewed, created_at=excerpt.created_at, provenance_fields=[excerpt.source_id, excerpt.session_id, excerpt.model_name])
+            score = self._search_score(
+                normalized,
+                haystack,
+                source_type=source.source_type,
+                human_reviewed=excerpt.human_reviewed,
+                created_at=excerpt.created_at,
+                provenance_fields=[excerpt.source_id, excerpt.session_id, excerpt.model_name],
+                is_stale=excerpt.is_stale,
+            )
             if score <= 0:
                 continue
             hits.append(
@@ -1426,6 +1599,9 @@ class RegistryService:
                     url=f"/excerpts/{excerpt.id}",
                     source_title=source.title,
                     human_reviewed=excerpt.human_reviewed,
+                    freshness_state=excerpt.freshness_state,
+                    expires_at=excerpt.expires_at,
+                    is_stale=excerpt.is_stale,
                     namespace_kind=excerpt.namespace_kind,
                     namespace_id=excerpt.namespace_id,
                     public_namespace_slug=excerpt.public_namespace_slug,
@@ -1574,6 +1750,7 @@ class RegistryService:
         human_reviewed: bool,
         created_at: datetime,
         provenance_fields: list[str | None],
+        is_stale: bool = False,
     ) -> float:
         if not normalized:
             lexical = 1.0
@@ -1592,7 +1769,8 @@ class RegistryService:
         review_score = 3.0 if human_reviewed else 0.0
         age_days = max((utc_now() - created_at).days, 0)
         recency_score = max(0.0, 3.0 - (age_days / 30.0))
-        return round(lexical + self._source_quality(source_type or "webpage") + provenance_score + review_score + recency_score, 3)
+        freshness_penalty = 2.5 if is_stale else 0.0
+        return round(lexical + self._source_quality(source_type or "webpage") + provenance_score + review_score + recency_score - freshness_penalty, 3)
 
     def _source_quality(self, source_type: str) -> int:
         return {
@@ -1612,6 +1790,29 @@ class RegistryService:
             "note": 1,
         }.get(source_type, 2)
 
+    def _effective_freshness(self, *, expires_at: datetime | None, stored_state: str | None) -> tuple[str | None, datetime | None, bool]:
+        if expires_at is not None and expires_at <= utc_now():
+            return "needs_refresh", expires_at, True
+        if stored_state:
+            return stored_state, expires_at, stored_state != "fresh"
+        return None, expires_at, False
+
+    def _session_freshness_from_row(self, row: sqlite3.Row | None) -> tuple[str | None, datetime | None, bool]:
+        if row is None:
+            return None, None, False
+        expires_at = self._decode_dt(row["expires_at"])
+        return self._effective_freshness(expires_at=expires_at, stored_state=row["freshness_state"])
+
+    def _session_freshness_by_id(self, session_id: str | None) -> tuple[str | None, datetime | None, bool]:
+        if not session_id:
+            return None, None, False
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT expires_at, freshness_state FROM research_sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+        return self._session_freshness_from_row(row)
+
     def _topic_from_row(self, row: sqlite3.Row) -> TopicRecord:
         return TopicRecord(
             id=row["id"],
@@ -1628,19 +1829,24 @@ class RegistryService:
     def _question_from_row(self, row: sqlite3.Row) -> QuestionRecord:
         with self.connect() as conn:
             latest_session = conn.execute(
-                "SELECT id FROM research_sessions WHERE question_id = ? ORDER BY created_at DESC LIMIT 1",
+                "SELECT id, expires_at, freshness_state FROM research_sessions WHERE question_id = ? ORDER BY created_at DESC LIMIT 1",
                 (row["id"],),
             ).fetchone()
             latest_report = conn.execute(
                 "SELECT id FROM reports WHERE question_id = ? ORDER BY created_at DESC LIMIT 1",
                 (row["id"],),
             ).fetchone()
+        latest_session_freshness_state, latest_session_expires_at, latest_session_is_stale = self._session_freshness_from_row(latest_session)
         return QuestionRecord(
             id=row["id"],
             topic_id=row["topic_id"],
             prompt=row["prompt"],
             normalized_prompt=row["normalized_prompt"],
             focus=FocusTuple.model_validate_json(row["focus_json"]),
+            parent_question_id=row["parent_question_id"],
+            generated_by_session_id=row["generated_by_session_id"],
+            generation_reason=row["generation_reason"],
+            priority_score=row["priority_score"],
             status=row["status"],
             visibility=row["visibility"],
             author_type=row["author_type"],
@@ -1650,6 +1856,9 @@ class RegistryService:
             created_at=datetime.fromisoformat(row["created_at"]),
             latest_session_id=latest_session["id"] if latest_session else None,
             latest_report_id=latest_report["id"] if latest_report else None,
+            latest_session_freshness_state=latest_session_freshness_state,
+            latest_session_expires_at=latest_session_expires_at,
+            latest_session_is_stale=latest_session_is_stale,
             actor_user_id=row["actor_user_id"],
             actor_org_id=row["actor_org_id"],
             api_key_id=row["api_key_id"],
@@ -1669,6 +1878,7 @@ class RegistryService:
                 """,
                 (row["id"],),
             ).fetchall()
+        freshness_state, expires_at, is_stale = self._session_freshness_from_row(row)
         return ResearchSessionRecord(
             id=row["id"],
             question_id=row["question_id"],
@@ -1676,6 +1886,8 @@ class RegistryService:
             model_name=row["model_name"],
             model_version=row["model_version"],
             mode=row["mode"],
+            ttl_days=row["ttl_days"],
+            refresh_of_session_id=row["refresh_of_session_id"],
             status=row["status"],
             source_signals=json.loads(row["source_signals_json"]),
             notes=row["notes"],
@@ -1687,6 +1899,9 @@ class RegistryService:
             created_at=datetime.fromisoformat(row["created_at"]),
             started_at=datetime.fromisoformat(row["started_at"]),
             finished_at=datetime.fromisoformat(row["finished_at"]),
+            expires_at=expires_at,
+            freshness_state=freshness_state or "fresh",
+            is_stale=is_stale,
             claim_ids=[claim_row["id"] for claim_row in claim_rows],
             source_ids=[source_row["id"] for source_row in source_rows],
             report_ids=[report_row["id"] for report_row in report_rows],
@@ -1726,6 +1941,7 @@ class RegistryService:
         )
 
     def _excerpt_from_row(self, row: sqlite3.Row) -> ExcerptRecord:
+        freshness_state, expires_at, is_stale = self._session_freshness_by_id(row["session_id"])
         return ExcerptRecord(
             id=row["id"],
             source_id=row["source_id"],
@@ -1747,6 +1963,9 @@ class RegistryService:
             dedupe_key=row["dedupe_key"],
             created_at=datetime.fromisoformat(row["created_at"]),
             human_reviewed=bool(row["human_reviewed"]),
+            freshness_state=freshness_state,
+            expires_at=expires_at,
+            is_stale=is_stale,
             actor_user_id=row["actor_user_id"],
             actor_org_id=row["actor_org_id"],
             api_key_id=row["api_key_id"],
@@ -1760,6 +1979,7 @@ class RegistryService:
                 "SELECT excerpt_id FROM claim_excerpts WHERE claim_id = ? ORDER BY excerpt_id ASC",
                 (row["id"],),
             ).fetchall()
+        freshness_state, expires_at, is_stale = self._session_freshness_by_id(row["session_id"])
         return ClaimRecord(
             id=row["id"],
             question_id=row["question_id"],
@@ -1780,6 +2000,9 @@ class RegistryService:
             dedupe_key=row["dedupe_key"],
             created_at=datetime.fromisoformat(row["created_at"]),
             human_reviewed=bool(row["human_reviewed"]),
+            freshness_state=freshness_state,
+            expires_at=expires_at,
+            is_stale=is_stale,
             actor_user_id=row["actor_user_id"],
             actor_org_id=row["actor_org_id"],
             api_key_id=row["api_key_id"],
@@ -1795,6 +2018,7 @@ class RegistryService:
             ).fetchall()
         claim_ids = [claim_row["claim_id"] for claim_row in claim_rows]
         source_ids = sorted({excerpt.source_id for claim_id in claim_ids for excerpt in self.list_excerpts_for_claim(claim_id, include_private=True)})
+        freshness_state, expires_at, is_stale = self._session_freshness_by_id(row["session_id"])
         return ReportRecord(
             id=row["id"],
             question_id=row["question_id"],
@@ -1802,6 +2026,8 @@ class RegistryService:
             title=row["title"],
             focal_label=row["focal_label"],
             summary_md=row["summary_md"],
+            report_kind=row["report_kind"],
+            guidance=GuidancePayload.model_validate_json(row["guidance_json"]),
             claim_ids=claim_ids,
             source_ids=source_ids,
             visibility=row["visibility"],
@@ -1813,6 +2039,9 @@ class RegistryService:
             dedupe_key=row["dedupe_key"],
             created_at=datetime.fromisoformat(row["created_at"]),
             human_reviewed=bool(row["human_reviewed"]),
+            freshness_state=freshness_state,
+            expires_at=expires_at,
+            is_stale=is_stale,
             actor_user_id=row["actor_user_id"],
             actor_org_id=row["actor_org_id"],
             api_key_id=row["api_key_id"],

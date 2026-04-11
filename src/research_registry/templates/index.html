@@ -23,10 +23,15 @@
       <div class="badge-row">
         <span class="badge">{{ hit.kind }}</span>
         {% if hit.human_reviewed %}<span class="badge reviewed">reviewed</span>{% endif %}
+        {% if hit.is_stale %}<span class="badge stale">needs refresh</span>{% endif %}
       </div>
       <h3><a href="{{ hit.url }}">{{ hit.title }}</a></h3>
       <p>{{ hit.summary }}</p>
-      <p class="muted">{{ hit.subject }} • score {{ "%.1f"|format(hit.score) }} {% if hit.source_title %}• source {{ hit.source_title }}{% endif %}</p>
+      <p class="muted">
+        {{ hit.subject }} • score {{ "%.1f"|format(hit.score) }}
+        {% if hit.source_title %}• source {{ hit.source_title }}{% endif %}
+        {% if hit.expires_at %}• expires {{ hit.expires_at.date() }}{% endif %}
+      </p>
     </article>
     {% else %}
     <p class="empty">No visible records matched that query.</p>
@@ -44,6 +49,9 @@
     <div class="stack">
       {% for report in dashboard.reports %}
       <article class="card">
+        <div class="badge-row">
+          {% if report.is_stale %}<span class="badge stale">needs refresh</span>{% endif %}
+        </div>
         <h3><a href="/reports/{{ report.id }}">{{ report.title }}</a></h3>
         <p>{{ report.focal_label }}</p>
         <p class="muted">{{ report.created_at.date() }} • {{ report.claim_ids|length }} claim(s)</p>
@@ -61,6 +69,9 @@
     <div class="stack">
       {% for claim in dashboard.claims %}
       <article class="card">
+        <div class="badge-row">
+          {% if claim.is_stale %}<span class="badge stale">needs refresh</span>{% endif %}
+        </div>
         <h3><a href="/claims/{{ claim.id }}">{{ claim.title }}</a></h3>
         <p>{{ claim.statement }}</p>
         <p class="muted">{{ claim.focal_label }} • {{ claim.excerpt_ids|length }} excerpt(s)</p>
@@ -79,10 +90,13 @@
   </div>
   <div class="stack">
     {% for question in dashboard.questions %}
-    <article class="card">
-      <h3><a href="/questions/{{ question.id }}">{{ question.prompt }}</a></h3>
-      <p>{{ question.focus.label }}</p>
-      <p class="muted">{{ question.created_at.date() }} • status {{ question.status }}</p>
+      <article class="card">
+        <div class="badge-row">
+          {% if question.latest_session_is_stale %}<span class="badge stale">needs refresh</span>{% endif %}
+        </div>
+        <h3><a href="/questions/{{ question.id }}">{{ question.prompt }}</a></h3>
+        <p>{{ question.focus.label }}</p>
+        <p class="muted">{{ question.created_at.date() }} • status {{ question.status }}</p>
     </article>
     {% else %}
     <p class="empty">No visible questions yet.</p>

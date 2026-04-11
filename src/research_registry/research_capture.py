@@ -13,6 +13,7 @@ from .models import (
     ClaimRecord,
     ExcerptCreate,
     FocusTuple,
+    GuidancePayload,
     QuestionCreate,
     QuestionRecord,
     ReportCreate,
@@ -152,6 +153,7 @@ class CaptureSummary(BaseModel):
     stored_topic_id: str | None = None
     stored_question_id: str | None = None
     stored_session_id: str | None = None
+    stored_follow_up_question_ids: list[str] = Field(default_factory=list)
     stored_source_ids: list[str] = Field(default_factory=list)
     stored_excerpt_ids: list[str] = Field(default_factory=list)
     stored_claim_ids: list[str] = Field(default_factory=list)
@@ -228,6 +230,7 @@ def run_implicit_research_capture(
                 stored_topic_id=question.topic_id,
                 stored_question_id=question.id,
                 stored_session_id=session.id,
+                stored_follow_up_question_ids=collect_follow_up_question_ids(reusable_reports[:1]),
                 created_at=datetime.now(timezone.utc),
                 backend_name=backend_status.name,
                 backend_url=backend_status.url,
@@ -251,14 +254,28 @@ def run_implicit_research_capture(
                 notes="implicit research capture found no live local evidence",
             )
         )
+        follow_up_questions = create_follow_up_questions(
+            backend,
+            parent_question=question,
+            session_id=session.id,
+            specialized_domain=specialized_domain,
+            source_signals=source_signals,
+            follow_ups=live_result.guidance.follow_ups,
+        )
         summary_md = build_insufficient_evidence_summary(
             prompt=prompt,
             focus=focus,
             source_roots=live_result.source_roots,
             question_id=question.id,
             session_id=session.id,
+            follow_up_questions=follow_up_questions,
         )
-        check = evaluate_summary_contract(summary_md, claims=[], source_refs=[], registry_ids=[question.id, session.id])
+        check = evaluate_summary_contract(
+            summary_md,
+            claims=live_result.guidance.current_guidance,
+            source_refs=[],
+            registry_ids=[question.id, session.id, *[child.id for child in follow_up_questions]],
+        )
         return ImplicitCaptureOutcome(
             specialized_domain=specialized_domain,
             specialized_skill=specialized_skill,
@@ -268,6 +285,7 @@ def run_implicit_research_capture(
                 stored_topic_id=question.topic_id,
                 stored_question_id=question.id,
                 stored_session_id=session.id,
+                stored_follow_up_question_ids=[child.id for child in follow_up_questions],
                 created_at=datetime.now(timezone.utc),
                 backend_name=backend_status.name,
                 backend_url=backend_status.url,
@@ -340,6 +358,14 @@ def run_implicit_research_capture(
         )
         created_claim_ids.append(created_claim.id)
 
+    follow_up_questions = create_follow_up_questions(
+        backend,
+        parent_question=question,
+        session_id=session.id,
+        specialized_domain=specialized_domain,
+        source_signals=source_signals,
+        follow_ups=live_result.guidance.follow_ups,
+    )
     report = backend.create_report(
         ReportCreate(
             question_id=question.id,
@@ -347,6 +373,14 @@ def run_implicit_research_capture(
             title=prompt,
             focal_label=live_result.focus.label or question.focus.label or "research",
             summary_md=live_result.report_md or f"# {prompt}\n",
+            guidance=GuidancePayload(
+                current_guidance=live_result.guidance.current_guidance,
+                evidence_now=live_result.guidance.evidence_now,
+                gaps=live_result.guidance.gaps,
+                needs=live_result.guidance.needs,
+                wants=live_result.guidance.wants,
+                follow_up_question_ids=[child.id for child in follow_up_questions],
+            ),
             claim_ids=created_claim_ids,
             model_name=model_name,
             model_version=model_version,
@@ -364,8 +398,14 @@ def run_implicit_research_capture(
         source_refs=source_refs,
         question_id=question.id,
         session_id=session.id,
+        follow_up_questions=follow_up_questions,
     )
-    check = evaluate_summary_contract(summary_md, claims=claim_points, source_refs=source_refs, registry_ids=[question.id, session.id, report.id, *created_claim_ids, *created_excerpt_ids, *created_sources.values()])
+    check = evaluate_summary_contract(
+        summary_md,
+        claims=claim_points,
+        source_refs=source_refs,
+        registry_ids=[question.id, session.id, report.id, *created_claim_ids, *created_excerpt_ids, *created_sources.values(), *[child.id for child in follow_up_questions]],
+    )
     return ImplicitCaptureOutcome(
         specialized_domain=specialized_domain,
         specialized_skill=specialized_skill,
@@ -378,6 +418,7 @@ def run_implicit_research_capture(
             stored_source_ids=list(created_sources.values()),
             stored_excerpt_ids=created_excerpt_ids,
             stored_claim_ids=created_claim_ids,
+            stored_follow_up_question_ids=[child.id for child in follow_up_questions],
             stored_report_id=report.id,
             created_at=datetime.now(timezone.utc),
             backend_name=backend_status.name,
@@ -411,21 +452,32 @@ def search_existing_artifacts(
                 claim_ids.append(hit.id)
     reports = [backend.get_report(report_id, include_private=True) for report_id in report_ids[:2]]
     claims = [backend.get_claim(claim_id, include_private=True) for claim_id in claim_ids[:4]]
-    reports.sort(key=lambda report: relevance_score(focus, f"{report.title} {report.focal_label} {report.summary_md}"), reverse=True)
-    claims.sort(key=lambda claim: relevance_score(focus, f"{claim.title} {claim.focal_label} {claim.statement}"), reverse=True)
+    reports.sort(
+        key=lambda report: (
+            report.report_kind == "guidance",
+            not report.is_stale,
+            relevance_score(focus, f"{report.title} {report.focal_label} {report.summary_md}"),
+        ),
+        reverse=True,
+    )
+    claims.sort(key=lambda claim: (not claim.is_stale, relevance_score(focus, f"{claim.title} {claim.focal_label} {claim.statement}")), reverse=True)
     return reports, claims
 
 
 def has_specific_coverage(focus: FocusTuple, reports: list[ReportRecord], claims: list[ClaimRecord]) -> bool:
     report_text = f"{reports[0].title} {reports[0].focal_label} {reports[0].summary_md}" if reports else ""
     claim_text = f"{claims[0].title} {claims[0].focal_label} {claims[0].statement}" if claims else ""
-    report_score = relevance_score(focus, report_text) if reports and domain_matches(focus, reports[0].focal_label) else 0
-    claim_score = relevance_score(focus, claim_text) if claims and domain_matches(focus, claims[0].focal_label) else 0
+    report_score = (
+        relevance_score(focus, report_text)
+        if reports and reports[0].report_kind == "guidance" and not reports[0].is_stale and domain_matches(focus, reports[0].focal_label)
+        else 0
+    )
+    claim_score = relevance_score(focus, claim_text) if claims and not claims[0].is_stale and domain_matches(focus, claims[0].focal_label) else 0
     report_object_score = object_match_score(focus, report_text) if report_text else 0
     claim_object_score = object_match_score(focus, claim_text) if claim_text else 0
-    if reports and reports[0].focal_label == focus.label:
+    if reports and reports[0].report_kind == "guidance" and not reports[0].is_stale and reports[0].focal_label == focus.label:
         return True
-    if claims and claims[0].focal_label == focus.label:
+    if claims and not claims[0].is_stale and claims[0].focal_label == focus.label:
         return True
     return max((report_score if report_object_score >= 2 else 0), (claim_score if claim_object_score >= 2 else 0)) >= 3
 
@@ -463,6 +515,72 @@ def domain_matches(focus: FocusTuple, focal_label: str) -> bool:
     return focus.domain.lower() in normalize_research_prompt(focal_label)
 
 
+def create_follow_up_questions(
+    backend: ResearchRegistryBackend,
+    *,
+    parent_question: QuestionRecord,
+    session_id: str,
+    specialized_domain: str | None,
+    source_signals: list[str],
+    follow_ups: list,
+) -> list[QuestionRecord]:
+    created: list[QuestionRecord] = []
+    seen_ids: set[str] = set()
+    for follow_up in follow_ups[:5]:
+        child_focus = build_focus(follow_up.prompt, domain=specialized_domain, source_signals=source_signals)
+        child = backend.create_question(
+            QuestionCreate(
+                prompt=follow_up.prompt,
+                focus=child_focus,
+                parent_question_id=parent_question.id,
+                generated_by_session_id=session_id,
+                generation_reason=follow_up.reason,
+                priority_score=follow_up.priority_score,
+                dedupe_key=f"follow-up:{parent_question.id}:{normalize_research_prompt(follow_up.prompt)}",
+            )
+        )
+        if child.id in seen_ids:
+            continue
+        seen_ids.add(child.id)
+        created.append(child)
+    return created
+
+
+def collect_follow_up_question_ids(reports: list[ReportRecord]) -> list[str]:
+    question_ids: list[str] = []
+    for report in reports:
+        for question_id in report.guidance.follow_up_question_ids:
+            if question_id not in question_ids:
+                question_ids.append(question_id)
+    return question_ids
+
+
+def lookup_follow_up_questions(backend: ResearchRegistryBackend, question_ids: list[str]) -> list[QuestionRecord]:
+    questions: list[QuestionRecord] = []
+    for question_id in question_ids:
+        try:
+            questions.append(backend.get_question(question_id, include_private=True))
+        except KeyError:
+            continue
+    return questions
+
+
+def build_bullets(values: list[str], *, empty_message: str) -> list[str]:
+    if values:
+        return [f"- {value}" for value in values]
+    return [f"- {empty_message}"]
+
+
+def build_follow_up_lines(follow_up_questions: list[QuestionRecord]) -> list[str]:
+    if not follow_up_questions:
+        return ["1. No follow-up questions were generated from this pass."]
+    ordered = sorted(follow_up_questions, key=lambda question: (question.status == "open", question.priority_score, question.created_at), reverse=True)
+    return [
+        f"{index}. [{question.generation_reason or 'follow-up'} | {question.priority_score:.2f}] {question.prompt}"
+        for index, question in enumerate(ordered, start=1)
+    ]
+
+
 def build_reuse_summary(
     *,
     prompt: str,
@@ -483,30 +601,31 @@ def build_reuse_summary(
         for source_id in selected_report.source_ids:
             source_refs.append(backend.get_source(source_id, include_private=True).locator)
     context_points = build_context_points(focus, [])
-    direct_answer = first_nonempty([first_non_heading_line(selected_report.summary_md) if selected_report else None, *claim_points, "Existing stored claims already cover this question closely enough to reuse."])
+    selected_guidance = selected_report.guidance if selected_report else GuidancePayload()
+    follow_up_questions = lookup_follow_up_questions(backend, selected_guidance.follow_up_question_ids)
+    current_guidance = selected_guidance.current_guidance or claim_points or ["Existing stored guidance already covers this question closely enough to reuse."]
+    evidence_points = selected_guidance.evidence_now + [f"Source: {source_ref}" for source_ref in source_refs]
     lines = [
         f"# {prompt}",
         "",
-        "## Direct Answer",
-        direct_answer,
-        "",
-        "## Knowledge To Reuse",
+        "## Current Guidance",
     ]
-    if claim_points:
-        lines.extend(f"- {point}" for point in claim_points)
-    else:
-        lines.append("- No claim bullets were attached to the selected report.")
-    lines.extend(["", "## Context To Carry Forward"])
-    lines.extend(f"- {point}" for point in context_points)
-    lines.extend(["", "## Evidence"])
-    if source_refs:
-        lines.extend(f"- {source_ref}" for source_ref in source_refs)
-    else:
-        lines.append("- Existing report sources were not expanded in this reuse pass.")
+    lines.extend(build_bullets(current_guidance, empty_message="No stored guidance bullets were attached to the selected report."))
+    lines.extend(["", "## What Evidence Supports Right Now"])
+    lines.extend(build_bullets(evidence_points, empty_message="Existing report sources were not expanded in this reuse pass."))
+    lines.extend(["", "## Gaps"])
+    lines.extend(build_bullets(selected_guidance.gaps, empty_message="No explicit evidence gaps were stored on the selected report."))
+    lines.extend(["", "## Needs"])
+    lines.extend(build_bullets(selected_guidance.needs, empty_message="No must-have follow-up work was stored on the selected report."))
+    lines.extend(["", "## Wants"])
+    lines.extend(build_bullets(selected_guidance.wants, empty_message="No lower-priority expansion work was stored on the selected report."))
+    lines.extend(["", "## Follow-up Questions"])
+    lines.extend(build_follow_up_lines(follow_up_questions))
     lines.extend(
         [
             "",
             "## Registry State",
+            *[f"- {point}" for point in context_points],
             f"- Question: {question_id}",
             f"- Session: {session_id}",
             f"- Reused reports: {', '.join(report.id for report in reports) or 'none'}",
@@ -526,25 +645,30 @@ def build_live_summary(
     source_refs: list[str],
     question_id: str,
     session_id: str,
+    follow_up_questions: list[QuestionRecord],
 ) -> str:
-    direct_answer = first_non_heading_line(report.summary_md) or first_nonempty(claim_points)
+    evidence_points = report.guidance.evidence_now + [f"Source: {source_ref}" for source_ref in source_refs]
     lines = [
         f"# {prompt}",
         "",
-        "## Direct Answer",
-        direct_answer,
-        "",
-        "## Knowledge To Reuse",
+        "## Current Guidance",
     ]
-    lines.extend(f"- {point}" for point in claim_points)
-    lines.extend(["", "## Context To Carry Forward"])
-    lines.extend(f"- {point}" for point in context_points)
-    lines.extend(["", "## Evidence"])
-    lines.extend(f"- {source_ref}" for source_ref in source_refs)
+    lines.extend(build_bullets(report.guidance.current_guidance or claim_points, empty_message="No source-backed guidance was synthesized from this pass."))
+    lines.extend(["", "## What Evidence Supports Right Now"])
+    lines.extend(build_bullets(evidence_points, empty_message="No qualifying evidence excerpts were stored in this pass."))
+    lines.extend(["", "## Gaps"])
+    lines.extend(build_bullets(report.guidance.gaps, empty_message="No major evidence gaps were detected in the selected local source roots."))
+    lines.extend(["", "## Needs"])
+    lines.extend(build_bullets(report.guidance.needs, empty_message="No immediate must-have follow-up work was identified."))
+    lines.extend(["", "## Wants"])
+    lines.extend(build_bullets(report.guidance.wants, empty_message="No lower-priority expansion work was identified."))
+    lines.extend(["", "## Follow-up Questions"])
+    lines.extend(build_follow_up_lines(follow_up_questions))
     lines.extend(
         [
             "",
             "## Registry State",
+            *[f"- {point}" for point in context_points],
             f"- Question: {question_id}",
             f"- Session: {session_id}",
             f"- Report: {report.id}",
@@ -561,27 +685,35 @@ def build_insufficient_evidence_summary(
     source_roots: list[str],
     question_id: str,
     session_id: str,
+    follow_up_questions: list[QuestionRecord],
 ) -> str:
     context_points = build_context_points(focus, source_roots)
     lines = [
         f"# {prompt}",
         "",
-        "## Direct Answer",
-        "No live local evidence matched this question closely enough to justify storing claims or a report.",
+        "## Current Guidance",
+        "- Treat this topic as an open research queue item rather than reusable guidance until evidence is found.",
         "",
-        "## Knowledge To Reuse",
-        "- No source-backed claims were created in this pass.",
+        "## What Evidence Supports Right Now",
+        "- No qualifying evidence excerpts were found in the selected source roots.",
         "",
-        "## Context To Carry Forward",
+        "## Gaps",
+        f"- No live local evidence was found for {focus.label or 'this topic'} in the selected source roots.",
+        "",
+        "## Needs",
+        f"- Need direct evidence for {focus.label or 'this topic'} before storing reusable claims.",
+        "",
+        "## Wants",
+        f"- Want adjacent terminology, docs, or benchmarks that might expose alternative names for {focus.label or 'this topic'}.",
+        "",
+        "## Follow-up Questions",
     ]
-    lines.extend(f"- {point}" for point in context_points)
+    lines.extend(build_follow_up_lines(follow_up_questions))
     lines.extend(
         [
             "",
-            "## Evidence",
-            "- No qualifying evidence excerpts were found in the selected source roots.",
-            "",
             "## Registry State",
+            *[f"- {point}" for point in context_points],
             f"- Question: {question_id}",
             f"- Session: {session_id}",
             "- Stored report: none",
@@ -602,8 +734,19 @@ def build_context_points(focus: FocusTuple, source_roots: list[str]) -> list[str
 
 
 def evaluate_summary_contract(summary_md: str, *, claims: list[str], source_refs: list[str], registry_ids: list[str]) -> SummaryContractCheck:
-    required_sections_present = all(section in summary_md for section in ("## Knowledge To Reuse", "## Context To Carry Forward", "## Evidence", "## Registry State"))
-    mentions_claims = bool(claims) and all(claim[:20].lower() in summary_md.lower() for claim in claims[:2]) if claims else "no source-backed claims" in summary_md.lower()
+    required_sections_present = all(
+        section in summary_md
+        for section in (
+            "## Current Guidance",
+            "## What Evidence Supports Right Now",
+            "## Gaps",
+            "## Needs",
+            "## Wants",
+            "## Follow-up Questions",
+            "## Registry State",
+        )
+    )
+    mentions_claims = bool(claims) and all(claim[:20].lower() in summary_md.lower() for claim in claims[:2]) if claims else "open research queue item" in summary_md.lower()
     mentions_context = "Focus label:" in summary_md or "Context:" in summary_md
     mentions_sources = bool(source_refs) and any(source_ref in summary_md for source_ref in source_refs[:2]) if source_refs else "No qualifying evidence excerpts" in summary_md or "Existing report sources" in summary_md
     mentions_registry_state = any(registry_id in summary_md for registry_id in registry_ids[:4])
@@ -629,6 +772,8 @@ def format_capture_summary(summary: CaptureSummary) -> str:
         parts.append(f"Stored question: {summary.stored_question_id}")
     if summary.stored_session_id:
         parts.append(f"Stored session: {summary.stored_session_id}")
+    if summary.stored_follow_up_question_ids:
+        parts.append(f"Stored follow-ups: {', '.join(summary.stored_follow_up_question_ids)}")
     if summary.stored_claim_ids:
         parts.append(f"Stored claims: {', '.join(summary.stored_claim_ids)}")
     if summary.stored_report_id:

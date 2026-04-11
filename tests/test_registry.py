@@ -15,6 +15,7 @@ from research_registry.models import (
     PublishRequest,
     QuestionCreate,
     ReportCreate,
+    ResearchSessionCreate,
     ReviewRequest,
     SourceCreate,
     SourceSelector,
@@ -178,3 +179,106 @@ def test_api_key_isolation_and_public_namespace_vs_global_index(tmp_path: Path) 
 
     global_search = client.get("/api/search", params={"q": "typed-anchor"})
     assert [hit["id"] for hit in global_search.json()["hits"]] == [claim_id]
+
+
+def test_search_ranks_fresh_reports_above_stale_reports(tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    focus = FocusTuple(domain="memory-retrieval", object="retrieval freshness")
+
+    stale_question = service.create_question(QuestionCreate(prompt="Research stale retrieval freshness handling.", focus=focus))
+    stale_session = service.create_session(
+        ResearchSessionCreate(
+            question_id=stale_question.id,
+            prompt=stale_question.prompt,
+            model_name="gpt-5.4",
+            model_version="2026-04-10",
+            mode="live_research",
+            ttl_days=1,
+        )
+    )
+    stale_source = service.create_source(SourceCreate(locator="https://example.com/stale", title="Stale note", snippet="stale freshness", snapshot_present=True))
+    stale_excerpt = service.create_excerpt(
+        ExcerptCreate(
+            source_id=stale_source.id,
+            question_id=stale_question.id,
+            session_id=stale_session.id,
+            focal_label=focus.label or "retrieval freshness",
+            note="stale evidence",
+            selector=SourceSelector(exact="stale freshness", deep_link="https://example.com/stale#1"),
+            quote_text="stale freshness",
+        )
+    )
+    stale_claim = service.create_claim(
+        ClaimCreate(
+            question_id=stale_question.id,
+            session_id=stale_session.id,
+            title="Stale freshness guidance",
+            focal_label=focus.label or "retrieval freshness",
+            statement="Stale retrieval freshness guidance exists.",
+            excerpt_ids=[stale_excerpt.id],
+        )
+    )
+    stale_report = service.create_report(
+        ReportCreate(
+            question_id=stale_question.id,
+            session_id=stale_session.id,
+            title=stale_question.prompt,
+            focal_label=focus.label or "retrieval freshness",
+            summary_md="# stale\n",
+            claim_ids=[stale_claim.id],
+        )
+    )
+    with service.connect() as conn:
+        conn.execute(
+            "UPDATE research_sessions SET expires_at = ? WHERE id = ?",
+            ("2000-01-01T00:00:00+00:00", stale_session.id),
+        )
+
+    fresh_question = service.create_question(QuestionCreate(prompt="Research fresh retrieval freshness handling.", focus=focus))
+    fresh_session = service.create_session(
+        ResearchSessionCreate(
+            question_id=fresh_question.id,
+            prompt=fresh_question.prompt,
+            model_name="gpt-5.4",
+            model_version="2026-04-10",
+            mode="live_research",
+            ttl_days=30,
+        )
+    )
+    fresh_source = service.create_source(SourceCreate(locator="https://example.com/fresh", title="Fresh note", snippet="fresh freshness", snapshot_present=True))
+    fresh_excerpt = service.create_excerpt(
+        ExcerptCreate(
+            source_id=fresh_source.id,
+            question_id=fresh_question.id,
+            session_id=fresh_session.id,
+            focal_label=focus.label or "retrieval freshness",
+            note="fresh evidence",
+            selector=SourceSelector(exact="fresh freshness", deep_link="https://example.com/fresh#1"),
+            quote_text="fresh freshness",
+        )
+    )
+    fresh_claim = service.create_claim(
+        ClaimCreate(
+            question_id=fresh_question.id,
+            session_id=fresh_session.id,
+            title="Fresh freshness guidance",
+            focal_label=focus.label or "retrieval freshness",
+            statement="Fresh retrieval freshness guidance exists.",
+            excerpt_ids=[fresh_excerpt.id],
+        )
+    )
+    fresh_report = service.create_report(
+        ReportCreate(
+            question_id=fresh_question.id,
+            session_id=fresh_session.id,
+            title=fresh_question.prompt,
+            focal_label=focus.label or "retrieval freshness",
+            summary_md="# fresh\n",
+            claim_ids=[fresh_claim.id],
+        )
+    )
+
+    hits = service.search("retrieval freshness guidance", kind="report", include_private=True).hits
+    assert [hit.id for hit in hits[:2]] == [fresh_report.id, stale_report.id]
+    assert hits[0].is_stale is False
+    assert hits[1].is_stale is True

@@ -12,10 +12,108 @@
     <dt>Created</dt><dd>{{ report.created_at }}</dd>
     <dt>Claims</dt><dd>{{ report.claim_ids|length }}</dd>
     <dt>Sources</dt><dd>{{ report.source_ids|length }}</dd>
+    <dt>Kind</dt><dd>{{ report.report_kind }}</dd>
+    <dt>Freshness</dt><dd>{{ report.freshness_state or "unknown" }}</dd>
   </dl>
 </section>
 
 <section class="grid two-up">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Current Guidance</h2>
+      <span>{{ report.guidance.current_guidance|length }}</span>
+    </div>
+    <div class="stack">
+      {% for point in report.guidance.current_guidance %}
+      <article class="card">
+        <p>{{ point }}</p>
+      </article>
+      {% else %}
+      <p class="empty">No current guidance points were stored on this report.</p>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Evidence Now</h2>
+      <span>{{ report.guidance.evidence_now|length }}</span>
+    </div>
+    <div class="stack">
+      {% for point in report.guidance.evidence_now %}
+      <article class="card">
+        <p>{{ point }}</p>
+      </article>
+      {% else %}
+      <p class="empty">No structured evidence bullets were stored on this report.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="grid three-up">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Gaps</h2>
+      <span>{{ report.guidance.gaps|length }}</span>
+    </div>
+    <div class="stack">
+      {% for point in report.guidance.gaps %}
+      <article class="card"><p>{{ point }}</p></article>
+      {% else %}
+      <p class="empty">No explicit gaps were stored on this report.</p>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Needs</h2>
+      <span>{{ report.guidance.needs|length }}</span>
+    </div>
+    <div class="stack">
+      {% for point in report.guidance.needs %}
+      <article class="card"><p>{{ point }}</p></article>
+      {% else %}
+      <p class="empty">No must-have follow-up work was stored on this report.</p>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Wants</h2>
+      <span>{{ report.guidance.wants|length }}</span>
+    </div>
+    <div class="stack">
+      {% for point in report.guidance.wants %}
+      <article class="card"><p>{{ point }}</p></article>
+      {% else %}
+      <p class="empty">No lower-priority expansion work was stored on this report.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="grid two-up">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Follow-up Questions</h2>
+      <span>{{ follow_up_questions|length }}</span>
+    </div>
+    <div class="stack">
+      {% for follow_up in follow_up_questions %}
+      <article class="card">
+        <div class="badge-row">
+          {% if follow_up.generation_reason %}<span class="badge">{{ follow_up.generation_reason }}</span>{% endif %}
+          <span class="badge">{{ follow_up.status }}</span>
+        </div>
+        <h3><a href="/questions/{{ follow_up.id }}">{{ follow_up.prompt }}</a></h3>
+        <p>{{ follow_up.focus.label }}</p>
+        <p class="muted">priority {{ "%.2f"|format(follow_up.priority_score) }}</p>
+      </article>
+      {% else %}
+      <p class="empty">No follow-up questions are visible for this report.</p>
+      {% endfor %}
+    </div>
+  </div>
   <div class="panel">
     <div class="panel-head">
       <h2>Claims</h2>
@@ -33,22 +131,23 @@
       {% endfor %}
     </div>
   </div>
-  <div class="panel">
-    <div class="panel-head">
-      <h2>Sources</h2>
-      <span>{{ sources|length }}</span>
-    </div>
-    <div class="stack">
-      {% for source in sources.values() %}
-      <article class="card">
-        <h3><a href="/sources/{{ source.id }}">{{ source.title }}</a></h3>
-        <p>{{ source.snippet or source.locator }}</p>
-        <p class="muted">{{ source.source_type }}</p>
-      </article>
-      {% else %}
-      <p class="empty">No sources linked to this report.</p>
-      {% endfor %}
-    </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Sources</h2>
+    <span>{{ sources|length }}</span>
+  </div>
+  <div class="stack">
+    {% for source in sources.values() %}
+    <article class="card">
+      <h3><a href="/sources/{{ source.id }}">{{ source.title }}</a></h3>
+      <p>{{ source.snippet or source.locator }}</p>
+      <p class="muted">{{ source.source_type }}</p>
+    </article>
+    {% else %}
+    <p class="empty">No sources linked to this report.</p>
+    {% endfor %}
   </div>
 </section>
 

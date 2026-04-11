@@ -17,6 +17,8 @@ QuestionStatus = Literal["open", "answered", "insufficient_evidence"]
 SessionMode = Literal["reuse", "live_research", "synthesis", "insufficient_evidence"]
 SessionStatus = Literal["completed", "insufficient_evidence"]
 ClaimStatus = Literal["supported", "partial", "conflicted", "insufficient_evidence"]
+FreshnessState = Literal["fresh", "needs_refresh"]
+ReportKind = Literal["guidance", "legacy_answer"]
 
 
 def slugify(text: str) -> str:
@@ -60,6 +62,15 @@ class FocusTuple(BaseModel):
         return [part for part in [self.domain, self.object, self.concern, self.context, self.constraint] if part]
 
 
+class GuidancePayload(BaseModel):
+    current_guidance: list[str] = Field(default_factory=list)
+    evidence_now: list[str] = Field(default_factory=list)
+    gaps: list[str] = Field(default_factory=list)
+    needs: list[str] = Field(default_factory=list)
+    wants: list[str] = Field(default_factory=list)
+    follow_up_question_ids: list[str] = Field(default_factory=list)
+
+
 class TopicCreate(BaseModel):
     focus: FocusTuple
     label: str | None = None
@@ -87,6 +98,10 @@ class QuestionCreate(BaseModel):
     prompt: str = Field(validation_alias=AliasChoices("prompt", "question"))
     focus: FocusTuple | None = None
     topic_id: str | None = None
+    parent_question_id: str | None = None
+    generated_by_session_id: str | None = None
+    generation_reason: str | None = None
+    priority_score: float = 0.0
     status: QuestionStatus = "open"
     visibility: Visibility = "private"
     author_type: AuthorType = "agent"
@@ -107,6 +122,9 @@ class QuestionRecord(QuestionCreate):
     created_at: datetime
     latest_session_id: str | None = None
     latest_report_id: str | None = None
+    latest_session_freshness_state: FreshnessState | None = None
+    latest_session_expires_at: datetime | None = None
+    latest_session_is_stale: bool = False
     actor_user_id: str | None = None
     actor_org_id: str | None = None
     api_key_id: str | None = None
@@ -124,6 +142,8 @@ class ResearchSessionCreate(BaseModel):
     model_name: str
     model_version: str
     mode: SessionMode
+    ttl_days: int = Field(default=30, ge=1, le=3650)
+    refresh_of_session_id: str | None = None
     source_signals: list[str] = Field(default_factory=list)
     notes: str | None = None
     visibility: Visibility = "private"
@@ -139,6 +159,9 @@ class ResearchSessionRecord(ResearchSessionCreate):
     created_at: datetime
     started_at: datetime
     finished_at: datetime
+    expires_at: datetime | None = None
+    freshness_state: FreshnessState = "fresh"
+    is_stale: bool = False
     claim_ids: list[str] = Field(default_factory=list)
     source_ids: list[str] = Field(default_factory=list)
     report_ids: list[str] = Field(default_factory=list)
@@ -222,6 +245,9 @@ class ExcerptRecord(ExcerptCreate):
     id: str
     created_at: datetime
     human_reviewed: bool = False
+    freshness_state: FreshnessState | None = None
+    expires_at: datetime | None = None
+    is_stale: bool = False
     actor_user_id: str | None = None
     actor_org_id: str | None = None
     api_key_id: str | None = None
@@ -258,6 +284,9 @@ class ClaimRecord(ClaimCreate):
     id: str
     created_at: datetime
     human_reviewed: bool = False
+    freshness_state: FreshnessState | None = None
+    expires_at: datetime | None = None
+    is_stale: bool = False
     actor_user_id: str | None = None
     actor_org_id: str | None = None
     api_key_id: str | None = None
@@ -285,6 +314,8 @@ class ReportCreate(BaseModel):
     title: str
     focal_label: str = Field(validation_alias=AliasChoices("focal_label", "subject"))
     summary_md: str
+    report_kind: ReportKind = "guidance"
+    guidance: GuidancePayload = Field(default_factory=GuidancePayload, validation_alias=AliasChoices("guidance", "guidance_json"))
     claim_ids: list[str] = Field(min_length=1, validation_alias=AliasChoices("claim_ids", "finding_ids"))
     visibility: Visibility = "private"
     author_type: AuthorType = "agent"
@@ -300,6 +331,9 @@ class ReportRecord(ReportCreate):
     source_ids: list[str]
     created_at: datetime
     human_reviewed: bool = False
+    freshness_state: FreshnessState | None = None
+    expires_at: datetime | None = None
+    is_stale: bool = False
     actor_user_id: str | None = None
     actor_org_id: str | None = None
     api_key_id: str | None = None
@@ -340,6 +374,9 @@ class SearchHit(BaseModel):
     url: str
     source_title: str | None = None
     human_reviewed: bool = False
+    freshness_state: FreshnessState | None = None
+    expires_at: datetime | None = None
+    is_stale: bool = False
     namespace_kind: NamespaceKind = "user"
     namespace_id: str = "local"
     public_namespace_slug: str | None = None

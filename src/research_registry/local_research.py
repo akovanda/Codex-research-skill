@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -115,12 +116,29 @@ class LocalClaimDraft(BaseModel):
     confidence: float = 0.7
 
 
+class LocalFollowUpDraft(BaseModel):
+    prompt: str
+    reason: Literal["gap", "need", "want"]
+    rationale: str
+    priority_score: float = Field(default=0.7, ge=0.0, le=1.0)
+
+
+class LocalGuidanceDraft(BaseModel):
+    current_guidance: list[str] = Field(default_factory=list)
+    evidence_now: list[str] = Field(default_factory=list)
+    gaps: list[str] = Field(default_factory=list)
+    needs: list[str] = Field(default_factory=list)
+    wants: list[str] = Field(default_factory=list)
+    follow_ups: list[LocalFollowUpDraft] = Field(default_factory=list)
+
+
 class LocalResearchResult(BaseModel):
     focus: FocusTuple
     query_terms: list[str]
     source_roots: list[str]
     hits: list[LocalEvidenceHit]
     claim_drafts: list[LocalClaimDraft]
+    guidance: LocalGuidanceDraft = Field(default_factory=LocalGuidanceDraft)
     gaps: list[str] = Field(default_factory=list)
     report_md: str | None = None
 
@@ -196,15 +214,16 @@ def run_local_research(
     query_terms = build_query_terms(prompt, focus=focus, source_signals=source_signals)
     hits = collect_local_hits(query_terms, focus=focus, roots=selected_roots, max_hits=max_hits)
     claim_drafts = build_claim_drafts(focus, hits)
-    gaps = build_gaps(focus, hits)
-    report_md = render_report(prompt, focus=focus, hits=hits, claim_drafts=claim_drafts, gaps=gaps) if hits else None
+    guidance = build_guidance(focus, hits=hits, claim_drafts=claim_drafts)
+    report_md = render_report(prompt, focus=focus, guidance=guidance) if hits else None
     return LocalResearchResult(
         focus=focus,
         query_terms=query_terms,
         source_roots=[str(root) for root in selected_roots.values()],
         hits=hits,
         claim_drafts=claim_drafts,
-        gaps=gaps,
+        guidance=guidance,
+        gaps=guidance.gaps,
         report_md=report_md,
     )
 
@@ -378,42 +397,188 @@ def build_gaps(focus: FocusTuple, hits: list[LocalEvidenceHit]) -> list[str]:
     return gaps
 
 
-def render_report(prompt: str, *, focus: FocusTuple, hits: list[LocalEvidenceHit], claim_drafts: list[LocalClaimDraft], gaps: list[str]) -> str:
-    repo_names = ", ".join(sorted({hit.repo_name for hit in hits}))
-    direct_answer = (
-        f"Based on live local evidence from {repo_names}, {focus.object or focus.label or 'the topic'} is already represented in real files, "
-        f"with the strongest signals coming from {summarize_paths(hits[:3])}."
+def build_guidance(focus: FocusTuple, *, hits: list[LocalEvidenceHit], claim_drafts: list[LocalClaimDraft]) -> LocalGuidanceDraft:
+    gaps = build_gaps(focus, hits)
+    evidence_now = build_evidence_points(hits)
+    needs = build_needs(focus, hits)
+    wants = build_wants(focus, hits)
+    follow_ups = build_follow_ups(focus, hits=hits, gaps=gaps)
+    current_guidance = [claim.statement for claim in claim_drafts[:3]]
+    if hits and len({hit.repo_name for hit in hits}) == 1:
+        current_guidance.append(
+            f"Treat the current support for {focus.object or focus.label or 'this topic'} as directional until a second repo or document family corroborates it."
+        )
+    if hits and not any(hit.source.source_type == "test" for hit in hits):
+        current_guidance.append(
+            f"Do not freeze the design around {focus.object or focus.label or 'this topic'} yet; the evidence base still needs direct verification coverage."
+        )
+    deduped_guidance: list[str] = []
+    for item in current_guidance:
+        if item not in deduped_guidance:
+            deduped_guidance.append(item)
+    return LocalGuidanceDraft(
+        current_guidance=deduped_guidance,
+        evidence_now=evidence_now,
+        gaps=gaps,
+        needs=needs,
+        wants=wants,
+        follow_ups=follow_ups,
     )
+
+
+def render_report(prompt: str, *, focus: FocusTuple, guidance: LocalGuidanceDraft) -> str:
     lines = [
         f"# {prompt}",
         "",
-        "## Direct Answer",
-        direct_answer,
-        "",
-        "## Focus",
-        f"- Label: {focus.label}",
-        f"- Domain: {focus.domain or 'general'}",
+        "## Current Guidance",
     ]
+    if guidance.current_guidance:
+        lines.extend(f"- {point}" for point in guidance.current_guidance)
+    else:
+        lines.append("- No source-backed guidance was synthesized from this pass.")
+    lines.extend(["", "## What Evidence Supports Right Now"])
+    if guidance.evidence_now:
+        lines.extend(f"- {point}" for point in guidance.evidence_now)
+    else:
+        lines.append("- No strong evidence bullets were captured.")
+    lines.extend(["", "## Gaps"])
+    if guidance.gaps:
+        lines.extend(f"- {gap}" for gap in guidance.gaps)
+    else:
+        lines.append("- No major evidence gaps were detected in the selected local source roots.")
+    lines.extend(["", "## Needs"])
+    if guidance.needs:
+        lines.extend(f"- {need}" for need in guidance.needs)
+    else:
+        lines.append("- No immediate must-have follow-up work was identified.")
+    lines.extend(["", "## Wants"])
+    if guidance.wants:
+        lines.extend(f"- {want}" for want in guidance.wants)
+    else:
+        lines.append("- No lower-priority expansion work was identified.")
+    lines.extend(["", "## Follow-up Questions"])
+    if guidance.follow_ups:
+        for index, follow_up in enumerate(guidance.follow_ups, start=1):
+            lines.append(f"{index}. [{follow_up.reason} | {follow_up.priority_score:.2f}] {follow_up.prompt}")
+    else:
+        lines.append("1. No follow-up questions were generated from this pass.")
+    lines.extend(["", "## Registry State", f"- Focus label: {focus.label}", f"- Domain: {focus.domain or 'general'}"])
     if focus.context:
         lines.append(f"- Context: {focus.context}")
     if focus.constraint:
         lines.append(f"- Constraint: {focus.constraint}")
-    lines.extend(["", "## Claims"])
-    for index, claim in enumerate(claim_drafts, start=1):
-        lines.append(f"{index}. [{claim.status} | {claim.confidence:.2f}] {claim.statement}")
-    lines.extend(["", "## Evidence"])
-    for claim in claim_drafts:
-        lines.append(f"### {claim.title}")
-        for excerpt_index in claim.excerpt_indexes[:3]:
-            hit = hits[excerpt_index]
-            lines.append(f"- {short_source_title(hit.file_path, hit.repo_name)}:{hit.selector.start_line}")
-            lines.append(f"  {hit.quote_text.strip()}")
-    lines.extend(["", "## Gaps"])
-    if gaps:
-        lines.extend(f"- {gap}" for gap in gaps)
-    else:
-        lines.append("- No major evidence gaps were detected in the selected local source roots.")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def build_evidence_points(hits: list[LocalEvidenceHit]) -> list[str]:
+    points: list[str] = []
+    for hit in hits[:5]:
+        matched_terms = ", ".join(hit.matched_terms[:3]) or "matched evidence"
+        line = hit.selector.start_line or 1
+        points.append(f"{short_source_title(hit.file_path, hit.repo_name)}:{line} matched {matched_terms}.")
+    return points
+
+
+def build_needs(focus: FocusTuple, hits: list[LocalEvidenceHit]) -> list[str]:
+    if not hits:
+        return [f"Need direct local evidence for {focus.label or 'this topic'} before storing reusable claims."]
+    repo_names = sorted({hit.repo_name for hit in hits})
+    source_types = {hit.source.source_type for hit in hits}
+    needs: list[str] = []
+    if len(repo_names) == 1:
+        needs.append(
+            f"Need corroborating evidence for {focus.object or focus.label or 'this topic'} outside {repo_names[0]} before treating it as cross-stack guidance."
+        )
+    if "test" not in source_types and "report" not in source_types:
+        needs.append(
+            f"Need direct test or benchmark evidence for {focus.object or focus.label or 'this topic'} so future reuse is not carried only by implementation files."
+        )
+    if focus.constraint and not any(focus.constraint.lower() in hit.quote_text.lower() for hit in hits):
+        needs.append(f"Need explicit evidence that addresses the `{focus.constraint}` constraint.")
+    return needs
+
+
+def build_wants(focus: FocusTuple, hits: list[LocalEvidenceHit]) -> list[str]:
+    if not hits:
+        return [f"Want adjacent terminology, docs, or benchmarks that might expose alternative names for {focus.label or 'this topic'}."]
+    source_types = {hit.source.source_type for hit in hits}
+    wants: list[str] = []
+    if len(hits) < 5:
+        wants.append(f"Want a broader evidence spread for {focus.object or focus.label or 'this topic'} so synthesis depends on more than a narrow file slice.")
+    if "documentation" not in source_types:
+        wants.append(f"Want documentation or design-note evidence that explains why {focus.object or focus.label or 'this topic'} exists.")
+    if "report" not in source_types:
+        wants.append(f"Want benchmark or artifact evidence showing how {focus.object or focus.label or 'this topic'} affects measured outcomes.")
+    return wants
+
+
+def build_follow_ups(focus: FocusTuple, *, hits: list[LocalEvidenceHit], gaps: list[str]) -> list[LocalFollowUpDraft]:
+    object_text = focus.object or focus.label or "this topic"
+    repo_names = sorted({hit.repo_name for hit in hits})
+    prompts: list[LocalFollowUpDraft] = []
+    if len(repo_names) == 1:
+        prompts.append(
+            LocalFollowUpDraft(
+                prompt=f"Research corroborating evidence for {object_text} across repos beyond {repo_names[0]}.",
+                reason="need",
+                rationale="Current support is concentrated in a single repo.",
+                priority_score=0.95,
+            )
+        )
+    if not any(hit.source.source_type in {"test", "report"} for hit in hits):
+        prompts.append(
+            LocalFollowUpDraft(
+                prompt=f"Research test or benchmark evidence for {object_text}.",
+                reason="need",
+                rationale="The current pass found little or no direct verification evidence.",
+                priority_score=0.92,
+            )
+        )
+    if focus.constraint and not any(focus.constraint.lower() in hit.quote_text.lower() for hit in hits):
+        prompts.append(
+            LocalFollowUpDraft(
+                prompt=f"Research direct evidence for {object_text} under {focus.constraint}.",
+                reason="gap",
+                rationale="The named constraint was not matched directly in the evidence.",
+                priority_score=0.9,
+            )
+        )
+    if not any(hit.source.source_type == "documentation" for hit in hits):
+        prompts.append(
+            LocalFollowUpDraft(
+                prompt=f"Research documentation and design notes that explain {object_text}.",
+                reason="want",
+                rationale="Operational or architectural context is still thin.",
+                priority_score=0.72,
+            )
+        )
+    if not any(hit.source.source_type == "report" for hit in hits):
+        prompts.append(
+            LocalFollowUpDraft(
+                prompt=f"Research benchmark or artifact evidence that measures the impact of {object_text}.",
+                reason="want",
+                rationale="The current evidence does not yet show measured outcomes.",
+                priority_score=0.68,
+            )
+        )
+    if not prompts and gaps:
+        prompts.append(
+            LocalFollowUpDraft(
+                prompt=f"Research deeper local evidence for {object_text} using adjacent terms and related implementation surfaces.",
+                reason="gap",
+                rationale=gaps[0],
+                priority_score=0.75,
+            )
+        )
+    deduped: list[LocalFollowUpDraft] = []
+    seen_prompts: set[str] = set()
+    for item in prompts:
+        normalized = normalize_research_text(item.prompt)
+        if normalized in seen_prompts:
+            continue
+        seen_prompts.add(normalized)
+        deduped.append(item)
+    return deduped[:5]
 
 
 def run_rg(term: str, root: Path) -> list[dict[str, str | int]]:

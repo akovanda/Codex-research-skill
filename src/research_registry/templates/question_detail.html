@@ -12,24 +12,89 @@
     <dt>Created</dt><dd>{{ question.created_at }}</dd>
     <dt>Topic</dt><dd>{{ question.topic_id }}</dd>
     <dt>Latest Report</dt><dd>{{ question.latest_report_id or "none" }}</dd>
+    <dt>Freshness</dt><dd>{{ question.latest_session_freshness_state or "unknown" }}</dd>
   </dl>
 </section>
 
 <section class="grid two-up">
   <div class="panel">
     <div class="panel-head">
-      <h2>Reports</h2>
-      <span>{{ reports|length }}</span>
+      <h2>Current Guidance</h2>
+      <span>{{ fresh_reports|length }}</span>
     </div>
     <div class="stack">
-      {% for report in reports %}
+      {% for report in fresh_reports %}
       <article class="card">
+        <div class="badge-row">
+          <span class="badge">{{ report.report_kind }}</span>
+          {% if report.is_stale %}<span class="badge stale">needs refresh</span>{% endif %}
+        </div>
         <h3><a href="/reports/{{ report.id }}">{{ report.title }}</a></h3>
-        <p>{{ report.focal_label }}</p>
-        <p class="muted">{{ report.claim_ids|length }} claim(s)</p>
+        {% if report.guidance.current_guidance %}
+        <p>{{ report.guidance.current_guidance[0] }}</p>
+        {% else %}
+        <p>{{ report.summary_md }}</p>
+        {% endif %}
+        <p class="muted">
+          {{ report.claim_ids|length }} claim(s)
+          {% if report.expires_at %}• expires {{ report.expires_at.date() }}{% endif %}
+        </p>
       </article>
       {% else %}
-      <p class="empty">No reports for this question.</p>
+      <p class="empty">No fresh guidance reports for this question yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Expansion Queue</h2>
+      <span>{{ child_questions|length }}</span>
+    </div>
+    <div class="stack">
+      {% for child in child_questions %}
+      <article class="card">
+        <div class="badge-row">
+          <span class="badge">{{ child.status }}</span>
+          {% if child.generation_reason %}<span class="badge">{{ child.generation_reason }}</span>{% endif %}
+          {% if child.latest_session_is_stale %}<span class="badge stale">needs refresh</span>{% endif %}
+        </div>
+        <h3><a href="/questions/{{ child.id }}">{{ child.prompt }}</a></h3>
+        <p>{{ child.focus.label }}</p>
+        <p class="muted">priority {{ "%.2f"|format(child.priority_score) }}</p>
+      </article>
+      {% else %}
+      <p class="empty">No child questions are queued from this question yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="grid two-up">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Historical Guidance</h2>
+      <span>{{ stale_reports|length }}</span>
+    </div>
+    <div class="stack">
+      {% for report in stale_reports %}
+      <article class="card">
+        <div class="badge-row">
+          <span class="badge">{{ report.report_kind }}</span>
+          <span class="badge stale">needs refresh</span>
+        </div>
+        <h3><a href="/reports/{{ report.id }}">{{ report.title }}</a></h3>
+        {% if report.guidance.current_guidance %}
+        <p>{{ report.guidance.current_guidance[0] }}</p>
+        {% else %}
+        <p>{{ report.summary_md }}</p>
+        {% endif %}
+        <p class="muted">
+          {{ report.claim_ids|length }} claim(s)
+          {% if report.expires_at %}• expired {{ report.expires_at.date() }}{% endif %}
+        </p>
+      </article>
+      {% else %}
+      <p class="empty">No stale reports for this question.</p>
       {% endfor %}
     </div>
   </div>
@@ -41,14 +106,43 @@
     <div class="stack">
       {% for claim in claims %}
       <article class="card">
+        <div class="badge-row">
+          <span class="badge">{{ claim.status }}</span>
+          {% if claim.is_stale %}<span class="badge stale">needs refresh</span>{% endif %}
+        </div>
         <h3><a href="/claims/{{ claim.id }}">{{ claim.title }}</a></h3>
         <p>{{ claim.statement }}</p>
-        <p class="muted">{{ claim.status }} • {{ claim.excerpt_ids|length }} excerpt(s)</p>
+        <p class="muted">{{ claim.excerpt_ids|length }} excerpt(s)</p>
       </article>
       {% else %}
       <p class="empty">No claims for this question.</p>
       {% endfor %}
     </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Research Sessions</h2>
+    <span>{{ sessions|length }}</span>
+  </div>
+  <div class="stack">
+    {% for session in sessions %}
+    <article class="card">
+      <div class="badge-row">
+        <span class="badge">{{ session.mode }}</span>
+        <span class="badge">{{ session.freshness_state }}</span>
+      </div>
+      <h3>{{ session.id }}</h3>
+      <p>{{ session.notes or "No notes stored for this session." }}</p>
+      <p class="muted">
+        {{ session.claim_ids|length }} claim(s)
+        {% if session.expires_at %}• expires {{ session.expires_at.date() }}{% endif %}
+      </p>
+    </article>
+    {% else %}
+    <p class="empty">No sessions recorded for this question.</p>
+    {% endfor %}
   </div>
 </section>
 {% endblock %}

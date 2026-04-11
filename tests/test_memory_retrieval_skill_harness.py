@@ -6,7 +6,7 @@ from research_registry.research_capture import run_implicit_research_capture
 from research_registry.service import RegistryService
 
 
-def test_memory_research_summary_contract_preserves_reuse_sections(tmp_path: Path) -> None:
+def test_memory_research_summary_contract_preserves_guidance_sections(tmp_path: Path) -> None:
     repo = tmp_path / "memory"
     repo.mkdir()
     (repo / "README.md").write_text(
@@ -27,7 +27,10 @@ def test_memory_research_summary_contract_preserves_reuse_sections(tmp_path: Pat
     assert outcome.specialized_skill == "research-memory-retrieval"
     assert outcome.summary_contract_passed is True
     assert outcome.narrative_summary_md is not None
-    assert "## Knowledge To Reuse" in outcome.narrative_summary_md
-    assert "## Context To Carry Forward" in outcome.narrative_summary_md
-    assert "## Evidence" in outcome.narrative_summary_md
+    assert "## Current Guidance" in outcome.narrative_summary_md
+    assert "## What Evidence Supports Right Now" in outcome.narrative_summary_md
+    assert "## Gaps" in outcome.narrative_summary_md
+    assert "## Needs" in outcome.narrative_summary_md
+    assert "## Wants" in outcome.narrative_summary_md
+    assert "## Follow-up Questions" in outcome.narrative_summary_md
     assert "## Registry State" in outcome.narrative_summary_md

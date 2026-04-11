@@ -66,7 +66,14 @@ def test_implicit_capture_runs_live_research_then_reuses_on_second_pass(tmp_path
     assert first.capture_summary.stored_question_id is not None
     assert first.capture_summary.stored_report_id is not None
     assert first.capture_summary.stored_claim_ids
+    assert first.capture_summary.stored_follow_up_question_ids
+    assert "## Follow-up Questions" in (first.narrative_summary_md or "")
     assert first.summary_contract_passed is True
+
+    report = service.get_report(first.capture_summary.stored_report_id, include_private=True)
+    assert report.report_kind == "guidance"
+    assert report.guidance.current_guidance
+    assert report.guidance.follow_up_question_ids == first.capture_summary.stored_follow_up_question_ids
 
     second = run_implicit_research_capture(
         "Research branch-private memory isolation strategies for divergent narrative and coding branches.",
@@ -77,6 +84,7 @@ def test_implicit_capture_runs_live_research_then_reuses_on_second_pass(tmp_path
     assert second.specialist_mode == "reuse"
     assert second.capture_summary.reused_record_ids
     assert second.capture_summary.stored_session_id is not None
+    assert second.capture_summary.stored_follow_up_question_ids
     assert second.summary_contract_passed is True
     assert "Stored session" in format_capture_summary(second.capture_summary)
 

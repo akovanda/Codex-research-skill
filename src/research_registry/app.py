@@ -93,13 +93,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/questions/{question_id}", response_class=HTMLResponse)
     def question_detail(question_id: str, request: Request) -> HTMLResponse:
-        question = _safe_get(lambda: service.get_question(question_id, include_private=_is_admin(request)))
-        claims = service.list_claims_for_question(question.id, include_private=_is_admin(request))
-        reports = service.list_reports_for_question(question.id, include_private=_is_admin(request))
+        include_private = _is_admin(request)
+        question = _safe_get(lambda: service.get_question(question_id, include_private=include_private))
+        claims = service.list_claims_for_question(question.id, include_private=include_private)
+        reports = service.list_reports_for_question(question.id, include_private=include_private)
+        fresh_reports = [report for report in reports if not report.is_stale]
+        stale_reports = [report for report in reports if report.is_stale]
+        child_questions = service.list_child_questions(question.id, include_private=include_private)
+        sessions = service.list_sessions_for_question(question.id, include_private=include_private)
         return TEMPLATES.TemplateResponse(
             request,
             "question_detail.html",
-            {"request": request, "question": question, "claims": claims, "reports": reports, "is_admin": _is_admin(request)},
+            {
+                "request": request,
+                "question": question,
+                "claims": claims,
+                "reports": reports,
+                "fresh_reports": fresh_reports,
+                "stale_reports": stale_reports,
+                "child_questions": child_questions,
+                "sessions": sessions,
+                "is_admin": include_private,
+            },
         )
 
     @app.get("/sources/{source_id}", response_class=HTMLResponse)
@@ -144,14 +159,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/reports/{report_id}", response_class=HTMLResponse)
     def report_detail(report_id: str, request: Request) -> HTMLResponse:
-        report = _safe_get(lambda: service.get_report(report_id, include_private=_is_admin(request)))
+        include_private = _is_admin(request)
+        report = _safe_get(lambda: service.get_report(report_id, include_private=include_private))
         question = service.get_question(report.question_id, include_private=True)
         claims = [service.get_claim(claim_id, include_private=True) for claim_id in report.claim_ids]
         sources = {source_id: service.get_source(source_id, include_private=True) for source_id in report.source_ids}
+        follow_up_questions = []
+        for question_id in report.guidance.follow_up_question_ids:
+            try:
+                follow_up_questions.append(service.get_question(question_id, include_private=include_private))
+            except (KeyError, PermissionError):
+                continue
         return TEMPLATES.TemplateResponse(
             request,
             "report_detail.html",
-            {"request": request, "report": report, "question": question, "claims": claims, "sources": sources, "is_admin": _is_admin(request)},
+            {
+                "request": request,
+                "report": report,
+                "question": question,
+                "claims": claims,
+                "sources": sources,
+                "follow_up_questions": follow_up_questions,
+                "is_admin": include_private,
+            },
         )
 
     @app.get("/admin/login", response_class=HTMLResponse)
