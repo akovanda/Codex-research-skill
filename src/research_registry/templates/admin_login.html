@@ -4,9 +4,12 @@
 <section class="panel narrow">
   <p class="eyebrow">Admin Workspace</p>
   <h1>Unlock curation tools</h1>
-  <p class="lede">Use the configured admin token to review, publish, and inspect private registry objects.</p>
+  <p class="lede">Use the configured admin token to inspect private records, review evidence, and publish the reports or claims that should become reusable.</p>
+  <div class="callout">
+    <strong>Local preview note.</strong> If you used <code>research-registry-local-install</code>, the admin token is stored in <code>~/.config/research-registry/config.toml</code>. For shared deployments, get the token from the operator.
+  </div>
   <form class="stack" action="/admin/login" method="post">
-    <input type="password" name="token" placeholder="Admin token">
+    <input type="password" name="token" placeholder="Admin token" autocomplete="current-password">
     <button type="submit">Enter workspace</button>
   </form>
   {% if error %}<p class="error">{{ error }}</p>{% endif %}

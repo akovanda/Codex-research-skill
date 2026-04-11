@@ -29,6 +29,28 @@ def make_service(tmp_path: Path) -> RegistryService:
     return service
 
 
+def make_settings(tmp_path: Path, *, public_base_url: str = "https://registry.example.com") -> Settings:
+    data_dir = tmp_path / "data"
+    db_path = tmp_path / "app.sqlite3"
+    return Settings(
+        data_dir=data_dir,
+        db_path=db_path,
+        database_url=f"sqlite:///{db_path.resolve()}",
+        capture_queue_path=data_dir / "pending-research-captures.jsonl",
+        backend_profile_path=data_dir / "backend-profiles.json",
+        admin_token="secret",
+        session_secret="session-secret",
+        host="127.0.0.1",
+        port=8000,
+        default_backend_url=public_base_url,
+        backend_url=None,
+        backend_api_key=None,
+        backend_org=None,
+        backend_profile=None,
+        public_base_url=public_base_url,
+    )
+
+
 def test_question_claim_report_roundtrip_search_and_public_visibility(tmp_path: Path) -> None:
     service = make_service(tmp_path)
     focus = FocusTuple(domain="memory-retrieval", object="branch-private memory isolation", context="choose-game")
@@ -81,24 +103,7 @@ def test_question_claim_report_roundtrip_search_and_public_visibility(tmp_path: 
 
 
 def test_api_key_isolation_and_public_namespace_vs_global_index(tmp_path: Path) -> None:
-    data_dir = tmp_path / "data"
-    settings = Settings(
-        data_dir=data_dir,
-        db_path=tmp_path / "auth.sqlite3",
-        database_url=f"sqlite:///{(tmp_path / 'auth.sqlite3').resolve()}",
-        capture_queue_path=data_dir / "pending-research-captures.jsonl",
-        backend_profile_path=data_dir / "backend-profiles.json",
-        admin_token="secret",
-        session_secret="session-secret",
-        host="127.0.0.1",
-        port=8000,
-        default_backend_url="https://registry.example.com",
-        backend_url=None,
-        backend_api_key=None,
-        backend_org=None,
-        backend_profile=None,
-        public_base_url="https://registry.example.com",
-    )
+    settings = make_settings(tmp_path)
     app = create_app(settings)
     client = TestClient(app)
     service = app.state.service
@@ -207,6 +212,26 @@ def test_api_key_isolation_and_public_namespace_vs_global_index(tmp_path: Path) 
     assert key_response.status_code == 200
     assert key_response.json()["token"].startswith("rrk_")
     assert key_response.json()["record"]["namespace_kind"] == "org"
+
+
+def test_empty_pages_include_onboarding_guidance(tmp_path: Path) -> None:
+    app = create_app(make_settings(tmp_path))
+    client = TestClient(app)
+
+    home = client.get("/")
+    assert home.status_code == 200
+    assert "How To Get Value From A New Registry" in home.text
+    assert "research-registry-local-status" in home.text
+    assert "Publish only the reusable parts" in home.text
+
+    login = client.get("/admin/login")
+    assert login.status_code == 200
+    assert "~/.config/research-registry/config.toml" in login.text
+
+    workspace = client.get("/admin", headers={"x-admin-token": "secret"})
+    assert workspace.status_code == 200
+    assert "Private Workspace Is Empty" in workspace.text
+    assert "research-registry-seed-memory-retrieval" in workspace.text
 
 
 def test_search_ranks_fresh_reports_above_stale_reports(tmp_path: Path) -> None:

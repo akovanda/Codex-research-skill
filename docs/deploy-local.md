@@ -2,6 +2,14 @@
 
 Local deployment is the default. The recommended path for real use is one shared localhost service for all of your local Codex instances.
 
+If you are brand new to the project, read [Getting Started](getting-started.md) first.
+
+## Prerequisites
+
+- Python 3.12
+- Docker with Compose support
+- Codex on the same machine if you want the managed MCP wiring
+
 ## Start
 
 ```bash
@@ -18,6 +26,23 @@ This creates:
 - a Docker Compose stack on `http://127.0.0.1:8010`
 - a managed MCP entry in `~/.codex/config.toml`
 - skill symlinks in `~/.codex/skills/`
+
+## Verify
+
+Check status:
+
+```bash
+research-registry-local-status
+curl http://127.0.0.1:8010/readyz
+```
+
+What good looks like:
+
+- `configured=true`
+- `ready=true`
+- `api_key_configured=true`
+- `codex_mcp_managed=true`
+- `GET /readyz` returns `{"status":"ready"}`
 
 Check status:
 
@@ -67,6 +92,15 @@ curl http://127.0.0.1:8010/readyz
 
 ## Optional setup
 
+Put useful content into a new registry:
+
+```bash
+research-registry-seed
+research-registry-seed-memory-retrieval
+```
+
+Then open `http://127.0.0.1:8010` and confirm the public board is populated.
+
 Seed demo content:
 
 ```bash
@@ -86,3 +120,4 @@ research-registry-migrate
 - the managed MCP endpoint is HTTP-first; the stdio MCP server remains available for compatibility
 - local mode is the recommended first-run path for contributors and new users
 - if you need a repo-local no-Docker process, use `research-registry-web` and treat that path as development-only for this release
+- if you used `research-registry-local-install`, the admin token is stored in `~/.config/research-registry/config.toml`

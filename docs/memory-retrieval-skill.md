@@ -2,6 +2,8 @@
 
 This document covers the `research-memory-retrieval` Codex skill and its local validation flow.
 
+If you are just trying to get the project running, start with [Getting Started](getting-started.md).
+
 ## Files
 
 - [`skills/research-memory-retrieval/SKILL.md`](../skills/research-memory-retrieval/SKILL.md)

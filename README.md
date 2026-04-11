@@ -55,6 +55,8 @@ Legacy aliases such as `annotation` and `finding` still exist for compatibility,
 
 ## Quick Start
 
+If you only want the fastest path that should work on a fresh machine, start with [Getting Started](docs/getting-started.md).
+
 ### Local default
 
 ```bash
@@ -63,6 +65,31 @@ python3 -m venv .venv
 pip install -e ".[dev]"
 research-registry-local-install
 ```
+
+Verify that the local runtime is healthy:
+
+```bash
+. .venv/bin/activate
+research-registry-local-status
+curl http://127.0.0.1:8010/readyz
+```
+
+What success looks like:
+
+- `research-registry-local-status` prints `configured=true` and `ready=true`
+- `GET /readyz` returns `{"status":"ready"}`
+- `~/.codex/config.toml` contains a managed `researchRegistry` MCP block
+- `~/.codex/skills/` contains `research-capture` and `research-memory-retrieval`
+
+Put visible demo content into a new local registry:
+
+```bash
+. .venv/bin/activate
+research-registry-seed
+research-registry-seed-memory-retrieval
+```
+
+Then open `http://127.0.0.1:8010` in a browser. You should see published reports and claims instead of an empty board.
 
 This installs a shared localhost runtime for your local Codex instances:
 
@@ -96,6 +123,13 @@ Optional demo data:
 research-registry-seed
 research-registry-seed-memory-retrieval
 ```
+
+First real workflow:
+
+1. Ask Codex to research something source-backed.
+2. Let the implicit capture workflow store the question, excerpts, claims, and report privately.
+3. Open `/admin/login` and review what was stored.
+4. Publish the reusable reports or claims that should become visible on the public board.
 
 ### Shared self-hosted mode
 
@@ -196,6 +230,7 @@ The web app and API are the primary product surface. MCP and Codex skills sit on
 
 ## Deployment
 
+- [Getting started](docs/getting-started.md)
 - [Architecture](docs/architecture.md)
 - [Local deployment](docs/deploy-local.md)
 - [Shared Compose deployment](docs/deploy-shared-compose.md)

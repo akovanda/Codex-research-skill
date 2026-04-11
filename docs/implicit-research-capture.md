@@ -2,6 +2,8 @@
 
 This document describes the default Codex workflow for research intent.
 
+For first-run local setup, start with [Getting Started](getting-started.md).
+
 Primary pieces:
 
 - [`skills/research-capture`](../skills/research-capture/SKILL.md)

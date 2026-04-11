@@ -5,16 +5,60 @@
   <div>
     <p class="eyebrow">Workspace</p>
     <h1>Private Research Memory</h1>
-    <p class="lede">Inspect private questions, claims, reports, and evidence before deciding what to publish.</p>
+    <p class="lede">This view holds private research before publication. Search what exists, inspect evidence, and only publish the reports and claims that are worth reusing.</p>
   </div>
   <form class="search-bar" action="/admin" method="get">
-    <input type="search" name="q" value="{{ results.query }}" placeholder="Search private research memory...">
+    <input type="search" name="q" value="{{ results.query }}" placeholder="Search private questions, evidence, reports...">
     <button type="submit">Search</button>
   </form>
   <form action="/admin/logout" method="post" class="action-row">
     <button type="submit" class="ghost">Log Out</button>
   </form>
+  <div class="stats-row">
+    <article class="stat-card">
+      <span class="stat-label">Questions</span>
+      <strong>{{ dashboard.questions|length }}</strong>
+    </article>
+    <article class="stat-card">
+      <span class="stat-label">Claims</span>
+      <strong>{{ dashboard.claims|length }}</strong>
+    </article>
+    <article class="stat-card">
+      <span class="stat-label">Reports</span>
+      <strong>{{ dashboard.reports|length }}</strong>
+    </article>
+  </div>
 </section>
+
+{% if not results.query and dashboard.reports|length == 0 and dashboard.claims|length == 0 and dashboard.questions|length == 0 %}
+<section class="panel onboarding-panel">
+  <div class="panel-head">
+    <h2>Private Workspace Is Empty</h2>
+    <span>first steps</span>
+  </div>
+  <div class="grid three-up">
+    <article class="card step-card">
+      <span class="step-number">1</span>
+      <h3>Capture a question</h3>
+      <p>Use Codex research workflows or the HTTP API to store a question, evidence, claims, and a report.</p>
+    </article>
+    <article class="card step-card">
+      <span class="step-number">2</span>
+      <h3>Load demo content if you want a fast tour</h3>
+      <p>For localhost preview runs, demo seed commands are the fastest way to make the product feel alive.</p>
+      <div class="command-row">
+        <code>research-registry-seed</code>
+        <code>research-registry-seed-memory-retrieval</code>
+      </div>
+    </article>
+    <article class="card step-card">
+      <span class="step-number">3</span>
+      <h3>Review, then publish</h3>
+      <p>Keep raw work private, review it here, and publish only the reports and claims that should become visible on the public board.</p>
+    </article>
+  </div>
+</section>
+{% endif %}
 
 {% if results.query %}
 <section class="panel">
@@ -45,6 +89,8 @@
         </form>
       </div>
     </article>
+    {% else %}
+    <p class="empty">No private records matched that query. Try the question text, focal label, or source title.</p>
     {% endfor %}
   </div>
 </section>
@@ -67,7 +113,7 @@
         <p class="muted">{{ question.status }}</p>
       </article>
       {% else %}
-      <p class="empty">No stored questions.</p>
+      <p class="empty">No stored questions yet. Capture a research pass and it will show up here first.</p>
       {% endfor %}
     </div>
   </div>
@@ -87,7 +133,7 @@
         <p class="muted">{{ claim.focal_label }}</p>
       </article>
       {% else %}
-      <p class="empty">No stored claims.</p>
+      <p class="empty">No stored claims yet. Claims are created from excerpts that support a reusable statement.</p>
       {% endfor %}
     </div>
   </div>
@@ -107,7 +153,7 @@
         <p class="muted">{{ report.claim_ids|length }} claim(s)</p>
       </article>
       {% else %}
-      <p class="empty">No stored reports.</p>
+      <p class="empty">No stored reports yet. Reports are the guidance layer on top of questions, evidence, and claims.</p>
       {% endfor %}
     </div>
   </div>

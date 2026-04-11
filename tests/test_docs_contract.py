@@ -7,6 +7,7 @@ import tomllib
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PRIMARY_DOCS = [
     REPO_ROOT / "README.md",
+    REPO_ROOT / "docs" / "getting-started.md",
     REPO_ROOT / "docs" / "architecture.md",
     REPO_ROOT / "docs" / "deploy-local.md",
     REPO_ROOT / "docs" / "deploy-shared-compose.md",
@@ -46,6 +47,7 @@ def test_open_source_preview_surface_files_exist() -> None:
         REPO_ROOT / "deploy" / "kubernetes" / "deployment.yaml",
         REPO_ROOT / "deploy" / "kubernetes" / "service.yaml",
         REPO_ROOT / "deploy" / "kubernetes" / "migrate-job.yaml",
+        REPO_ROOT / "docs" / "getting-started.md",
     ]
     for path in required:
         assert path.exists(), str(path)
@@ -57,14 +59,18 @@ def test_release_scope_docs_are_consistent() -> None:
     deploy_local = (REPO_ROOT / "docs" / "deploy-local.md").read_text(encoding="utf-8")
     deploy_shared = (REPO_ROOT / "docs" / "deploy-shared-compose.md").read_text(encoding="utf-8")
     deploy_kubernetes = (REPO_ROOT / "docs" / "deploy-kubernetes.md").read_text(encoding="utf-8")
+    getting_started = (REPO_ROOT / "docs" / "getting-started.md").read_text(encoding="utf-8")
     operations = (REPO_ROOT / "docs" / "operations.md").read_text(encoding="utf-8")
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     release = (REPO_ROOT / "RELEASE.md").read_text(encoding="utf-8")
 
     assert "GitHub-first open-source preview" in readme
+    assert "What success looks like" in readme
     assert "managed localhost runtime for multiple local Codex instances" in readme
     assert "shared self-hosted Compose deployment for internal teams" in readme
     assert "direct public-internet exposure" in readme
+    assert "research-registry-local-status" in getting_started
+    assert "research-registry-seed-memory-retrieval" in getting_started
     assert "managed localhost runtime on `127.0.0.1:8010`" in architecture
     assert "internal-only" in deploy_shared
     assert "example-only" in deploy_kubernetes

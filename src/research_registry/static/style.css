@@ -30,6 +30,10 @@ a {
   color: inherit;
 }
 
+a.button-link {
+  text-decoration: none;
+}
+
 code,
 pre,
 input,
@@ -66,6 +70,16 @@ button {
 .site-header nav {
   display: flex;
   gap: 1rem;
+}
+
+.site-header nav a {
+  text-decoration: none;
+  color: var(--muted);
+}
+
+.site-header nav a:hover,
+.site-header nav a:focus-visible {
+  color: var(--ink);
 }
 
 .brand {
@@ -123,7 +137,9 @@ button {
 }
 
 .search-bar,
-.action-row {
+.action-row,
+.hero-actions,
+.command-row {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
@@ -148,6 +164,21 @@ button {
   cursor: pointer;
 }
 
+a.button-link,
+button.ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.9rem 1.1rem;
+}
+
+a.button-link {
+  border-radius: 999px;
+  background: var(--ink);
+  color: white;
+}
+
+a.button-link.ghost,
 button.ghost {
   background: transparent;
   border: 1px solid var(--border);
@@ -184,6 +215,32 @@ button.ghost {
 .stack {
   display: grid;
   gap: 0.9rem;
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.stat-card {
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 1.55rem;
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .card {
@@ -230,6 +287,37 @@ button.ghost {
   color: var(--danger);
 }
 
+.step-card {
+  position: relative;
+}
+
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: #0f4d48;
+  font-weight: 700;
+  margin-bottom: 0.7rem;
+}
+
+.onboarding-panel .card p {
+  color: var(--muted);
+}
+
+.command-row code {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.65rem;
+  border-radius: 12px;
+  background: rgba(24, 34, 29, 0.08);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
 .muted,
 .empty,
 .error {
@@ -238,6 +326,20 @@ button.ghost {
 
 .error {
   color: var(--danger);
+}
+
+.callout {
+  margin-top: 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 118, 110, 0.14);
+  background: rgba(12, 118, 110, 0.08);
+}
+
+.callout code {
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.16rem 0.32rem;
+  border-radius: 8px;
 }
 
 .detail,
@@ -268,7 +370,8 @@ blockquote,
 
 @media (max-width: 900px) {
   .two-up,
-  .three-up {
+  .three-up,
+  .stats-row {
     grid-template-columns: 1fr;
   }
 

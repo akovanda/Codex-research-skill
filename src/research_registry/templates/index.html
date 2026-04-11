@@ -3,13 +3,64 @@
 {% block content %}
 <section class="hero">
   <p class="eyebrow">Question-led Research Memory</p>
-  <h1>Store the question, the evidence, and the claims it actually supports.</h1>
-  <p class="lede">This registry treats source excerpts as evidence, claims as decontextualized propositions with essential context, and reports as reusable syntheses built on top of them.</p>
+  <h1>Keep the question, the evidence, and the guidance together.</h1>
+  <p class="lede">Research Registry gives humans and agents a durable research trail: question to sources to excerpts to claims to report. Search the public board here, then use Workspace to review and publish private research.</p>
+  <div class="hero-actions">
+    <a class="button-link" href="{{ '/admin' if is_admin else '/admin/login' }}">Open Workspace</a>
+    <a class="button-link ghost" href="#public-board">Browse Public Board</a>
+  </div>
   <form class="search-bar" action="{{ namespace_slug and ('/public/' ~ namespace_slug) or '/' }}" method="get">
-    <input type="search" name="q" value="{{ results.query }}" placeholder="Search branch-private isolation, judge calibration, typed anchors...">
+    <input type="search" name="q" value="{{ results.query }}" placeholder="Search memory retrieval, evaluator design, typed anchors...">
     <button type="submit">Search</button>
   </form>
+  <div class="stats-row">
+    <article class="stat-card">
+      <span class="stat-label">Published reports</span>
+      <strong>{{ dashboard.reports|length }}</strong>
+    </article>
+    <article class="stat-card">
+      <span class="stat-label">Published claims</span>
+      <strong>{{ dashboard.claims|length }}</strong>
+    </article>
+    <article class="stat-card">
+      <span class="stat-label">Visible questions</span>
+      <strong>{{ dashboard.questions|length }}</strong>
+    </article>
+  </div>
 </section>
+
+{% if not results.query and dashboard.reports|length == 0 and dashboard.claims|length == 0 and dashboard.questions|length == 0 %}
+<section class="panel onboarding-panel">
+  <div class="panel-head">
+    <h2>How To Get Value From A New Registry</h2>
+    <span>first run</span>
+  </div>
+  <div class="grid three-up">
+    <article class="card step-card">
+      <span class="step-number">1</span>
+      <h3>Capture or seed something real</h3>
+      <p>Ask Codex to do source-backed research, or load demo content locally so the board has something visible.</p>
+      <div class="command-row">
+        <code>research-registry-seed</code>
+        <code>research-registry-seed-memory-retrieval</code>
+      </div>
+    </article>
+    <article class="card step-card">
+      <span class="step-number">2</span>
+      <h3>Review private work in Workspace</h3>
+      <p>Private questions, excerpts, claims, and reports live in Workspace before you decide what should become public.</p>
+    </article>
+    <article class="card step-card">
+      <span class="step-number">3</span>
+      <h3>Publish only the reusable parts</h3>
+      <p>Published reports and claims show up on this board. Keep drafts private until they are worth reusing.</p>
+    </article>
+  </div>
+  <div class="callout">
+    <strong>Local preview shortcut.</strong> Run <code>research-registry-local-status</code> to confirm the local runtime is healthy, then seed demo content and reload this page.
+  </div>
+</section>
+{% endif %}
 
 {% if results.query %}
 <section class="panel">
@@ -34,13 +85,13 @@
       </p>
     </article>
     {% else %}
-    <p class="empty">No visible records matched that query.</p>
+    <p class="empty">No visible records matched that query. Try broader language, or open Workspace to inspect private records before publication.</p>
     {% endfor %}
   </div>
 </section>
 {% endif %}
 
-<section class="grid two-up">
+<section class="grid two-up" id="public-board">
   <div class="panel">
     <div class="panel-head">
       <h2>Published Reports</h2>
@@ -57,7 +108,7 @@
         <p class="muted">{{ report.created_at.date() }} • {{ report.claim_ids|length }} claim(s)</p>
       </article>
       {% else %}
-      <p class="empty">No published reports yet.</p>
+      <p class="empty">No published reports yet. Publish one from Workspace or seed demo content locally.</p>
       {% endfor %}
     </div>
   </div>
@@ -77,7 +128,7 @@
         <p class="muted">{{ claim.focal_label }} • {{ claim.excerpt_ids|length }} excerpt(s)</p>
       </article>
       {% else %}
-      <p class="empty">No published claims yet.</p>
+      <p class="empty">No published claims yet. Claims appear here after review and publish.</p>
       {% endfor %}
     </div>
   </div>
@@ -99,7 +150,7 @@
         <p class="muted">{{ question.created_at.date() }} • status {{ question.status }}</p>
     </article>
     {% else %}
-    <p class="empty">No visible questions yet.</p>
+    <p class="empty">No visible questions yet. Capture research through Codex or the API, then publish the parts you want others to reuse.</p>
     {% endfor %}
   </div>
 </section>
