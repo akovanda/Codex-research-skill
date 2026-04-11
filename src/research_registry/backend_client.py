@@ -119,7 +119,7 @@ class RegistryApiClient:
 def create_backend(settings: Settings) -> RegistryBackend:
     status = resolve_backend(settings)
     if status.kind == "local" or status.url is None:
-        service = RegistryService(settings.db_path)
+        service = RegistryService(settings.database_url)
         service.initialize()
         service.set_backend_status(status)
         return service

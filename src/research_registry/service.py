@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 from pathlib import Path
 import secrets
-import sqlite3
+from typing import Any
 from uuid import uuid4
 
+from .db import DbConnection, resolve_database_target, connect_database
 from .models import (
     ApiKeyCreate,
     ApiKeyRecord,
@@ -65,11 +65,13 @@ def first_non_heading_line(markdown: str) -> str:
 
 
 class RegistryService:
-    def __init__(self, db_path: Path):
-        self.db_path = db_path
+    def __init__(self, database_target: str | Path):
+        self.database = resolve_database_target(database_target)
+        self.db_path = self.database.sqlite_path
+        self.database_url = self.database.url
         self._backend_status = BackendStatus(
             name="embedded-local",
-            kind="local",
+            kind="local" if self.database.kind == "sqlite" else "server",
             selection_source="embedded_local",
             url=None,
             namespace_kind="user",
@@ -77,16 +79,8 @@ class RegistryService:
             api_key_present=False,
         )
 
-    @contextmanager
     def connect(self):
-        connection = sqlite3.connect(self.db_path)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        try:
-            yield connection
-            connection.commit()
-        finally:
-            connection.close()
+        return connect_database(self.database)
 
     def set_backend_status(self, status: BackendStatus) -> None:
         self._backend_status = status
@@ -94,10 +88,14 @@ class RegistryService:
     def backend_status(self) -> BackendStatus:
         return self._backend_status
 
+    def check_ready(self) -> None:
+        with self.connect() as conn:
+            conn.execute("SELECT 1").fetchone()
+
     def initialize(self) -> None:
         with self.connect() as conn:
             version = None
-            tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+            tables = self._list_tables(conn)
             if "schema_meta" in tables:
                 row = conn.execute("SELECT version FROM schema_meta LIMIT 1").fetchone()
                 version = row["version"] if row else None
@@ -930,8 +928,11 @@ class RegistryService:
         with self.connect() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO org_memberships (org_id, user_id, role, created_at)
+                INSERT INTO org_memberships (org_id, user_id, role, created_at)
                 VALUES (?, ?, ?, ?)
+                ON CONFLICT(org_id, user_id) DO UPDATE SET
+                    role = excluded.role,
+                    created_at = excluded.created_at
                 """,
                 (org_id, user_id, role, utc_now().isoformat()),
             )
@@ -988,7 +989,7 @@ class RegistryService:
             scopes=json.loads(row["scopes_json"]),
         )
 
-    def _create_schema(self, conn: sqlite3.Connection) -> None:
+    def _create_schema(self, conn: DbConnection) -> None:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1254,7 +1255,7 @@ class RegistryService:
         conn.execute("DELETE FROM schema_meta")
         conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
 
-    def _migrate_schema(self, conn: sqlite3.Connection, version: int) -> None:
+    def _migrate_schema(self, conn: DbConnection, version: int) -> None:
         if version >= 3:
             conn.execute("DELETE FROM schema_meta")
             conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
@@ -1307,8 +1308,9 @@ class RegistryService:
         conn.execute("DELETE FROM schema_meta")
         conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
 
-    def _drop_managed_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute("PRAGMA foreign_keys = OFF")
+    def _drop_managed_schema(self, conn: DbConnection) -> None:
+        if self.database.kind == "sqlite":
+            conn.execute("PRAGMA foreign_keys = OFF")
         for table in (
             "audit_log",
             "api_keys",
@@ -1332,10 +1334,34 @@ class RegistryService:
             "schema_meta",
         ):
             conn.execute(f"DROP TABLE IF EXISTS {table}")
-        conn.execute("PRAGMA foreign_keys = ON")
+        if self.database.kind == "sqlite":
+            conn.execute("PRAGMA foreign_keys = ON")
 
-    def _column_exists(self, conn: sqlite3.Connection, table: str, column: str) -> bool:
-        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    def _list_tables(self, conn: DbConnection) -> set[str]:
+        if self.database.kind == "sqlite":
+            rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+            return {row["name"] for row in rows}
+        rows = conn.execute(
+            """
+            SELECT table_name AS name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+            """
+        ).fetchall()
+        return {row["name"] for row in rows}
+
+    def _column_exists(self, conn: DbConnection, table: str, column: str) -> bool:
+        if self.database.kind == "sqlite":
+            rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT column_name AS name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = ? AND column_name = ?
+                """,
+                (table, column),
+            ).fetchall()
         return any(row["name"] == column for row in rows)
 
     def _list_questions(
@@ -1631,7 +1657,7 @@ class RegistryService:
         assert payload.source is not None
         return self.create_source(payload.source, auth=auth)
 
-    def _fetch_row(self, table: str, record_id: str) -> sqlite3.Row:
+    def _fetch_row(self, table: str, record_id: str) -> Any:
         with self.connect() as conn:
             row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (record_id,)).fetchone()
         if row is None:
@@ -1640,7 +1666,7 @@ class RegistryService:
 
     def _ensure_visible(
         self,
-        row: sqlite3.Row,
+        row: Any,
         include_private: bool,
         *,
         auth: AuthContext | None = None,
@@ -1652,7 +1678,7 @@ class RegistryService:
 
     def _can_access_row(
         self,
-        row: sqlite3.Row,
+        row: Any,
         *,
         include_private: bool,
         auth: AuthContext | None,
@@ -1682,7 +1708,7 @@ class RegistryService:
 
     def _set_visibility(
         self,
-        conn: sqlite3.Connection,
+        conn: DbConnection,
         kind: str,
         record_id: str,
         visibility: Visibility,
@@ -1708,7 +1734,7 @@ class RegistryService:
 
     def _cascade_publish(
         self,
-        conn: sqlite3.Connection,
+        conn: DbConnection,
         kind: str,
         record_id: str,
         *,
@@ -1812,7 +1838,7 @@ class RegistryService:
             return stored_state, expires_at, stored_state != "fresh"
         return None, expires_at, False
 
-    def _session_freshness_from_row(self, row: sqlite3.Row | None) -> tuple[str | None, datetime | None, bool]:
+    def _session_freshness_from_row(self, row: Any | None) -> tuple[str | None, datetime | None, bool]:
         if row is None:
             return None, None, False
         expires_at = self._decode_dt(row["expires_at"])
@@ -1828,7 +1854,7 @@ class RegistryService:
             ).fetchone()
         return self._session_freshness_from_row(row)
 
-    def _topic_from_row(self, row: sqlite3.Row) -> TopicRecord:
+    def _topic_from_row(self, row: Any) -> TopicRecord:
         return TopicRecord(
             id=row["id"],
             label=row["label"],
@@ -1841,7 +1867,7 @@ class RegistryService:
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
-    def _question_from_row(self, row: sqlite3.Row) -> QuestionRecord:
+    def _question_from_row(self, row: Any) -> QuestionRecord:
         with self.connect() as conn:
             latest_session = conn.execute(
                 "SELECT id, expires_at, freshness_state FROM research_sessions WHERE question_id = ? ORDER BY created_at DESC LIMIT 1",
@@ -1881,7 +1907,7 @@ class RegistryService:
             public_index_state=row["public_index_state"],
         )
 
-    def _session_from_row(self, row: sqlite3.Row) -> ResearchSessionRecord:
+    def _session_from_row(self, row: Any) -> ResearchSessionRecord:
         with self.connect() as conn:
             claim_rows = conn.execute("SELECT id FROM claims WHERE session_id = ? ORDER BY created_at ASC", (row["id"],)).fetchall()
             report_rows = conn.execute("SELECT id FROM reports WHERE session_id = ? ORDER BY created_at ASC", (row["id"],)).fetchall()
@@ -1927,7 +1953,7 @@ class RegistryService:
             public_index_state=row["public_index_state"],
         )
 
-    def _source_from_row(self, row: sqlite3.Row) -> SourceRecord:
+    def _source_from_row(self, row: Any) -> SourceRecord:
         return SourceRecord(
             id=row["id"],
             locator=row["locator"],
@@ -1955,7 +1981,7 @@ class RegistryService:
             public_index_state=row["public_index_state"],
         )
 
-    def _excerpt_from_row(self, row: sqlite3.Row) -> ExcerptRecord:
+    def _excerpt_from_row(self, row: Any) -> ExcerptRecord:
         freshness_state, expires_at, is_stale = self._session_freshness_by_id(row["session_id"])
         return ExcerptRecord(
             id=row["id"],
@@ -1988,7 +2014,7 @@ class RegistryService:
             public_index_state=row["public_index_state"],
         )
 
-    def _claim_from_row(self, row: sqlite3.Row) -> ClaimRecord:
+    def _claim_from_row(self, row: Any) -> ClaimRecord:
         with self.connect() as conn:
             excerpt_rows = conn.execute(
                 "SELECT excerpt_id FROM claim_excerpts WHERE claim_id = ? ORDER BY excerpt_id ASC",
@@ -2025,7 +2051,7 @@ class RegistryService:
             public_index_state=row["public_index_state"],
         )
 
-    def _report_from_row(self, row: sqlite3.Row) -> ReportRecord:
+    def _report_from_row(self, row: Any) -> ReportRecord:
         with self.connect() as conn:
             claim_rows = conn.execute(
                 "SELECT claim_id FROM report_claims WHERE report_id = ? ORDER BY claim_id ASC",
@@ -2064,7 +2090,7 @@ class RegistryService:
             public_index_state=row["public_index_state"],
         )
 
-    def _api_key_from_row(self, row: sqlite3.Row) -> ApiKeyRecord:
+    def _api_key_from_row(self, row: Any) -> ApiKeyRecord:
         return ApiKeyRecord(
             id=row["id"],
             label=row["label"],
@@ -2110,17 +2136,17 @@ class RegistryService:
             "public_namespace_slug": resolved_namespace_id,
         }
 
-    def _row_namespace_matches_auth(self, row: sqlite3.Row, auth: AuthContext) -> bool:
+    def _row_namespace_matches_auth(self, row: Any, auth: AuthContext) -> bool:
         return row["namespace_kind"] == auth.namespace_kind and row["namespace_id"] == auth.namespace_id
 
-    def _fetch_existing_by_dedupe_key(self, conn: sqlite3.Connection, table: str, dedupe_key: str | None) -> sqlite3.Row | None:
+    def _fetch_existing_by_dedupe_key(self, conn: DbConnection, table: str, dedupe_key: str | None) -> Any | None:
         if not dedupe_key:
             return None
         return conn.execute(f"SELECT * FROM {table} WHERE dedupe_key = ? LIMIT 1", (dedupe_key,)).fetchone()
 
     def _record_audit(
         self,
-        conn: sqlite3.Connection,
+        conn: DbConnection,
         *,
         action: str,
         kind: str | None,

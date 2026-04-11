@@ -164,7 +164,7 @@ def seed_memory_retrieval(service: RegistryService) -> dict[str, str]:
 
 def main() -> None:
     settings = load_settings()
-    service = RegistryService(settings.db_path)
+    service = RegistryService(settings.database_url)
     service.initialize()
     seeded = seed_memory_retrieval(service)
     if seeded:

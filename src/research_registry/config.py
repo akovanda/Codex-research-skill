@@ -10,6 +10,7 @@ import secrets
 class Settings:
     data_dir: Path
     db_path: Path
+    database_url: str
     capture_queue_path: Path
     backend_profile_path: Path
     admin_token: str | None
@@ -28,6 +29,7 @@ def load_settings() -> Settings:
     project_root = Path(__file__).resolve().parents[2]
     data_dir = Path(os.getenv("RESEARCH_REGISTRY_DATA_DIR", project_root / ".data"))
     db_path = Path(os.getenv("RESEARCH_REGISTRY_DB_PATH", data_dir / "registry.sqlite3"))
+    database_url = os.getenv("RESEARCH_REGISTRY_DATABASE_URL", f"sqlite:///{db_path.expanduser().resolve()}")
     capture_queue_path = Path(
         os.getenv(
             "RESEARCH_REGISTRY_CAPTURE_QUEUE_PATH",
@@ -48,6 +50,7 @@ def load_settings() -> Settings:
     return Settings(
         data_dir=data_dir,
         db_path=db_path,
+        database_url=database_url,
         capture_queue_path=capture_queue_path,
         backend_profile_path=backend_profile_path,
         admin_token=os.getenv("RESEARCH_REGISTRY_ADMIN_TOKEN"),

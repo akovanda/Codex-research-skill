@@ -85,6 +85,7 @@ def test_api_key_isolation_and_public_namespace_vs_global_index(tmp_path: Path) 
     settings = Settings(
         data_dir=data_dir,
         db_path=tmp_path / "auth.sqlite3",
+        database_url=f"sqlite:///{(tmp_path / 'auth.sqlite3').resolve()}",
         capture_queue_path=data_dir / "pending-research-captures.jsonl",
         backend_profile_path=data_dir / "backend-profiles.json",
         admin_token="secret",
@@ -179,6 +180,33 @@ def test_api_key_isolation_and_public_namespace_vs_global_index(tmp_path: Path) 
 
     global_search = client.get("/api/search", params={"q": "typed-anchor"})
     assert [hit["id"] for hit in global_search.json()["hits"]] == [claim_id]
+
+    ready = client.get("/readyz")
+    assert ready.status_code == 200
+    assert ready.json()["status"] == "ready"
+
+    org_response = client.post(
+        "/api/admin/organizations",
+        headers={"x-admin-token": "secret"},
+        json={"org_id": "acme", "display_name": "Acme"},
+    )
+    assert org_response.status_code == 200
+    assert org_response.json()["id"] == "acme"
+
+    key_response = client.post(
+        "/api/admin/api-keys",
+        headers={"x-admin-token": "secret"},
+        json=ApiKeyCreate(
+            label="acme-writer",
+            actor_user_id="owner",
+            actor_org_id="acme",
+            namespace_kind="org",
+            namespace_id="acme",
+        ).model_dump(mode="json"),
+    )
+    assert key_response.status_code == 200
+    assert key_response.json()["token"].startswith("rrk_")
+    assert key_response.json()["record"]["namespace_kind"] == "org"
 
 
 def test_search_ranks_fresh_reports_above_stale_reports(tmp_path: Path) -> None:
@@ -282,3 +310,11 @@ def test_search_ranks_fresh_reports_above_stale_reports(tmp_path: Path) -> None:
     assert [hit.id for hit in hits[:2]] == [fresh_report.id, stale_report.id]
     assert hits[0].is_stale is False
     assert hits[1].is_stale is True
+
+
+def test_registry_service_accepts_sqlite_database_url(tmp_path: Path) -> None:
+    db_path = tmp_path / "dsn.sqlite3"
+    service = RegistryService(f"sqlite:///{db_path.resolve()}")
+    service.initialize()
+    assert service.database.kind == "sqlite"
+    assert service.database.sqlite_path == db_path.resolve()

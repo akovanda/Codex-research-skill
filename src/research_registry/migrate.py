@@ -8,11 +8,7 @@ def main() -> None:
     settings = load_settings()
     service = RegistryService(settings.database_url)
     service.initialize()
-    seeded = service.seed_demo()
-    if seeded:
-        print(f"seeded report {seeded['report_id']}")
-    else:
-        print("demo data already present")
+    print(f"migrated {service.database.label}")
 
 
 if __name__ == "__main__":

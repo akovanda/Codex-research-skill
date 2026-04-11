@@ -11,6 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .config import Settings, load_settings
 from .models import (
+    ApiKeyCreate,
     AuthContext,
     BackendStatus,
     ClaimCreate,
@@ -33,9 +34,14 @@ class QuestionStatusUpdate(BaseModel):
     status: str
 
 
+class OrganizationBootstrapRequest(BaseModel):
+    org_id: str
+    display_name: str | None = None
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
-    service = RegistryService(settings.db_path)
+    service = RegistryService(settings.database_url)
     service.initialize()
     service.set_backend_status(
         BackendStatus(
@@ -59,6 +65,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/readyz")
+    def readyz() -> dict[str, str]:
+        try:
+            service.check_ready()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"storage unavailable: {exc}") from exc
+        return {"status": "ready"}
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, q: str = "") -> HTMLResponse:
@@ -342,6 +356,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def api_index_state(payload: IndexStateRequest, auth: AuthContext = Depends(_admin_guard)):
         service.set_index_state(payload, auth=auth)
         return {"status": "ok"}
+
+    @app.post("/api/admin/organizations")
+    def api_admin_ensure_org(payload: OrganizationBootstrapRequest, auth: AuthContext = Depends(_admin_guard)):
+        return service.ensure_organization(payload.org_id, payload.display_name).model_dump(mode="json")
+
+    @app.post("/api/admin/api-keys")
+    def api_admin_issue_key(payload: ApiKeyCreate, auth: AuthContext = Depends(_admin_guard)):
+        return service.issue_api_key(payload).model_dump(mode="json")
 
     return app
 
