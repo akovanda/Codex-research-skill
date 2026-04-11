@@ -41,7 +41,7 @@ research-registry-migrate = "research_registry.migrate:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-research_registry = ["templates/*.html", "static/*.css"]
+research_registry = ["templates/*.html", "static/*.css", "migrations/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

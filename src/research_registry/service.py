@@ -9,6 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from .db import DbConnection, resolve_database_target, connect_database
+from .migration_runner import MigrationRunner
 from .models import (
     ApiKeyCreate,
     ApiKeyRecord,
@@ -45,7 +46,7 @@ from .models import (
     Visibility,
 )
 
-SCHEMA_VERSION = 3
+LEGACY_SCHEMA_VERSION = 3
 
 
 def utc_now() -> datetime:
@@ -98,21 +99,7 @@ class RegistryService:
 
     def initialize(self) -> None:
         with self.connect() as conn:
-            version = None
-            tables = self._list_tables(conn)
-            if "schema_meta" in tables:
-                row = conn.execute("SELECT version FROM schema_meta LIMIT 1").fetchone()
-                version = row["version"] if row else None
-            if version is None:
-                self._create_schema(conn)
-            elif version < SCHEMA_VERSION:
-                self._migrate_schema(conn, version)
-                self._create_schema(conn)
-            elif version == SCHEMA_VERSION:
-                self._create_schema(conn)
-            else:
-                self._drop_managed_schema(conn)
-                self._create_schema(conn)
+            MigrationRunner(self).migrate(conn)
 
     def create_topic(self, payload: TopicCreate, auth: AuthContext | None = None) -> TopicRecord:
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
@@ -993,7 +980,7 @@ class RegistryService:
             scopes=json.loads(row["scopes_json"]),
         )
 
-    def _create_schema(self, conn: DbConnection) -> None:
+    def _create_schema_legacy(self, conn: DbConnection) -> None:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1257,22 +1244,22 @@ class RegistryService:
             """
         )
         conn.execute("DELETE FROM schema_meta")
-        conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
+        conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (LEGACY_SCHEMA_VERSION,))
 
-    def _migrate_schema(self, conn: DbConnection, version: int) -> None:
+    def _migrate_schema_legacy(self, conn: DbConnection, version: int) -> None:
         if version >= 3:
             conn.execute("DELETE FROM schema_meta")
-            conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
+            conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (LEGACY_SCHEMA_VERSION,))
             return
         if version < 2:
             self._drop_managed_schema(conn)
-            self._create_schema(conn)
+            self._create_schema_legacy(conn)
             return
 
         if not self._column_exists(conn, "questions", "parent_question_id"):
             conn.execute("ALTER TABLE questions ADD COLUMN parent_question_id TEXT REFERENCES questions(id) ON DELETE SET NULL")
         if not self._column_exists(conn, "questions", "generated_by_session_id"):
-            conn.execute("ALTER TABLE questions ADD COLUMN generated_by_session_id TEXT REFERENCES research_sessions(id) ON DELETE SET NULL")
+            conn.execute("ALTER TABLE questions ADD COLUMN generated_by_session_id TEXT")
         if not self._column_exists(conn, "questions", "generation_reason"):
             conn.execute("ALTER TABLE questions ADD COLUMN generation_reason TEXT")
         if not self._column_exists(conn, "questions", "priority_score"):
@@ -1310,7 +1297,7 @@ class RegistryService:
         conn.execute("UPDATE reports SET guidance_json = COALESCE(guidance_json, '{}')")
 
         conn.execute("DELETE FROM schema_meta")
-        conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
+        conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (LEGACY_SCHEMA_VERSION,))
 
     def _drop_managed_schema(self, conn: DbConnection) -> None:
         if self.database.kind == "sqlite":
