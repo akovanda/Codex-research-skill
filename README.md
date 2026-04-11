@@ -159,6 +159,19 @@ research-registry-capture-queue flush
 
 See [`docs/implicit-research-capture.md`](/home/akovanda/dev/llmresearch/docs/implicit-research-capture.md) for install and behavior details.
 
+## Real Research Passes
+
+This repo includes a grounded pass suite based on the current long-memory project work in `dnd2`, `continuity-benchmarks`, `continuity-core`, and `choose-game`.
+
+```bash
+. .venv/bin/activate
+research-registry-pass-suite
+research-registry-pass-suite --check-routing
+research-registry-pass-suite --format markdown
+```
+
+See [`docs/research-pass-suite.md`](/home/akovanda/dev/llmresearch/docs/research-pass-suite.md) for the intended workflow.
+
 ## Testing
 
 ```bash

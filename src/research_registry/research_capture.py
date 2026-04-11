@@ -74,6 +74,18 @@ def normalize_research_prompt(prompt: str) -> str:
     return " ".join(prompt.strip().lower().split())
 
 
+def keyword_matches_prompt(normalized_prompt: str, keyword: str) -> bool:
+    if " " in keyword or "-" in keyword or len(keyword) <= 4:
+        pattern = rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])"
+        return re.search(pattern, normalized_prompt) is not None
+    pattern = rf"\b{re.escape(keyword)}[a-z0-9]*\b"
+    return re.search(pattern, normalized_prompt) is not None
+
+
+def prompt_matches_any_keyword(normalized_prompt: str, keywords: tuple[str, ...]) -> bool:
+    return any(keyword_matches_prompt(normalized_prompt, keyword) for keyword in keywords)
+
+
 def is_research_request(prompt: str) -> bool:
     normalized = normalize_research_prompt(prompt)
     if not normalized:
@@ -90,11 +102,11 @@ def specialized_skill_for_prompt(prompt: str) -> str | None:
 
 def specialized_domain_for_prompt(prompt: str) -> str | None:
     normalized = normalize_research_prompt(prompt)
-    if any(keyword in normalized for keyword in MEMORY_KEYWORDS):
+    if prompt_matches_any_keyword(normalized, MEMORY_KEYWORDS):
         return "memory-retrieval"
-    if any(keyword in normalized for keyword in INFERENCE_OPTIMIZATION_KEYWORDS):
+    if prompt_matches_any_keyword(normalized, INFERENCE_OPTIMIZATION_KEYWORDS):
         return "inference-optimization"
-    if any(keyword in normalized for keyword in LLM_EVALS_KEYWORDS):
+    if prompt_matches_any_keyword(normalized, LLM_EVALS_KEYWORDS):
         return "llm-evals"
     return None
 

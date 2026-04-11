@@ -106,6 +106,7 @@ def test_research_prompt_classification_and_specialized_delegation() -> None:
 
     assert specialized_skill_for_prompt("Research long-term memory structure for LLMs.") == "research-memory-retrieval"
     assert specialized_domain_for_prompt("Research long-term memory structure for LLMs.") == "memory-retrieval"
+    assert specialized_domain_for_prompt("Research coverage gaps between the current public long-horizon benchmark suites for continuity systems.") == "llm-evals"
     assert specialized_domain_for_prompt("Research LLM inference latency and batching tradeoffs.") == "inference-optimization"
     assert specialized_domain_for_prompt("Research judge model calibration and benchmark drift.") == "llm-evals"
     assert specialized_skill_for_prompt("Research restaurant options in Boston.") is None
