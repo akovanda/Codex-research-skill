@@ -33,6 +33,7 @@ research-registry-capture-queue = "research_registry.capture_queue_cli:main"
 research-registry-memory-retrieval-harness = "research_registry.memory_retrieval_harness:main"
 research-registry-domain-harness = "research_registry.domain_research_harness:main"
 research-registry-pass-suite = "research_registry.research_pass_suite:main"
+research-registry-pass-runner = "research_registry.research_pass_runner:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

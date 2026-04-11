@@ -168,6 +168,7 @@ This repo includes a grounded pass suite based on the current long-memory projec
 research-registry-pass-suite
 research-registry-pass-suite --check-routing
 research-registry-pass-suite --format markdown
+research-registry-pass-runner --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2
 ```
 
 See [`docs/research-pass-suite.md`](/home/akovanda/dev/llmresearch/docs/research-pass-suite.md) for the intended workflow.
