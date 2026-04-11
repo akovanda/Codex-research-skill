@@ -15,7 +15,7 @@ Primary surfaces:
 
 - FastAPI web app
 - JSON API
-- MCP server
+- HTTP MCP endpoint and compatibility stdio MCP server
 
 Secondary integrations:
 
@@ -26,10 +26,11 @@ Secondary integrations:
 
 ### Local default
 
-- embedded backend
-- SQLite
-- localhost routing
-- no external dependency
+- recommended release path: managed localhost runtime on `127.0.0.1:8010`
+- FastAPI app plus HTTP MCP
+- Postgres in local Docker Compose
+- one shared local backend for multiple Codex instances
+- repo-local SQLite remains available as a developer-only compatibility path
 
 ### Shared self-hosted
 
@@ -37,6 +38,12 @@ Secondary integrations:
 - Postgres
 - API keys plus admin token
 - one or more org/user namespaces
+- release support is internal-only, not direct public-internet exposure
+
+### Kubernetes
+
+- manifests are example assets for teams that already run clusters
+- Kubernetes is not a release-critical or production-hardened path in this preview
 
 The current preview does not target a public multi-tenant shared service.
 
@@ -48,7 +55,7 @@ The service accepts either:
 - a `sqlite:///...` URL
 - a Postgres URL
 
-Local default behavior still uses SQLite. Shared deployments should use Postgres.
+Managed localhost and shared deployments should use Postgres. SQLite remains available for repo-local development and compatibility workflows.
 
 ## Compatibility
 

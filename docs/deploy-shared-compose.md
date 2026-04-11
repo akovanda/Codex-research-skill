@@ -9,6 +9,15 @@ It keeps the product shape simple:
 - API keys plus admin token
 - one shared internal backend for a team or org
 
+This release supports **internal-only** shared deployments:
+
+- internal DNS
+- LAN
+- VPN
+- a private reverse proxy that you operate
+
+It does **not** claim support for direct public-internet exposure.
+
 ## Files
 
 - [`Dockerfile`](../Dockerfile)
@@ -57,3 +66,5 @@ curl -X POST \
 
 - Compose is for internal or VPN-restricted deployment, not public multi-tenant hosting
 - shared mode should use Postgres, not SQLite
+- the image is built from this repo at deploy time; this preview does not publish official registry images
+- see [Operations](operations.md) for backup, upgrade, rollback, and token rotation guidance

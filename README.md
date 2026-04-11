@@ -10,6 +10,27 @@ This repo is currently a **developer preview** aimed at:
 
 The future public/shared network is not the current product target. The current target is **usable local-first software** with a clear path to **self-hosted shared org deployments**.
 
+## Release Scope
+
+`v0.1.0` is a **GitHub-first open-source preview**.
+
+Release-critical supported paths:
+
+- managed localhost runtime for multiple local Codex instances
+- shared self-hosted Compose deployment for internal teams
+
+Supported-but-secondary:
+
+- repo-local developer process via `research-registry-web`
+- stdio MCP via `research-registry-mcp`
+
+Example-only or explicitly unsupported in this preview:
+
+- Kubernetes as a production-hardened deployment target
+- direct public-internet exposure without your own network controls
+- PyPI as the primary install path
+- published hosted multi-tenant service
+
 ## Core Model
 
 Canonical records:
@@ -179,6 +200,7 @@ The web app and API are the primary product surface. MCP and Codex skills sit on
 - [Local deployment](docs/deploy-local.md)
 - [Shared Compose deployment](docs/deploy-shared-compose.md)
 - [Kubernetes deployment](docs/deploy-kubernetes.md)
+- [Operations](docs/operations.md)
 - [Implicit research capture](docs/implicit-research-capture.md)
 - [Memory/retrieval skill](docs/memory-retrieval-skill.md)
 - [Research pass suite](docs/research-pass-suite.md)
@@ -223,5 +245,6 @@ research-registry-pass-runner --db-path /tmp/research-pass-runner.sqlite3 --rese
 
 - Localhost is the default.
 - Shared org mode is self-hosted, not multi-tenant cloud.
+- Shared deployments are supported for internal-only exposure behind normal network controls.
 - API keys plus admin token are the supported auth model for this preview.
 - Postgres is the intended backend for shared deployments.

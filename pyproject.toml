@@ -8,6 +8,21 @@ version = "0.1.0"
 description = "A source-backed research registry for agents and humans."
 readme = "README.md"
 requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Research Registry contributors" },
+]
+keywords = ["research", "mcp", "codex", "llm", "memory", "retrieval", "rag"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+]
 dependencies = [
   "fastapi>=0.115,<1",
   "httpx>=0.28,<1",
@@ -22,6 +37,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "build>=1.2,<2",
   "pytest>=8.0,<9",
 ]
 

@@ -33,6 +33,7 @@ Precedence:
 5. localhost default
 
 When no remote backend is configured, local skill use stays on the embedded local backend.
+When the managed localhost runtime is installed, local skill use should prefer that shared localhost backend.
 
 ## Queue
 

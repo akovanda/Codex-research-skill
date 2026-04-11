@@ -3,14 +3,21 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import os
 from pathlib import Path
-import shutil
 import socket
 import subprocess
 import time
 
 import httpx
 
-from .managed_config import DEFAULT_PORT, ManagedLocalConfig, default_managed_local_config, load_managed_local_config, write_managed_local_config
+from .managed_config import (
+    DEFAULT_PORT,
+    ManagedLocalConfig,
+    PRIVATE_DIR_MODE,
+    PRIVATE_FILE_MODE,
+    default_managed_local_config,
+    load_managed_local_config,
+    write_managed_local_config,
+)
 
 
 LOCAL_MCP_SERVER_NAME = "researchRegistry"
@@ -108,11 +115,22 @@ def render_compose_env(config: ManagedLocalConfig) -> str:
     )
 
 
+def _chmod_if_possible(path: Path, mode: int) -> None:
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        return
+
+
 def write_local_runtime_files(config: ManagedLocalConfig) -> None:
     config.config_dir.mkdir(parents=True, exist_ok=True)
     config.data_dir.mkdir(parents=True, exist_ok=True)
+    _chmod_if_possible(config.config_dir, PRIVATE_DIR_MODE)
+    _chmod_if_possible(config.data_dir, PRIVATE_DIR_MODE)
     config.compose_file_path.write_text(render_compose_yaml(config), encoding="utf-8")
     config.compose_env_path.write_text(render_compose_env(config), encoding="utf-8")
+    _chmod_if_possible(config.compose_file_path, PRIVATE_FILE_MODE)
+    _chmod_if_possible(config.compose_env_path, PRIVATE_FILE_MODE)
 
 
 def render_codex_mcp_block(config: ManagedLocalConfig) -> str:
@@ -163,7 +181,9 @@ def ensure_codex_mcp_config(config: ManagedLocalConfig) -> Path:
     if path.exists() and current != updated:
         backup_path = path.with_name(f"{path.name}.research-registry.bak")
         backup_path.write_text(current, encoding="utf-8")
+        _chmod_if_possible(backup_path, PRIVATE_FILE_MODE)
     path.write_text(updated, encoding="utf-8")
+    _chmod_if_possible(path, PRIVATE_FILE_MODE)
     return path
 
 

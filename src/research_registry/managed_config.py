@@ -11,6 +11,8 @@ DEFAULT_PORT = 8010
 DEFAULT_PROJECT_NAME = "research-registry-local"
 DEFAULT_IMAGE_TAG = "research-registry-local:latest"
 DEFAULT_DOCKER_DATABASE_URL = "postgresql://registry:registry@postgres:5432/registry"
+PRIVATE_DIR_MODE = 0o700
+PRIVATE_FILE_MODE = 0o600
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,13 @@ def managed_data_dir() -> Path:
         return Path(override).expanduser().resolve()
     root = Path(os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share"))
     return (root / "research-registry").expanduser().resolve()
+
+
+def _chmod_if_possible(path: Path, mode: int) -> None:
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        return
 
 
 def default_managed_local_config(
@@ -122,6 +131,8 @@ def load_managed_local_config() -> ManagedLocalConfig | None:
 def write_managed_local_config(config: ManagedLocalConfig) -> None:
     config.config_dir.mkdir(parents=True, exist_ok=True)
     config.data_dir.mkdir(parents=True, exist_ok=True)
+    _chmod_if_possible(config.config_dir, PRIVATE_DIR_MODE)
+    _chmod_if_possible(config.data_dir, PRIVATE_DIR_MODE)
     api_key_line = f'api_key = "{config.api_key}"\n' if config.api_key else ""
     content = (
         "[server]\n"
@@ -147,3 +158,4 @@ def write_managed_local_config(config: ManagedLocalConfig) -> None:
         f'compose_env_path = "{config.compose_env_path}"\n'
     )
     config.config_path.write_text(content, encoding="utf-8")
+    _chmod_if_possible(config.config_path, PRIVATE_FILE_MODE)

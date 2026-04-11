@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import stat
 
 from research_registry.config import load_settings
-from research_registry.managed_config import default_managed_local_config, write_managed_local_config
+from research_registry.managed_config import (
+    PRIVATE_DIR_MODE,
+    PRIVATE_FILE_MODE,
+    default_managed_local_config,
+    write_managed_local_config,
+)
 from research_registry.service import RegistryService
 
 
@@ -93,3 +100,25 @@ def test_load_settings_prefers_managed_local_config_for_client_defaults(
     assert settings.admin_token == "managed-admin"
     assert settings.session_secret == "managed-session"
     assert settings.capture_queue_path == data_dir / "pending-research-captures.jsonl"
+
+
+def test_write_managed_local_config_sets_private_permissions(tmp_path: Path, monkeypatch) -> None:
+    if os.name == "nt":
+        return
+
+    config_dir = tmp_path / "config"
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv("RESEARCH_REGISTRY_MANAGED_CONFIG_DIR", str(config_dir))
+    monkeypatch.setenv("RESEARCH_REGISTRY_MANAGED_DATA_DIR", str(data_dir))
+
+    config = default_managed_local_config(
+        port=8023,
+        admin_token="managed-admin",
+        session_secret="managed-session",
+        api_key="managed-api-key",
+    )
+    write_managed_local_config(config)
+
+    assert stat.S_IMODE(config.config_dir.stat().st_mode) == PRIVATE_DIR_MODE
+    assert stat.S_IMODE(config.data_dir.stat().st_mode) == PRIVATE_DIR_MODE
+    assert stat.S_IMODE(config.config_path.stat().st_mode) == PRIVATE_FILE_MODE

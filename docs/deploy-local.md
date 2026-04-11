@@ -61,8 +61,8 @@ Compatibility fallback:
 ## Health
 
 ```bash
-curl http://127.0.0.1:8000/healthz
-curl http://127.0.0.1:8000/readyz
+curl http://127.0.0.1:8010/healthz
+curl http://127.0.0.1:8010/readyz
 ```
 
 ## Optional setup
@@ -85,3 +85,4 @@ research-registry-migrate
 - local Codex and MCP workflows default to localhost when no remote backend override is configured
 - the managed MCP endpoint is HTTP-first; the stdio MCP server remains available for compatibility
 - local mode is the recommended first-run path for contributors and new users
+- if you need a repo-local no-Docker process, use `research-registry-web` and treat that path as development-only for this release

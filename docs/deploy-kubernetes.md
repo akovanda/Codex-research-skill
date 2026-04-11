@@ -1,6 +1,6 @@
 # Kubernetes Deployment
 
-Kubernetes is the portable self-host path for teams that already manage cluster infrastructure.
+Kubernetes is an **example-only** self-host path for teams that already manage cluster infrastructure.
 
 The manifests in [`deploy/kubernetes`](../deploy/kubernetes) assume:
 
@@ -29,5 +29,7 @@ The manifests in [`deploy/kubernetes`](../deploy/kubernetes) assume:
 ## Notes
 
 - these manifests are examples, not a production-hardening guide
+- Kubernetes is not a release-critical path in `v0.1.0`
+- the deployment manifest uses an example image reference that you must replace with your own built image
 - the current preview uses API keys plus admin token, not OIDC
 - Kubernetes deployment is for self-hosted shared backends, not the future public shared service
