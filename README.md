@@ -130,6 +130,8 @@ See [`docs/memory-retrieval-skill.md`](/home/akovanda/dev/llmresearch/docs/memor
 
 This repo also includes a general implicit research skill at [`skills/research-capture`](/home/akovanda/dev/llmresearch/skills/research-capture). It is designed to trigger on research intent, store research privately by default, and queue captures locally when the registry path is unavailable.
 
+For memory/retrieval topics, the implicit path now routes through the same tested specialist harness used by [`skills/research-memory-retrieval`](/home/akovanda/dev/llmresearch/skills/research-memory-retrieval). That means implicit prompts inherit the same reuse vs synthesis vs gap-fill decisions and the same context-carrying summary contract.
+
 Queue inspection and replay:
 
 ```bash

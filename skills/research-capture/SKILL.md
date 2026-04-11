@@ -25,6 +25,7 @@ Use this skill as the default workflow for research intent. Search existing regi
 
 - If the topic is about memory, long-term memory, RAG, retrieval, reranking, indexing, provenance, freshness, or context management, delegate the domain reasoning workflow to `$research-memory-retrieval`.
 - Keep ownership of storage behavior and the explicit user summary even when domain work is delegated.
+- When delegating to the memory/retrieval specialist, preserve its tested summary contract so implicit requests keep the same `Knowledge To Reuse`, `Context To Carry Forward`, `Evidence`, and `Registry State` structure.
 
 ## Workflow
 

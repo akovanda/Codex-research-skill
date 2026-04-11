@@ -5,7 +5,15 @@ from pathlib import Path
 
 from research_registry.capture_queue import CaptureQueue, QueuedAnnotation, QueuedCaptureBundle, QueuedFinding, QueuedReport
 from research_registry.models import BackendStatus, RunCreate, SourceCreate, SourceSelector
-from research_registry.research_capture import CaptureSummary, format_capture_summary, is_research_request, specialized_skill_for_prompt
+from research_registry.memory_retrieval_skill import optimization_gap_fill_bundle
+from research_registry.research_capture import (
+    CaptureSummary,
+    format_capture_summary,
+    is_research_request,
+    run_implicit_research_capture,
+    specialized_skill_for_prompt,
+)
+from research_registry.seed_memory_retrieval import seed_memory_retrieval
 from research_registry.service import RegistryService
 
 
@@ -165,9 +173,126 @@ def test_capture_summary_mentions_reuse_storage_and_queue() -> None:
         queued_bundle_id="queue_1",
         pending_queue_count=2,
         created_at=datetime.now(timezone.utc),
+        flushed_queue_ids=["queue_old"],
     )
 
     formatted = format_capture_summary(summary)
     assert "fdg_existing" in formatted
     assert "Stored report: rpt_1" in formatted
     assert "Queued for retry: queue_1" in formatted
+    assert "Flushed queue items: queue_old" in formatted
+
+
+def test_implicit_capture_routes_memory_prompt_through_specialist_harness(tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    seeded = seed_memory_retrieval(service)
+
+    outcome = run_implicit_research_capture(
+        "Research LLM memory retrieval optimization and reranking precision.",
+        backend=service,
+    )
+
+    assert outcome.specialized_skill == "research-memory-retrieval"
+    assert outcome.specialist_mode == "reuse"
+    assert seeded["rerank_finding_id"] in outcome.capture_summary.reused_record_ids
+    assert outcome.capture_summary.stored_report_id is None
+    assert outcome.summary_contract_passed is True
+    assert outcome.narrative_summary_md is not None
+    assert "## Knowledge To Reuse" in outcome.narrative_summary_md
+    assert "## Context To Carry Forward" in outcome.narrative_summary_md
+
+
+def test_implicit_capture_can_synthesize_memory_context_and_store_report(tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    seed_memory_retrieval(service)
+
+    outcome = run_implicit_research_capture(
+        "Research LLM memory retrieval optimization failure modes and mitigation context.",
+        backend=service,
+    )
+
+    assert outcome.specialized_skill == "research-memory-retrieval"
+    assert outcome.specialist_mode == "synthesis"
+    assert outcome.capture_summary.stored_report_id is not None
+    assert outcome.summary_contract_passed is True
+    assert outcome.narrative_summary_md is not None
+    assert "stale indexes" in outcome.narrative_summary_md.lower()
+    assert "reranking" in outcome.narrative_summary_md.lower()
+
+
+def test_implicit_capture_flushes_queue_before_specialist_run(tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    seed_memory_retrieval(service)
+    queue = CaptureQueue(tmp_path / "pending-research-captures.jsonl")
+    bundle = make_queue_bundle()
+    queue.enqueue(bundle)
+
+    outcome = run_implicit_research_capture(
+        "Research long-term memory structure for LLM agents.",
+        backend=service,
+        queue=queue,
+    )
+
+    assert outcome.capture_summary.flushed_queue_ids == [bundle.queue_id]
+    assert outcome.capture_summary.pending_queue_count == 0
+    assert queue.list_pending() == []
+    assert outcome.specialized_skill == "research-memory-retrieval"
+
+
+def test_implicit_capture_can_queue_specialist_gap_fill_when_backend_write_fails(tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    queue = CaptureQueue(tmp_path / "pending-research-captures.jsonl")
+
+    class FailingBackend:
+        def __init__(self, wrapped: RegistryService):
+            self.wrapped = wrapped
+
+        def backend_status(self):
+            return self.wrapped.backend_status()
+
+        def search(self, query: str, *, kind: str | None = None, include_private: bool = False, limit: int = 20):
+            return self.wrapped.search(query, kind=kind, include_private=include_private, limit=limit)
+
+        def create_run(self, payload):
+            raise RuntimeError("backend unavailable")
+
+        def get_source(self, source_id: str, include_private: bool = False):
+            return self.wrapped.get_source(source_id, include_private=include_private)
+
+        def get_annotation(self, annotation_id: str, include_private: bool = False):
+            return self.wrapped.get_annotation(annotation_id, include_private=include_private)
+
+        def get_finding(self, finding_id: str, include_private: bool = False):
+            return self.wrapped.get_finding(finding_id, include_private=include_private)
+
+        def get_report(self, report_id: str, include_private: bool = False):
+            return self.wrapped.get_report(report_id, include_private=include_private)
+
+        def create_annotation(self, payload):
+            raise RuntimeError("backend unavailable")
+
+        def create_finding(self, payload):
+            raise RuntimeError("backend unavailable")
+
+        def create_report(self, payload):
+            raise RuntimeError("backend unavailable")
+
+        def compile_report(self, payload):
+            raise RuntimeError("backend unavailable")
+
+        def publish(self, payload):
+            raise RuntimeError("backend unavailable")
+
+    outcome = run_implicit_research_capture(
+        "Research counterfactual retention scoring and temporal relevance metrics for long-term memory retrieval.",
+        backend=FailingBackend(service),
+        queue=queue,
+        gap_fill=optimization_gap_fill_bundle(),
+    )
+
+    assert outcome.specialized_skill == "research-memory-retrieval"
+    assert outcome.capture_summary.queued_bundle_id is not None
+    assert outcome.capture_summary.pending_queue_count == 1
+    pending = queue.list_pending()
+    assert len(pending) == 1
+    assert pending[0].queue_id == outcome.capture_summary.queued_bundle_id

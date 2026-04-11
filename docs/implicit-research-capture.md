@@ -10,6 +10,7 @@ This document covers the general `research-capture` skill, the private-by-defaul
 - a queue CLI for inspect and replay
 - hosted-default backend selection with explicit custom and org overrides
 - per-user or per-org namespace routing for queued replay
+- specialist routing for memory/retrieval prompts through the same tested harness used by `research-memory-retrieval`
 
 ## Install The Skill Globally
 
@@ -74,9 +75,17 @@ python3 /home/akovanda/.codex/skills/.system/skill-creator/scripts/quick_validat
 
 - research-shaped requests trigger `research-capture`
 - memory/retrieval research routes to `research-memory-retrieval`
+- implicit memory/retrieval requests use the same reuse, synthesis, and gap-fill logic as explicit specialist invocations
 - registry content is searched before new storage
 - new research stores private annotations, findings, and a report
 - remote writes use API keys and preserve namespace plus actor attribution
 - self-published artifacts appear in their public namespace before they are promoted into the shared global index
 - if storage is unavailable, a queue bundle is written and replayed later
 - the user gets an explicit summary of reuse, storage, or queue status
+
+For the memory/retrieval domain specifically, implicit answers now carry forward:
+
+- supported claims in `Knowledge To Reuse`
+- follow-up tradeoffs and failure modes in `Context To Carry Forward`
+- visible evidence URLs
+- explicit registry ids for reused or newly created artifacts
