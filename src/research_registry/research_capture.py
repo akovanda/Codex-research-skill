@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from .backend_client import RegistryBackend
 from .capture_queue import CaptureQueue, QueuedAnnotation, QueuedCaptureBundle, QueuedFinding, QueuedReport
 from .memory_retrieval_skill import GapFillBundle, MemoryRetrievalSkillHarness
+from .specialist_domains import build_domain_harness
 from .models import AnnotationCreate, FindingCreate, ReportCreate, RunCreate
 
 
@@ -41,6 +42,33 @@ MEMORY_KEYWORDS = (
     "semantic memory",
 )
 
+INFERENCE_OPTIMIZATION_KEYWORDS = (
+    "inference",
+    "latency",
+    "throughput",
+    "serving",
+    "batching",
+    "quantization",
+    "speculative decoding",
+    "prefix caching",
+    "kv cache",
+    "ttft",
+)
+
+LLM_EVALS_KEYWORDS = (
+    "eval",
+    "evaluation",
+    "benchmark",
+    "judge model",
+    "rubric",
+    "human label",
+    "calibration",
+    "drift",
+    "offline eval",
+    "online eval",
+    "ground truth",
+)
+
 
 def normalize_research_prompt(prompt: str) -> str:
     return " ".join(prompt.strip().lower().split())
@@ -54,9 +82,20 @@ def is_research_request(prompt: str) -> bool:
 
 
 def specialized_skill_for_prompt(prompt: str) -> str | None:
+    domain = specialized_domain_for_prompt(prompt)
+    if domain == "memory-retrieval":
+        return "research-memory-retrieval"
+    return None
+
+
+def specialized_domain_for_prompt(prompt: str) -> str | None:
     normalized = normalize_research_prompt(prompt)
     if any(keyword in normalized for keyword in MEMORY_KEYWORDS):
-        return "research-memory-retrieval"
+        return "memory-retrieval"
+    if any(keyword in normalized for keyword in INFERENCE_OPTIMIZATION_KEYWORDS):
+        return "inference-optimization"
+    if any(keyword in normalized for keyword in LLM_EVALS_KEYWORDS):
+        return "llm-evals"
     return None
 
 
@@ -77,6 +116,7 @@ class CaptureSummary(BaseModel):
 
 
 class ImplicitCaptureOutcome(BaseModel):
+    specialized_domain: str | None = None
     specialized_skill: str | None = None
     specialist_mode: str | None = None
     capture_summary: CaptureSummary
@@ -135,13 +175,22 @@ def run_implicit_research_capture(
     else:
         pending_queue_count = 0
 
+    specialized_domain = specialized_domain_for_prompt(prompt)
     specialized_skill = specialized_skill_for_prompt(prompt)
-    if specialized_skill == "research-memory-retrieval":
-        harness = MemoryRetrievalSkillHarness(
-            RegistryBackendToolAdapter(backend),
-            model_name=model_name,
-            model_version=model_version,
-        )
+    if specialized_domain is not None:
+        if specialized_domain == "memory-retrieval":
+            harness = MemoryRetrievalSkillHarness(
+                RegistryBackendToolAdapter(backend),
+                model_name=model_name,
+                model_version=model_version,
+            )
+        else:
+            harness = build_domain_harness(
+                specialized_domain,
+                RegistryBackendToolAdapter(backend),
+                model_name=model_name,
+                model_version=model_version,
+            )
         try:
             specialist_result = harness.research(prompt, gap_fill=gap_fill, prefer_report=prefer_report)
         except Exception:
@@ -157,6 +206,7 @@ def run_implicit_research_capture(
             queue.enqueue(queued_bundle)
             pending_queue_count = len(queue.list_pending())
             return ImplicitCaptureOutcome(
+                specialized_domain=specialized_domain,
                 specialized_skill=specialized_skill,
                 specialist_mode="gap_fill",
                 capture_summary=CaptureSummary(
@@ -191,6 +241,7 @@ def run_implicit_research_capture(
             flushed_queue_ids=flushed_queue_ids,
         )
         return ImplicitCaptureOutcome(
+            specialized_domain=specialized_domain,
             specialized_skill=specialized_skill,
             specialist_mode=specialist_result.mode,
             capture_summary=capture_summary,

@@ -31,6 +31,7 @@ research-registry-seed = "research_registry.seed_demo:main"
 research-registry-seed-memory-retrieval = "research_registry.seed_memory_retrieval:main"
 research-registry-capture-queue = "research_registry.capture_queue_cli:main"
 research-registry-memory-retrieval-harness = "research_registry.memory_retrieval_harness:main"
+research-registry-domain-harness = "research_registry.domain_research_harness:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

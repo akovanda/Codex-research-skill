@@ -11,6 +11,7 @@ This document covers the general `research-capture` skill, the private-by-defaul
 - hosted-default backend selection with explicit custom and org overrides
 - per-user or per-org namespace routing for queued replay
 - specialist routing for memory/retrieval prompts through the same tested harness used by `research-memory-retrieval`
+- built-in specialist routing for inference optimization and LLM eval prompts through the same summary contract
 
 ## Install The Skill Globally
 
@@ -67,6 +68,8 @@ research-registry-capture-queue flush
 cd /home/akovanda/dev/llmresearch
 . .venv/bin/activate
 pytest -q
+research-registry-domain-harness --scenario inference-reuse
+research-registry-domain-harness --scenario evals-gap-fill
 python3 /home/akovanda/.codex/skills/.system/skill-creator/scripts/quick_validate.py /home/akovanda/dev/llmresearch/skills/research-capture
 python3 /home/akovanda/.codex/skills/.system/skill-creator/scripts/quick_validate.py /home/akovanda/dev/llmresearch/skills/research-memory-retrieval
 ```
@@ -76,6 +79,7 @@ python3 /home/akovanda/.codex/skills/.system/skill-creator/scripts/quick_validat
 - research-shaped requests trigger `research-capture`
 - memory/retrieval research routes to `research-memory-retrieval`
 - implicit memory/retrieval requests use the same reuse, synthesis, and gap-fill logic as explicit specialist invocations
+- inference optimization and LLM eval prompts route through built-in specialist harnesses with the same reuse, synthesis, and gap-fill modes
 - registry content is searched before new storage
 - new research stores private annotations, findings, and a report
 - remote writes use API keys and preserve namespace plus actor attribution
@@ -83,7 +87,13 @@ python3 /home/akovanda/.codex/skills/.system/skill-creator/scripts/quick_validat
 - if storage is unavailable, a queue bundle is written and replayed later
 - the user gets an explicit summary of reuse, storage, or queue status
 
-For the memory/retrieval domain specifically, implicit answers now carry forward:
+Current specialist-domain coverage:
+
+- memory/retrieval
+- inference optimization
+- LLM evals
+
+For specialist-routed domains, implicit answers now carry forward:
 
 - supported claims in `Knowledge To Reuse`
 - follow-up tradeoffs and failure modes in `Context To Carry Forward`

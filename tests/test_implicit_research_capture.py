@@ -11,10 +11,12 @@ from research_registry.research_capture import (
     format_capture_summary,
     is_research_request,
     run_implicit_research_capture,
+    specialized_domain_for_prompt,
     specialized_skill_for_prompt,
 )
 from research_registry.seed_memory_retrieval import seed_memory_retrieval
 from research_registry.service import RegistryService
+from research_registry.specialist_domains import inference_optimization_gap_fill_bundle, llm_evals_gap_fill_bundle, seed_specialist_domains
 
 
 def make_service(tmp_path: Path) -> RegistryService:
@@ -103,6 +105,9 @@ def test_research_prompt_classification_and_specialized_delegation() -> None:
     assert not is_research_request("Fix this failing unit test.")
 
     assert specialized_skill_for_prompt("Research long-term memory structure for LLMs.") == "research-memory-retrieval"
+    assert specialized_domain_for_prompt("Research long-term memory structure for LLMs.") == "memory-retrieval"
+    assert specialized_domain_for_prompt("Research LLM inference latency and batching tradeoffs.") == "inference-optimization"
+    assert specialized_domain_for_prompt("Research judge model calibration and benchmark drift.") == "llm-evals"
     assert specialized_skill_for_prompt("Research restaurant options in Boston.") is None
 
 
@@ -296,3 +301,38 @@ def test_implicit_capture_can_queue_specialist_gap_fill_when_backend_write_fails
     pending = queue.list_pending()
     assert len(pending) == 1
     assert pending[0].queue_id == outcome.capture_summary.queued_bundle_id
+
+
+def test_implicit_capture_routes_inference_domain_through_specialist_harness(tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    seed_specialist_domains(service)
+
+    outcome = run_implicit_research_capture(
+        "Research LLM inference latency throughput tradeoffs and speculative decoding context.",
+        backend=service,
+    )
+
+    assert outcome.specialized_domain == "inference-optimization"
+    assert outcome.specialized_skill is None
+    assert outcome.specialist_mode == "synthesis"
+    assert outcome.capture_summary.stored_report_id is not None
+    assert outcome.summary_contract_passed is True
+    assert outcome.narrative_summary_md is not None
+    assert "acceptance rate" in outcome.narrative_summary_md.lower()
+
+
+def test_implicit_capture_routes_llm_evals_gap_fill(tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    seed_specialist_domains(service)
+
+    outcome = run_implicit_research_capture(
+        "Research audit sampling and online regression checks for LLM eval reliability.",
+        backend=service,
+        gap_fill=llm_evals_gap_fill_bundle(),
+    )
+
+    assert outcome.specialized_domain == "llm-evals"
+    assert outcome.specialist_mode == "gap_fill"
+    assert outcome.capture_summary.stored_run_id is not None
+    assert outcome.capture_summary.stored_report_id is not None
+    assert outcome.summary_contract_passed is True

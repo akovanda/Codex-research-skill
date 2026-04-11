@@ -17,6 +17,7 @@ Research Registry is a small MVP for source-backed AI research memory. It stores
 - Public namespace browsing separated from the shared global index
 - Derived report compilation that preserves links back to findings, annotations, and source URLs
 - API-key writes plus admin moderation for review and global-index curation
+- Implicit specialist routing for memory/retrieval, inference optimization, and LLM eval topics
 
 ## Quick Start
 
@@ -126,11 +127,27 @@ research-registry-memory-retrieval-harness --scenario reuse-optimization
 
 See [`docs/memory-retrieval-skill.md`](/home/akovanda/dev/llmresearch/docs/memory-retrieval-skill.md) for install, dry-run, and validation steps.
 
+## Specialist Domain Harness
+
+The implicit capture path also includes built-in specialist harnesses for:
+
+- memory/retrieval
+- inference optimization
+- LLM evals
+
+Run the broader harness directly:
+
+```bash
+. .venv/bin/activate
+research-registry-domain-harness --scenario inference-reuse
+research-registry-domain-harness --scenario evals-gap-fill
+```
+
 ## Implicit Research Capture
 
 This repo also includes a general implicit research skill at [`skills/research-capture`](/home/akovanda/dev/llmresearch/skills/research-capture). It is designed to trigger on research intent, store research privately by default, and queue captures locally when the registry path is unavailable.
 
-For memory/retrieval topics, the implicit path now routes through the same tested specialist harness used by [`skills/research-memory-retrieval`](/home/akovanda/dev/llmresearch/skills/research-memory-retrieval). That means implicit prompts inherit the same reuse vs synthesis vs gap-fill decisions and the same context-carrying summary contract.
+For memory/retrieval, inference optimization, and LLM eval topics, the implicit path now routes through tested specialist harnesses. Memory uses the explicit [`skills/research-memory-retrieval`](/home/akovanda/dev/llmresearch/skills/research-memory-retrieval) flow directly, while the other domains use the same reuse vs synthesis vs gap-fill contract internally.
 
 Queue inspection and replay:
 
