@@ -36,6 +36,9 @@ research-registry-domain-harness = "research_registry.domain_research_harness:ma
 research-registry-pass-suite = "research_registry.research_pass_suite:main"
 research-registry-pass-runner = "research_registry.research_pass_runner:main"
 research-registry-migrate = "research_registry.migrate:main"
+research-registry-local-install = "research_registry.local_install:main"
+research-registry-local-status = "research_registry.local_status:main"
+research-registry-local-stop = "research_registry.local_stop:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
@@ -10,6 +11,7 @@ from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
 from .config import Settings, load_settings
+from .mcp_tools import create_mcp_server
 from .models import (
     ApiKeyCreate,
     AuthContext,
@@ -56,11 +58,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     )
 
-    app = FastAPI(title="Research Registry")
+    mcp = create_mcp_server(
+        service,
+        settings=settings,
+        service=service,
+        default_api_key=settings.backend_api_key,
+        allow_admin_fallback=False,
+        streamable_http_path="/",
+    )
+    mcp_app = mcp.streamable_http_app()
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        async with mcp.session_manager.run():
+            yield
+
+    app = FastAPI(title="Research Registry", lifespan=lifespan)
     app.state.settings = settings
     app.state.service = service
     app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
     app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static")
+    app.mount("/mcp", mcp_app)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

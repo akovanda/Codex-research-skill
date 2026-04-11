@@ -1,6 +1,6 @@
 # Local Deployment
 
-Local deployment is the default and requires no external services.
+Local deployment is the default. The recommended path for real use is one shared localhost service for all of your local Codex instances.
 
 ## Start
 
@@ -8,16 +8,49 @@ Local deployment is the default and requires no external services.
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
-export RESEARCH_REGISTRY_ADMIN_TOKEN=change-me
-export RESEARCH_REGISTRY_SESSION_SECRET=change-me-too
-research-registry-web
+research-registry-local-install
 ```
 
-The app listens on `http://127.0.0.1:8000` by default.
+This creates:
+
+- managed config under `~/.config/research-registry/`
+- managed data under `~/.local/share/research-registry/`
+- a Docker Compose stack on `http://127.0.0.1:8010`
+- a managed MCP entry in `~/.codex/config.toml`
+- skill symlinks in `~/.codex/skills/`
+
+Check status:
+
+```bash
+research-registry-local-status
+```
+
+Stop the local stack:
+
+```bash
+research-registry-local-stop
+```
+
+## Runtime details
+
+Managed local defaults:
+
+- HTTP app: `http://127.0.0.1:8010`
+- HTTP MCP: `http://127.0.0.1:8010/mcp/`
+- storage: Postgres inside Docker Compose
+- auth: admin token plus a shared local API key written into the managed config and Codex MCP block
+
+The generated runtime files live under `~/.config/research-registry/`:
+
+- `config.toml`
+- `compose.yaml`
+- `.env`
 
 ## Storage
 
-Default local storage:
+The recommended local runtime uses Postgres in Compose.
+
+For a repo-local developer-only process without Docker, `research-registry-web` still supports SQLite:
 
 - `RESEARCH_REGISTRY_DATABASE_URL=sqlite:///<repo>/.data/registry.sqlite3`
 
@@ -49,5 +82,6 @@ research-registry-migrate
 
 ## Notes
 
-- local Codex and MCP workflows still default to localhost when no remote backend override is configured
+- local Codex and MCP workflows default to localhost when no remote backend override is configured
+- the managed MCP endpoint is HTTP-first; the stdio MCP server remains available for compatibility
 - local mode is the recommended first-run path for contributors and new users

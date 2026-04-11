@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import closing
+import json
 import os
 from pathlib import Path
 import socket
@@ -9,6 +11,8 @@ import sys
 import time
 
 import httpx
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 
 from research_registry.models import (
     ApiKeyCreate,
@@ -26,6 +30,14 @@ from research_registry.models import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _tool_json(result) -> dict:
+    if result.structuredContent is not None:
+        return result.structuredContent
+    assert result.content
+    assert result.content[0].type == "text"
+    return json.loads(result.content[0].text)
 
 
 def _free_port() -> int:
@@ -285,6 +297,94 @@ def test_live_http_end_to_end(tmp_path: Path) -> None:
     except Exception:
         logs = _terminate_server(server)
         raise AssertionError(f"live HTTP end-to-end test failed\n\n{logs}") from None
+    else:
+        logs = _terminate_server(server)
+        if server.returncode not in (0, -15):
+            raise AssertionError(f"server exited unexpectedly with code {server.returncode}\n\n{logs}")
+
+
+async def _run_mcp_roundtrip(base_url: str, api_key: str) -> None:
+    async with httpx.AsyncClient(headers={"x-api-key": api_key}, timeout=20.0) as client:
+        async with streamable_http_client(f"{base_url}/mcp/", http_client=client) as streams:
+            read_stream, write_stream, _ = streams
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                tools = await session.list_tools()
+                tool_names = {tool.name for tool in tools.tools}
+                assert "search" in tool_names
+                assert "create_question" in tool_names
+
+                status = await session.call_tool("backend_status")
+                assert status.isError is False
+                status_payload = _tool_json(status)
+                assert status_payload["api_key_present"] is True
+
+                question = await session.call_tool(
+                    "create_question",
+                    {
+                        "payload": QuestionCreate(
+                            prompt="Research MCP streamable HTTP local defaults.",
+                            focus=FocusTuple(domain="memory-retrieval", object="mcp localhost defaults", context="mcp-e2e"),
+                        ).model_dump(mode="json")
+                    },
+                )
+                assert question.isError is False
+                question_payload = _tool_json(question)
+                question_id = question_payload["id"]
+
+                results = await session.call_tool(
+                    "search",
+                    {"query": "mcp localhost defaults", "include_private": True, "limit": 5},
+                )
+                assert results.isError is False
+                hits = _tool_json(results)["hits"]
+                assert question_id in {hit["id"] for hit in hits}
+
+
+def test_live_http_mcp_roundtrip(tmp_path: Path) -> None:
+    port = _free_port()
+    base_url = f"http://127.0.0.1:{port}"
+    db_path = (tmp_path / "mcp.sqlite3").resolve()
+    env = os.environ.copy()
+    python_path = env.get("PYTHONPATH")
+    env.update(
+        {
+            "PYTHONPATH": f"{REPO_ROOT / 'src'}{os.pathsep}{python_path}" if python_path else str(REPO_ROOT / "src"),
+            "RESEARCH_REGISTRY_DATA_DIR": str((tmp_path / "data").resolve()),
+            "RESEARCH_REGISTRY_DATABASE_URL": f"sqlite:///{db_path}",
+            "RESEARCH_REGISTRY_ADMIN_TOKEN": "secret",
+            "RESEARCH_REGISTRY_SESSION_SECRET": "session-secret",
+            "RESEARCH_REGISTRY_HOST": "127.0.0.1",
+            "RESEARCH_REGISTRY_PORT": str(port),
+            "RESEARCH_REGISTRY_PUBLIC_BASE_URL": base_url,
+        }
+    )
+    server = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "research_registry.app:app", "--host", "127.0.0.1", "--port", str(port)],
+        cwd=REPO_ROOT,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    logs = ""
+    try:
+        _wait_ready(base_url)
+
+        with httpx.Client(base_url=base_url, timeout=10.0) as client:
+            key_response = client.post(
+                "/api/admin/api-keys",
+                headers={"x-admin-token": "secret"},
+                json=ApiKeyCreate(label="mcp-client", actor_user_id="mcp-client").model_dump(mode="json"),
+            )
+            assert key_response.status_code == 200
+            api_key = key_response.json()["token"]
+
+        asyncio.run(_run_mcp_roundtrip(base_url, api_key))
+    except Exception:
+        logs = _terminate_server(server)
+        raise AssertionError(f"live HTTP MCP roundtrip failed\n\n{logs}") from None
     else:
         logs = _terminate_server(server)
         if server.returncode not in (0, -15):

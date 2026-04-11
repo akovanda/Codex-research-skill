@@ -40,19 +40,33 @@ Legacy aliases such as `annotation` and `finding` still exist for compatibility,
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
-export RESEARCH_REGISTRY_ADMIN_TOKEN=change-me
-export RESEARCH_REGISTRY_SESSION_SECRET=change-me-too
-research-registry-web
+research-registry-local-install
 ```
 
-The app starts at `http://127.0.0.1:8000`.
+This installs a shared localhost runtime for your local Codex instances:
+
+- Docker Compose on `127.0.0.1:8010`
+- Postgres for durable local storage
+- a shared local API key
+- a managed MCP entry in `~/.codex/config.toml` pointing at `http://127.0.0.1:8010/mcp/`
+- symlinks for the `research-capture` and `research-memory-retrieval` skills in `~/.codex/skills`
 
 Local default behavior:
 
-- embedded backend
-- SQLite storage
-- no external service required
+- localhost HTTP backend
+- Postgres storage inside Compose
+- one shared local runtime for multiple Codex instances
 - backend status resolves to localhost unless you explicitly point clients elsewhere
+
+Status and stop commands:
+
+```bash
+. .venv/bin/activate
+research-registry-local-status
+research-registry-local-stop
+```
+
+For a repo-local developer-only run without Docker, `research-registry-web` still works and defaults to local SQLite.
 
 Optional demo data:
 
@@ -154,7 +168,8 @@ Compatibility aliases:
 
 The web app and API are the primary product surface. MCP and Codex skills sit on top of that:
 
-- MCP server: `research-registry-mcp`
+- HTTP MCP endpoint: `http://127.0.0.1:8010/mcp/` after `research-registry-local-install`
+- stdio MCP server: `research-registry-mcp`
 - implicit capture skill: [`skills/research-capture`](skills/research-capture/SKILL.md)
 - memory/retrieval skill: [`skills/research-memory-retrieval`](skills/research-memory-retrieval/SKILL.md)
 
@@ -188,6 +203,13 @@ Run tests:
 ```bash
 . .venv/bin/activate
 pytest -q
+```
+
+Install the shared localhost runtime:
+
+```bash
+. .venv/bin/activate
+research-registry-local-install
 ```
 
 Run the grounded pass runner:

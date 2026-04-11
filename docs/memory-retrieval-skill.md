@@ -18,9 +18,10 @@ ln -sfn "$(pwd)/skills/research-memory-retrieval" "${CODEX_HOME:-$HOME/.codex}/s
 
 ```bash
 . .venv/bin/activate
-research-registry-web
-research-registry-mcp
+research-registry-local-install
 ```
+
+This gives the skill a shared localhost backend plus a managed MCP endpoint in `~/.codex/config.toml`.
 
 ## Seed the memory/retrieval corpus
 

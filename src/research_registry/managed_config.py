@@ -77,7 +77,7 @@ def default_managed_local_config(
         port=port,
         public_base_url=public_base_url,
         backend_url=public_base_url,
-        mcp_url=f"{public_base_url}/mcp",
+        mcp_url=f"{public_base_url}/mcp/",
         admin_token=admin_token or secrets.token_urlsafe(32),
         session_secret=session_secret or secrets.token_urlsafe(32),
         api_key=api_key,
@@ -97,7 +97,7 @@ def load_managed_local_config() -> ManagedLocalConfig | None:
     port = int(server.get("port", config.port))
     public_base_url = server.get("public_base_url", f"http://127.0.0.1:{port}")
     backend_url = local.get("backend_url", public_base_url)
-    mcp_url = local.get("mcp_url", f"{public_base_url}/mcp")
+    mcp_url = local.get("mcp_url", f"{public_base_url}/mcp/")
     config_dir = Path(paths.get("config_dir", config.config_dir)).expanduser().resolve()
     data_dir = Path(paths.get("data_dir", config.data_dir)).expanduser().resolve()
     return ManagedLocalConfig(
