@@ -867,12 +867,27 @@ class RegistryService:
                 focal_label=focus.label or "zebra coat pattern",
                 summary_md=(
                     f"# {question.prompt}\n\n"
-                    "## Direct Answer\n"
-                    "The seeded evidence supports the fly-avoidance explanation.\n\n"
-                    "## Claims\n"
-                    f"1. {claim.statement}\n\n"
-                    "## Evidence\n"
-                    f"- {source.title}: {source.locator}\n"
+                    "## Current Guidance\n"
+                    "- Treat fly avoidance as the leading explanation in this seeded demo corpus.\n\n"
+                    "## What Evidence Supports Right Now\n"
+                    f"- Source: {source.locator}\n\n"
+                    "## Gaps\n"
+                    "- No broader comparative ecology evidence is stored in this seeded demo.\n\n"
+                    "## Needs\n"
+                    "- Need more than one source before treating this as stable general guidance.\n\n"
+                    "## Wants\n"
+                    "- Want additional field-study evidence on social recognition and thermoregulation.\n\n"
+                    "## Follow-up Questions\n"
+                    "1. No follow-up questions were generated from this seed.\n\n"
+                    "## Registry State\n"
+                    f"- Focus label: {focus.label}\n"
+                ),
+                guidance=GuidancePayload(
+                    current_guidance=["Treat fly avoidance as the leading explanation in this seeded demo corpus."],
+                    evidence_now=[f"Source: {source.locator}"],
+                    gaps=["No broader comparative ecology evidence is stored in this seeded demo."],
+                    needs=["Need more than one source before treating this as stable general guidance."],
+                    wants=["Want additional field-study evidence on social recognition and thermoregulation."],
                 ),
                 claim_ids=[claim.id],
             )

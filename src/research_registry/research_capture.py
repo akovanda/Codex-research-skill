@@ -475,11 +475,16 @@ def has_specific_coverage(focus: FocusTuple, reports: list[ReportRecord], claims
     claim_score = relevance_score(focus, claim_text) if claims and not claims[0].is_stale and domain_matches(focus, claims[0].focal_label) else 0
     report_object_score = object_match_score(focus, report_text) if report_text else 0
     claim_object_score = object_match_score(focus, claim_text) if claim_text else 0
+    report_concern_score = concern_match_score(focus, report_text) if report_text else 0
+    claim_concern_score = concern_match_score(focus, claim_text) if claim_text else 0
+    concern_required = focus.concern is not None or focus.constraint is not None
     if reports and reports[0].report_kind == "guidance" and not reports[0].is_stale and reports[0].focal_label == focus.label:
         return True
     if claims and not claims[0].is_stale and claims[0].focal_label == focus.label:
         return True
-    return max((report_score if report_object_score >= 2 else 0), (claim_score if claim_object_score >= 2 else 0)) >= 3
+    report_covered = report_score >= 3 and report_object_score >= 2 and (report_concern_score >= 1 or not concern_required)
+    claim_covered = claim_score >= 3 and claim_object_score >= 2 and (claim_concern_score >= 1 or not concern_required)
+    return report_covered or claim_covered
 
 
 def relevance_score(focus: FocusTuple, text: str) -> int:
@@ -497,6 +502,18 @@ def object_match_score(focus: FocusTuple, text: str) -> int:
     if focus.object.lower() in normalized:
         score += 1
     return score
+
+
+def concern_match_score(focus: FocusTuple, text: str) -> int:
+    tokens: set[str] = set()
+    for value in [focus.concern, focus.constraint]:
+        if not value:
+            continue
+        tokens.update(token for token in re.findall(r"[a-z0-9_-]+", value.lower()) if len(token) > 3)
+    if not tokens:
+        return 0
+    normalized = normalize_research_prompt(text)
+    return sum(1 for token in tokens if token in normalized)
 
 
 def focus_tokens(focus: FocusTuple) -> set[str]:

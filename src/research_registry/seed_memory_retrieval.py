@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .config import load_settings
-from .models import ClaimCreate, ExcerptCreate, FocusTuple, PublishRequest, QuestionCreate, ReportCreate, ResearchSessionCreate, ReviewRequest, SourceCreate, SourceSelector
+from .models import ClaimCreate, ExcerptCreate, FocusTuple, GuidancePayload, PublishRequest, QuestionCreate, ReportCreate, ResearchSessionCreate, ReviewRequest, SourceCreate, SourceSelector
 from .service import RegistryService
 
 
@@ -111,8 +111,32 @@ def seed_memory_retrieval(service: RegistryService) -> dict[str, str]:
             focal_label=focus.label or "memory provenance",
             summary_md=(
                 "# What causes memory retrieval failures in long-lived LLM systems?\n\n"
-                "## Direct Answer\n"
-                "Missing provenance metadata and weak retrieval-stage separation both degrade trust and precision.\n"
+                "## Current Guidance\n"
+                "- Preserve provenance and freshness metadata on retrieved memories.\n"
+                "- Run broad retrieval before reranking so precision work happens after recall has been protected.\n\n"
+                "## What Evidence Supports Right Now\n"
+                f"- Source: {rerank_source.locator}\n"
+                f"- Source: {provenance_source.locator}\n\n"
+                "## Gaps\n"
+                "- This seed does not include benchmark evidence for cross-session memory drift.\n\n"
+                "## Needs\n"
+                "- Need direct benchmark evidence connecting freshness metadata to retrieval quality under load.\n\n"
+                "## Wants\n"
+                "- Want more operational notes on failure recovery and reindex timing.\n\n"
+                "## Follow-up Questions\n"
+                "1. No follow-up questions were generated from this seed.\n\n"
+                "## Registry State\n"
+                f"- Focus label: {focus.label}\n"
+            ),
+            guidance=GuidancePayload(
+                current_guidance=[
+                    "Preserve provenance and freshness metadata on retrieved memories.",
+                    "Run broad retrieval before reranking so precision work happens after recall has been protected.",
+                ],
+                evidence_now=[f"Source: {rerank_source.locator}", f"Source: {provenance_source.locator}"],
+                gaps=["This seed does not include benchmark evidence for cross-session memory drift."],
+                needs=["Need direct benchmark evidence connecting freshness metadata to retrieval quality under load."],
+                wants=["Want more operational notes on failure recovery and reindex timing."],
             ),
             claim_ids=[provenance_claim.id, rerank_claim.id],
         )
