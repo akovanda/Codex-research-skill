@@ -1023,7 +1023,7 @@ class RegistryService:
                 focus_json TEXT NOT NULL,
                 status TEXT NOT NULL,
                 parent_question_id TEXT REFERENCES questions(id) ON DELETE SET NULL,
-                generated_by_session_id TEXT REFERENCES research_sessions(id) ON DELETE SET NULL,
+                generated_by_session_id TEXT,
                 generation_reason TEXT,
                 priority_score REAL NOT NULL DEFAULT 0,
                 visibility TEXT NOT NULL,
