@@ -221,7 +221,7 @@ def test_empty_pages_include_onboarding_guidance(tmp_path: Path) -> None:
     home = client.get("/")
     assert home.status_code == 200
     assert "How To Get Value From A New Registry" in home.text
-    assert "research-registry-local-status" in home.text
+    assert "make up" in home.text
     assert "Publish only the reusable parts" in home.text
 
     login = client.get("/admin/login")
@@ -231,7 +231,7 @@ def test_empty_pages_include_onboarding_guidance(tmp_path: Path) -> None:
     workspace = client.get("/admin", headers={"x-admin-token": "secret"})
     assert workspace.status_code == 200
     assert "Private Workspace Is Empty" in workspace.text
-    assert "research-registry-seed-memory-retrieval" in workspace.text
+    assert "make up" in workspace.text
 
 
 def test_search_ranks_fresh_reports_above_stale_reports(tmp_path: Path) -> None:

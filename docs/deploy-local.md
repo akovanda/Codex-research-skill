@@ -13,10 +13,15 @@ If you are brand new to the project, read [Getting Started](getting-started.md) 
 ## Start
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -e ".[dev]"
-research-registry-local-install
+make up
+```
+
+`make up` creates `.venv/`, installs the repo in editable mode, starts the managed localhost runtime, and seeds demo content by default.
+
+If you want the runtime without demo content:
+
+```bash
+make up SEED_DEMO=0
 ```
 
 This creates:
@@ -32,7 +37,7 @@ This creates:
 Check status:
 
 ```bash
-research-registry-local-status
+make status
 curl http://127.0.0.1:8010/readyz
 ```
 
@@ -53,7 +58,7 @@ research-registry-local-status
 Stop the local stack:
 
 ```bash
-research-registry-local-stop
+make down
 ```
 
 ## Runtime details
@@ -95,8 +100,7 @@ curl http://127.0.0.1:8010/readyz
 Put useful content into a new registry:
 
 ```bash
-research-registry-seed
-research-registry-seed-memory-retrieval
+make up
 ```
 
 Then open `http://127.0.0.1:8010` and confirm the public board is populated.

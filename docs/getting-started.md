@@ -20,26 +20,42 @@ The intended first run is:
 From the repo root:
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -e ".[dev]"
-research-registry-local-install
+make up
 ```
 
-That command does four things for you:
+That command does five things for you:
 
+- creates `.venv/` if needed
+- installs the project in editable mode
 - creates managed config under `~/.config/research-registry/`
 - starts Postgres plus the app on `http://127.0.0.1:8010`
 - writes a managed `researchRegistry` MCP block into `~/.codex/config.toml`
 - installs the research skills into `~/.codex/skills/`
+- seeds demo content by default so the UI is not empty
+
+If you want the runtime without demo content:
+
+```bash
+make up SEED_DEMO=0
+```
+
+Manual equivalent:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -e ".[dev]"
+research-registry-local-install
+research-registry-seed
+research-registry-seed-memory-retrieval
+```
 
 ## Verify that it worked
 
 Run:
 
 ```bash
-. .venv/bin/activate
-research-registry-local-status
+make status
 curl http://127.0.0.1:8010/readyz
 ```
 
@@ -59,15 +75,7 @@ If the local install patched Codex correctly, `~/.codex/config.toml` now points 
 
 A brand-new registry is empty until something is captured or seeded.
 
-For a first walkthrough, load the demo content:
-
-```bash
-. .venv/bin/activate
-research-registry-seed
-research-registry-seed-memory-retrieval
-```
-
-Then open `http://127.0.0.1:8010` in a browser. You should see published reports, claims, and questions instead of a blank board.
+`make up` already seeds demo content by default. Then open `http://127.0.0.1:8010` in a browser. You should see published reports, claims, and questions instead of a blank board.
 
 ## First real workflow
 
@@ -93,23 +101,22 @@ If you used `research-registry-local-install`, the admin token is stored in:
 
 Docker is not running:
 
-- start Docker and rerun `research-registry-local-install`
+- start Docker and rerun `make up`
 
 Port `8010` is already in use:
 
-- stop the existing service with `research-registry-local-stop`
-- or install on a different port with `research-registry-local-install --port 8011`
+- stop the existing service with `make down`
+- or use the manual installer path with `research-registry-local-install --port 8011`
 
 Codex already has a manual `researchRegistry` MCP entry:
 
 - remove or rename the manual block in `~/.codex/config.toml`
-- rerun `research-registry-local-install`
+- rerun `make up`
 
 You want to stop the local stack:
 
 ```bash
-. .venv/bin/activate
-research-registry-local-stop
+make down
 ```
 
 ## Next docs

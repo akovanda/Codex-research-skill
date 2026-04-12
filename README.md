@@ -60,17 +60,13 @@ If you only want the fastest path that should work on a fresh machine, start wit
 ### Local default
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -e ".[dev]"
-research-registry-local-install
+make up
 ```
 
 Verify that the local runtime is healthy:
 
 ```bash
-. .venv/bin/activate
-research-registry-local-status
+make status
 curl http://127.0.0.1:8010/readyz
 ```
 
@@ -84,12 +80,34 @@ What success looks like:
 Put visible demo content into a new local registry:
 
 ```bash
-. .venv/bin/activate
-research-registry-seed
-research-registry-seed-memory-retrieval
+make up
 ```
 
 Then open `http://127.0.0.1:8010` in a browser. You should see published reports and claims instead of an empty board.
+
+What `make up` does:
+
+- creates `.venv/` if needed
+- installs the project in editable mode
+- runs the managed localhost installer
+- seeds demo content by default so the UI is not empty
+
+If you want the stack without demo content:
+
+```bash
+make up SEED_DEMO=0
+```
+
+Manual equivalent:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -e ".[dev]"
+research-registry-local-install
+research-registry-seed
+research-registry-seed-memory-retrieval
+```
 
 This installs a shared localhost runtime for your local Codex instances:
 
@@ -109,9 +127,8 @@ Local default behavior:
 Status and stop commands:
 
 ```bash
-. .venv/bin/activate
-research-registry-local-status
-research-registry-local-stop
+make status
+make down
 ```
 
 For a repo-local developer-only run without Docker, `research-registry-web` still works and defaults to local SQLite.
@@ -119,9 +136,7 @@ For a repo-local developer-only run without Docker, `research-registry-web` stil
 Optional demo data:
 
 ```bash
-. .venv/bin/activate
-research-registry-seed
-research-registry-seed-memory-retrieval
+make up
 ```
 
 First real workflow:

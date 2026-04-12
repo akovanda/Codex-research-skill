@@ -36,6 +36,7 @@ def test_primary_docs_present_question_led_model() -> None:
 
 def test_open_source_preview_surface_files_exist() -> None:
     required = [
+        REPO_ROOT / "Makefile",
         REPO_ROOT / "LICENSE",
         REPO_ROOT / "CONTRIBUTING.md",
         REPO_ROOT / "SECURITY.md",
@@ -65,12 +66,14 @@ def test_release_scope_docs_are_consistent() -> None:
     release = (REPO_ROOT / "RELEASE.md").read_text(encoding="utf-8")
 
     assert "GitHub-first open-source preview" in readme
+    assert "make up" in readme
     assert "What success looks like" in readme
     assert "managed localhost runtime for multiple local Codex instances" in readme
     assert "shared self-hosted Compose deployment for internal teams" in readme
     assert "direct public-internet exposure" in readme
-    assert "research-registry-local-status" in getting_started
-    assert "research-registry-seed-memory-retrieval" in getting_started
+    assert "make up" in deploy_local
+    assert "make up" in getting_started
+    assert "make status" in getting_started
     assert "managed localhost runtime on `127.0.0.1:8010`" in architecture
     assert "internal-only" in deploy_shared
     assert "example-only" in deploy_kubernetes

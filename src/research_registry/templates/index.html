@@ -57,7 +57,7 @@
     </article>
   </div>
   <div class="callout">
-    <strong>Local preview shortcut.</strong> Run <code>research-registry-local-status</code> to confirm the local runtime is healthy, then seed demo content and reload this page.
+    <strong>Local preview shortcut.</strong> From the repo root, run <code>make up</code>. It installs the local runtime and seeds demo content so this page is immediately useful.
   </div>
 </section>
 {% endif %}
@@ -108,7 +108,7 @@
         <p class="muted">{{ report.created_at.date() }} • {{ report.claim_ids|length }} claim(s)</p>
       </article>
       {% else %}
-      <p class="empty">No published reports yet. Publish one from Workspace or seed demo content locally.</p>
+      <p class="empty">No published reports yet. Run <code>make up</code> for a seeded localhost preview, or publish one from Workspace.</p>
       {% endfor %}
     </div>
   </div>
