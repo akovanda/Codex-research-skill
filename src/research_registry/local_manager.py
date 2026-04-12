@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import time
@@ -39,6 +40,25 @@ class LocalRuntimeStatus:
     codex_mcp_managed: bool
     compose_file_path: Path | None
     docker_status: str | None
+
+
+@dataclass(frozen=True)
+class LocalRuntimeTokens:
+    base_url: str
+    admin_token: str
+    api_key: str | None
+
+
+@dataclass(frozen=True)
+class LocalUninstallResult:
+    stack_stop_attempted: bool
+    stack_stopped: bool
+    codex_backup_restored: bool
+    codex_block_removed: bool
+    removed_skill_links: tuple[Path, ...]
+    purged_config_dir: bool
+    purged_data_dir: bool
+    warnings: tuple[str, ...]
 
 
 def repo_root() -> Path:
@@ -187,6 +207,55 @@ def ensure_codex_mcp_config(config: ManagedLocalConfig) -> Path:
     return path
 
 
+def codex_backup_path(path: Path | None = None) -> Path:
+    target = path or codex_config_path()
+    return target.with_name(f"{target.name}.research-registry.bak")
+
+
+def remove_managed_codex_block(content: str) -> str:
+    if MANAGED_MCP_BEGIN not in content or MANAGED_MCP_END not in content:
+        return content
+
+    start = content.index(MANAGED_MCP_BEGIN)
+    end = content.index(MANAGED_MCP_END, start) + len(MANAGED_MCP_END)
+    prefix = content[:start].rstrip()
+    suffix = content[end:].lstrip("\n")
+    if not prefix and not suffix:
+        return ""
+
+    pieces = [piece for piece in [prefix, suffix] if piece]
+    return "\n\n".join(pieces) + "\n"
+
+
+def restore_codex_config_backup() -> bool:
+    path = codex_config_path()
+    backup_path = codex_backup_path(path)
+    if not backup_path.exists():
+        return False
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(backup_path.read_text(encoding="utf-8"), encoding="utf-8")
+    _chmod_if_possible(path, PRIVATE_FILE_MODE)
+    return True
+
+
+def remove_managed_codex_config() -> bool:
+    path = codex_config_path()
+    if not path.exists():
+        return False
+
+    current = path.read_text(encoding="utf-8")
+    updated = remove_managed_codex_block(current)
+    if updated == current:
+        return False
+    if updated:
+        path.write_text(updated, encoding="utf-8")
+        _chmod_if_possible(path, PRIVATE_FILE_MODE)
+    else:
+        path.unlink()
+    return True
+
+
 def managed_skill_sources() -> dict[str, Path]:
     root = repo_root() / "skills"
     return {
@@ -213,6 +282,20 @@ def ensure_skill_links() -> list[Path]:
         target.symlink_to(source, target_is_directory=True)
         installed.append(target)
     return installed
+
+
+def remove_managed_skill_links() -> list[Path]:
+    removed: list[Path] = []
+    skills_dir = codex_home() / "skills"
+    for name, source in managed_skill_sources().items():
+        target = skills_dir / name
+        if not target.is_symlink():
+            continue
+        if target.resolve() != source.resolve():
+            continue
+        target.unlink()
+        removed.append(target)
+    return removed
 
 
 def compose_command(config: ManagedLocalConfig, *args: str) -> list[str]:
@@ -310,8 +393,11 @@ def start_local_stack(config: ManagedLocalConfig) -> None:
     run_checked(compose_command(config, "up", "-d"))
 
 
-def stop_local_stack(config: ManagedLocalConfig) -> None:
-    run_checked(compose_command(config, "down"))
+def stop_local_stack(config: ManagedLocalConfig, *, remove_volumes: bool = False) -> None:
+    args = ["down"]
+    if remove_volumes:
+        args.append("-v")
+    run_checked(compose_command(config, *args))
 
 
 def docker_status_text(config: ManagedLocalConfig) -> str | None:
@@ -389,6 +475,62 @@ def stop_local_runtime() -> ManagedLocalConfig:
     return config
 
 
+def local_runtime_tokens() -> LocalRuntimeTokens:
+    config = load_managed_local_config()
+    if config is None:
+        raise RuntimeError("managed local config not found; run make up first")
+    return LocalRuntimeTokens(
+        base_url=config.public_base_url,
+        admin_token=config.admin_token,
+        api_key=config.api_key,
+    )
+
+
+def uninstall_local_runtime(*, restore_codex_backup: bool = False, purge_data: bool = False) -> LocalUninstallResult:
+    config = load_managed_local_config()
+    managed = config or default_managed_local_config()
+    warnings: list[str] = []
+    stack_stop_attempted = config is not None
+    stack_stopped = False
+
+    if config is not None:
+        try:
+            stop_local_stack(config, remove_volumes=purge_data)
+            stack_stopped = True
+        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+            warnings.append(f"unable to stop docker compose stack: {exc}")
+
+    codex_backup_restored = False
+    codex_block_removed = False
+    if restore_codex_backup:
+        codex_backup_restored = restore_codex_config_backup()
+    if not codex_backup_restored:
+        codex_block_removed = remove_managed_codex_config()
+
+    removed_skill_links = tuple(remove_managed_skill_links())
+
+    purged_config_dir = False
+    purged_data_dir = False
+    if purge_data:
+        if managed.config_dir.exists():
+            shutil.rmtree(managed.config_dir)
+            purged_config_dir = True
+        if managed.data_dir.exists():
+            shutil.rmtree(managed.data_dir)
+            purged_data_dir = True
+
+    return LocalUninstallResult(
+        stack_stop_attempted=stack_stop_attempted,
+        stack_stopped=stack_stopped,
+        codex_backup_restored=codex_backup_restored,
+        codex_block_removed=codex_block_removed,
+        removed_skill_links=removed_skill_links,
+        purged_config_dir=purged_config_dir,
+        purged_data_dir=purged_data_dir,
+        warnings=tuple(warnings),
+    )
+
+
 def ensure_prerequisites() -> None:
     run_checked(["docker", "--version"])
     run_checked(["docker", "compose", "version"])
@@ -411,4 +553,31 @@ def format_status(status: LocalRuntimeStatus) -> str:
     if status.docker_status:
         lines.append("docker_ps=")
         lines.append(status.docker_status)
+    return "\n".join(lines)
+
+
+def format_tokens(tokens: LocalRuntimeTokens) -> str:
+    lines = [
+        f"base_url={tokens.base_url}",
+        f"admin_token={tokens.admin_token}",
+    ]
+    if tokens.api_key:
+        lines.append(f"api_key={tokens.api_key}")
+    else:
+        lines.append("api_key=")
+    return "\n".join(lines)
+
+
+def format_uninstall_result(result: LocalUninstallResult) -> str:
+    lines = [
+        f"stack_stop_attempted={str(result.stack_stop_attempted).lower()}",
+        f"stack_stopped={str(result.stack_stopped).lower()}",
+        f"codex_backup_restored={str(result.codex_backup_restored).lower()}",
+        f"codex_block_removed={str(result.codex_block_removed).lower()}",
+        f"removed_skill_links={len(result.removed_skill_links)}",
+        f"purged_config_dir={str(result.purged_config_dir).lower()}",
+        f"purged_data_dir={str(result.purged_data_dir).lower()}",
+    ]
+    for warning in result.warnings:
+        lines.append(f"warning={warning}")
     return "\n".join(lines)

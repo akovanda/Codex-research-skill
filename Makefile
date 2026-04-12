@@ -7,15 +7,19 @@ VENV_PYTHON := $(VENV)/bin/python
 INSTALL_STAMP := $(VENV)/.editable-installed
 SEED_DEMO ?= 1
 
-.PHONY: help venv install up status down test build
+.PHONY: help venv install up status down token uninstall purge-local test build preview-check
 
 help:
 	@printf "Targets:\n"
 	@printf "  make up      Create/update the local env, start the localhost stack, and seed demo data by default.\n"
 	@printf "  make status  Show the current localhost runtime status.\n"
 	@printf "  make down    Stop the localhost runtime.\n"
+	@printf "  make token   Print the managed localhost admin token and API key.\n"
+	@printf "  make uninstall  Stop the localhost runtime and remove the managed Codex integration.\n"
+	@printf "  make purge-local  Uninstall and also delete managed local config/data and docker volumes.\n"
 	@printf "  make test    Run the test suite.\n"
 	@printf "  make build   Build wheel and sdist artifacts.\n"
+	@printf "  make preview-check  Run tests, build artifacts, and both smoke suites.\n"
 	@printf "\n"
 	@printf "Options:\n"
 	@printf "  SEED_DEMO=0  Skip demo content during make up.\n"
@@ -47,8 +51,23 @@ status: install
 down: install
 	$(VENV_PYTHON) -m research_registry.local_stop
 
+token: install
+	$(VENV_PYTHON) -m research_registry.local_token
+
+uninstall: install
+	$(VENV_PYTHON) -m research_registry.local_uninstall
+
+purge-local: install
+	$(VENV_PYTHON) -m research_registry.local_uninstall --purge-data
+
 test: install
 	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q
 
 build: install
 	PYTHONPATH=src $(VENV_PYTHON) -m build
+
+preview-check: install
+	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q
+	PYTHONPATH=src $(VENV_PYTHON) -m build
+	RUN_LOCAL_INSTALL_SMOKE=1 PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_local_install_smoke.py
+	RUN_SHARED_COMPOSE_SMOKE=1 PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_shared_compose_smoke.py

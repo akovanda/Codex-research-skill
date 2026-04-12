@@ -10,6 +10,7 @@ import sys
 
 import pytest
 
+from research_registry.local_manager import MANAGED_MCP_BEGIN
 from research_registry.managed_config import default_managed_local_config, write_managed_local_config
 
 
@@ -74,6 +75,14 @@ def test_local_install_cli_smoke(tmp_path: Path, monkeypatch) -> None:
         capture_output=True,
         text=True,
     )
+    token_result = subprocess.run(
+        [sys.executable, "-m", "research_registry.local_token"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
     config_dir = xdg_config_home / "research-registry"
     codex_config = codex_home / "config.toml"
@@ -85,6 +94,9 @@ def test_local_install_cli_smoke(tmp_path: Path, monkeypatch) -> None:
     assert "api_key_configured=true" in result.stdout
     assert "codex_mcp_managed=true" in result.stdout
     assert f"base_url=http://127.0.0.1:{port}" in status.stdout
+    assert f"base_url=http://127.0.0.1:{port}" in token_result.stdout
+    assert "admin_token=smoke-admin-token" in token_result.stdout
+    assert "api_key=smoke-api-key" in token_result.stdout
     assert (config_dir / "config.toml").exists()
     assert (config_dir / "compose.yaml").exists()
     assert (config_dir / ".env").exists()
@@ -92,3 +104,20 @@ def test_local_install_cli_smoke(tmp_path: Path, monkeypatch) -> None:
     assert '"x-api-key" = "smoke-api-key"' in codex_config_text
     assert (skills_dir / "research-capture").is_symlink()
     assert (skills_dir / "research-memory-retrieval").is_symlink()
+
+    uninstall = subprocess.run(
+        [sys.executable, "-m", "research_registry.local_uninstall"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "codex_block_removed=true" in uninstall.stdout
+    assert "removed_skill_links=2" in uninstall.stdout
+    assert "configured=true" in uninstall.stdout
+    assert "codex_mcp_managed=false" in uninstall.stdout
+    assert MANAGED_MCP_BEGIN not in codex_config.read_text(encoding="utf-8")
+    assert not (skills_dir / "research-capture").exists()
+    assert not (skills_dir / "research-memory-retrieval").exists()

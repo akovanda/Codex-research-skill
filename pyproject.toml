@@ -55,6 +55,8 @@ research-registry-migrate = "research_registry.migrate:main"
 research-registry-local-install = "research_registry.local_install:main"
 research-registry-local-status = "research_registry.local_status:main"
 research-registry-local-stop = "research_registry.local_stop:main"
+research-registry-local-token = "research_registry.local_token:main"
+research-registry-local-uninstall = "research_registry.local_uninstall:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
