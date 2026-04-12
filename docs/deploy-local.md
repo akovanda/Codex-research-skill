@@ -4,6 +4,12 @@ Local deployment is the default. The recommended path for real use is one shared
 
 If you are brand new to the project, read [Getting Started](getting-started.md) first.
 
+Preview support target:
+
+- Linux: primary localhost target and CI-covered
+- macOS: intended localhost preview target
+- Windows: not yet claimed
+
 ## Prerequisites
 
 - Python 3.12
@@ -39,6 +45,7 @@ Check status:
 ```bash
 make status
 curl http://127.0.0.1:8010/readyz
+curl http://127.0.0.1:8010/openapi.json
 ```
 
 What good looks like:
@@ -48,17 +55,36 @@ What good looks like:
 - `api_key_configured=true`
 - `codex_mcp_managed=true`
 - `GET /readyz` returns `{"status":"ready"}`
+- `GET /openapi.json` returns the generated OpenAPI document
 
-Check status:
+Print the managed local token values:
 
 ```bash
-research-registry-local-status
+make token
 ```
 
 Stop the local stack:
 
 ```bash
 make down
+```
+
+Remove the managed Codex integration but keep local data:
+
+```bash
+make uninstall
+```
+
+Remove the managed runtime, local data, and Docker volumes:
+
+```bash
+make purge-local
+```
+
+Restore the previous Codex config from the managed backup instead of only removing the managed block:
+
+```bash
+./.venv/bin/research-registry-local-uninstall --restore-codex-backup
 ```
 
 ## Runtime details
@@ -88,6 +114,11 @@ Compatibility fallback:
 
 - `RESEARCH_REGISTRY_DB_PATH=.data/registry.sqlite3`
 
+Config examples:
+
+- repo root `.env.example` is the repo-local development example and defaults to SQLite
+- `deploy/.env.example` is the shared Compose example and defaults to Postgres plus bind/public URL settings
+
 ## Health
 
 ```bash
@@ -108,14 +139,14 @@ Then open `http://127.0.0.1:8010` and confirm the public board is populated.
 Seed demo content:
 
 ```bash
-research-registry-seed
-research-registry-seed-memory-retrieval
+./.venv/bin/research-registry-seed
+./.venv/bin/research-registry-seed-memory-retrieval
 ```
 
 Run migrations explicitly:
 
 ```bash
-research-registry-migrate
+./.venv/bin/research-registry-migrate
 ```
 
 ## Notes
@@ -124,4 +155,4 @@ research-registry-migrate
 - the managed MCP endpoint is HTTP-first; the stdio MCP server remains available for compatibility
 - local mode is the recommended first-run path for contributors and new users
 - if you need a repo-local no-Docker process, use `research-registry-web` and treat that path as development-only for this release
-- if you used `research-registry-local-install`, the admin token is stored in `~/.config/research-registry/config.toml`
+- if you used `make up`, the admin token is stored in `~/.config/research-registry/config.toml`

@@ -12,15 +12,15 @@ If you are just trying to get the project running, start with [Getting Started](
 ## Install locally
 
 ```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-ln -sfn "$(pwd)/skills/research-memory-retrieval" "${CODEX_HOME:-$HOME/.codex}/skills/research-memory-retrieval"
+make up
 ```
+
+`make up` installs both managed skill symlinks into `~/.codex/skills/` and starts the default localhost backend.
 
 ## Start the local backend
 
 ```bash
-. .venv/bin/activate
-research-registry-local-install
+make status
 ```
 
 This gives the skill a shared localhost backend plus a managed MCP endpoint in `~/.codex/config.toml`.
@@ -28,18 +28,18 @@ This gives the skill a shared localhost backend plus a managed MCP endpoint in `
 ## Seed the memory/retrieval corpus
 
 ```bash
-. .venv/bin/activate
-research-registry-seed-memory-retrieval
+./.venv/bin/research-registry-seed-memory-retrieval
 ```
+
+`make up` already runs this seed step by default. Rerun it manually only if you want to refresh the demo corpus.
 
 ## Validate
 
 ```bash
-. .venv/bin/activate
-pytest -q
-research-registry-memory-retrieval-harness --scenario reuse-optimization
-research-registry-memory-retrieval-harness --scenario synthesis-failures
-research-registry-memory-retrieval-harness --scenario gap-fill-metrics
+make test
+./.venv/bin/research-registry-memory-retrieval-harness --scenario reuse-optimization
+./.venv/bin/research-registry-memory-retrieval-harness --scenario synthesis-failures
+./.venv/bin/research-registry-memory-retrieval-harness --scenario gap-fill-metrics
 ```
 
 ## Expected behavior

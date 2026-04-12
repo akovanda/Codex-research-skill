@@ -4,6 +4,8 @@ This document describes the default Codex workflow for research intent.
 
 For first-run local setup, start with [Getting Started](getting-started.md).
 
+For the default localhost path, run `make up` once before relying on implicit capture.
+
 Primary pieces:
 
 - [`skills/research-capture`](../skills/research-capture/SKILL.md)
@@ -37,20 +39,25 @@ Precedence:
 When no remote backend is configured, local skill use stays on the embedded local backend.
 When the managed localhost runtime is installed, local skill use should prefer that shared localhost backend.
 
+Useful local checks:
+
+```bash
+make status
+make token
+```
+
 ## Queue
 
 Inspect pending bundles:
 
 ```bash
-. .venv/bin/activate
-research-registry-capture-queue list
+./.venv/bin/research-registry-capture-queue list
 ```
 
 Replay pending bundles:
 
 ```bash
-. .venv/bin/activate
-research-registry-capture-queue flush
+./.venv/bin/research-registry-capture-queue flush
 ```
 
 ## Expected summary shape

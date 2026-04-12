@@ -4,9 +4,9 @@ This is the fastest path for a new user who wants Research Registry working loca
 
 The intended first run is:
 
-1. install the managed localhost runtime
-2. verify that the app and MCP endpoint are healthy
-3. seed demo data so the UI is not empty
+1. run `make up`
+2. verify the app, MCP wiring, and API docs with `make status`
+3. open the UI or `/docs`
 4. ask Codex to do source-backed research and let the implicit capture flow store it
 
 ## Prerequisites
@@ -23,7 +23,7 @@ From the repo root:
 make up
 ```
 
-That command does five things for you:
+That command does seven things for you:
 
 - creates `.venv/` if needed
 - installs the project in editable mode
@@ -57,6 +57,7 @@ Run:
 ```bash
 make status
 curl http://127.0.0.1:8010/readyz
+curl http://127.0.0.1:8010/openapi.json
 ```
 
 You want to see:
@@ -66,6 +67,7 @@ You want to see:
 - `api_key_configured=true`
 - `codex_mcp_managed=true`
 - `{"status":"ready"}` from `/readyz`
+- OpenAPI JSON from `/openapi.json`
 
 If the local install patched Codex correctly, `~/.codex/config.toml` now points at:
 
@@ -87,9 +89,15 @@ Once the local runtime is working, the normal flow is:
 4. Open the workspace at `http://127.0.0.1:8010/admin/login`.
 5. Review the private records and publish the reusable ones.
 
-If you used `research-registry-local-install`, the admin token is stored in:
+If you used `make up`, the admin token is stored in:
 
 - `~/.config/research-registry/config.toml`
+
+You can print the current managed token and API key with:
+
+```bash
+make token
+```
 
 ## Good first prompts
 
@@ -117,6 +125,18 @@ You want to stop the local stack:
 
 ```bash
 make down
+```
+
+You want to remove the managed local integration:
+
+```bash
+make uninstall
+```
+
+You want to remove the managed runtime plus its local data:
+
+```bash
+make purge-local
 ```
 
 ## Next docs

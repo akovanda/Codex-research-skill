@@ -31,6 +31,12 @@ Example-only or explicitly unsupported in this preview:
 - PyPI as the primary install path
 - published hosted multi-tenant service
 
+Managed localhost preview support matrix:
+
+- Linux: primary target and covered in CI smoke jobs
+- macOS: intended supported preview target for localhost use, but not yet CI-covered
+- Windows: not yet claimed for this preview
+
 ## Core Model
 
 Canonical records:
@@ -68,20 +74,16 @@ Verify that the local runtime is healthy:
 ```bash
 make status
 curl http://127.0.0.1:8010/readyz
+curl http://127.0.0.1:8010/openapi.json
 ```
 
 What success looks like:
 
-- `research-registry-local-status` prints `configured=true` and `ready=true`
+- `make status` prints `configured=true` and `ready=true`
 - `GET /readyz` returns `{"status":"ready"}`
+- `GET /openapi.json` returns the Research Registry OpenAPI document
 - `~/.codex/config.toml` contains a managed `researchRegistry` MCP block
 - `~/.codex/skills/` contains `research-capture` and `research-memory-retrieval`
-
-Put visible demo content into a new local registry:
-
-```bash
-make up
-```
 
 Then open `http://127.0.0.1:8010` in a browser. You should see published reports and claims instead of an empty board.
 
@@ -89,7 +91,11 @@ What `make up` does:
 
 - creates `.venv/` if needed
 - installs the project in editable mode
-- runs the managed localhost installer
+- creates managed config under `~/.config/research-registry/`
+- creates managed data under `~/.local/share/research-registry/`
+- starts the managed localhost Postgres plus app stack on `127.0.0.1:8010`
+- patches `~/.codex/config.toml` with a managed `researchRegistry` MCP block
+- installs the `research-capture` and `research-memory-retrieval` skill symlinks into `~/.codex/skills/`
 - seeds demo content by default so the UI is not empty
 
 If you want the stack without demo content:
@@ -128,7 +134,15 @@ Status and stop commands:
 
 ```bash
 make status
+make token
 make down
+make uninstall
+```
+
+To remove the managed localhost install and delete its local config/data directories plus Docker volumes:
+
+```bash
+make purge-local
 ```
 
 For a repo-local developer-only run without Docker, `research-registry-web` still works and defaults to local SQLite.
@@ -178,6 +192,11 @@ Compatibility fallback:
 
 - `RESEARCH_REGISTRY_DB_PATH` remains supported for local SQLite setups. If `RESEARCH_REGISTRY_DATABASE_URL` is unset, the app derives a local SQLite URL from that path.
 
+Environment examples:
+
+- repo root [`.env.example`](.env.example) is for repo-local or container-local development and defaults to SQLite
+- [`deploy/.env.example`](deploy/.env.example) is for the shared Compose preview and defaults to Postgres plus bind/public URL settings
+
 Backend selection precedence for clients:
 
 1. `RESEARCH_REGISTRY_BACKEND_URL`
@@ -199,6 +218,12 @@ Admin bootstrap endpoints:
 - `POST /api/admin/api-keys`
 
 These are guarded by the admin token and are intended for self-hosted setup workflows.
+
+Developer preview API docs:
+
+- Swagger UI: `http://127.0.0.1:8010/docs`
+- OpenAPI JSON: `http://127.0.0.1:8010/openapi.json`
+- step-by-step curl flow: [docs/api-quickstart.md](docs/api-quickstart.md)
 
 ## Canonical API Surface
 
@@ -238,7 +263,7 @@ Compatibility aliases:
 
 The web app and API are the primary product surface. MCP and Codex skills sit on top of that:
 
-- HTTP MCP endpoint: `http://127.0.0.1:8010/mcp/` after `research-registry-local-install`
+- HTTP MCP endpoint: `http://127.0.0.1:8010/mcp/` after `make up` or `research-registry-local-install`
 - stdio MCP server: `research-registry-mcp`
 - implicit capture skill: [`skills/research-capture`](skills/research-capture/SKILL.md)
 - memory/retrieval skill: [`skills/research-memory-retrieval`](skills/research-memory-retrieval/SKILL.md)
@@ -246,6 +271,7 @@ The web app and API are the primary product surface. MCP and Codex skills sit on
 ## Deployment
 
 - [Getting started](docs/getting-started.md)
+- [API quickstart](docs/api-quickstart.md)
 - [Architecture](docs/architecture.md)
 - [Local deployment](docs/deploy-local.md)
 - [Shared Compose deployment](docs/deploy-shared-compose.md)
@@ -254,6 +280,7 @@ The web app and API are the primary product surface. MCP and Codex skills sit on
 - [Implicit research capture](docs/implicit-research-capture.md)
 - [Memory/retrieval skill](docs/memory-retrieval-skill.md)
 - [Research pass suite](docs/research-pass-suite.md)
+- [Support policy](SUPPORT.md)
 
 Container assets:
 
@@ -266,29 +293,26 @@ Container assets:
 Migrate storage explicitly:
 
 ```bash
-. .venv/bin/activate
-research-registry-migrate
+make up SEED_DEMO=0
+./.venv/bin/research-registry-migrate
 ```
 
 Run tests:
 
 ```bash
-. .venv/bin/activate
-pytest -q
+make test
 ```
 
-Install the shared localhost runtime:
+Run the preview release gate:
 
 ```bash
-. .venv/bin/activate
-research-registry-local-install
+make preview-check
 ```
 
 Run the grounded pass runner:
 
 ```bash
-. .venv/bin/activate
-research-registry-pass-runner --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2
+./.venv/bin/research-registry-pass-runner --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2
 ```
 
 ## Preview Notes

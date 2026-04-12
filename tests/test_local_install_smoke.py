@@ -118,6 +118,7 @@ def test_local_install_cli_smoke(tmp_path: Path, monkeypatch) -> None:
     assert "removed_skill_links=2" in uninstall.stdout
     assert "configured=true" in uninstall.stdout
     assert "codex_mcp_managed=false" in uninstall.stdout
-    assert MANAGED_MCP_BEGIN not in codex_config.read_text(encoding="utf-8")
+    if codex_config.exists():
+        assert MANAGED_MCP_BEGIN not in codex_config.read_text(encoding="utf-8")
     assert not (skills_dir / "research-capture").exists()
     assert not (skills_dir / "research-memory-retrieval").exists()

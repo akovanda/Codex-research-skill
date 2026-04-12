@@ -7,7 +7,9 @@ import tomllib
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PRIMARY_DOCS = [
     REPO_ROOT / "README.md",
+    REPO_ROOT / "SUPPORT.md",
     REPO_ROOT / "docs" / "getting-started.md",
+    REPO_ROOT / "docs" / "api-quickstart.md",
     REPO_ROOT / "docs" / "architecture.md",
     REPO_ROOT / "docs" / "deploy-local.md",
     REPO_ROOT / "docs" / "deploy-shared-compose.md",
@@ -40,6 +42,7 @@ def test_open_source_preview_surface_files_exist() -> None:
         REPO_ROOT / "LICENSE",
         REPO_ROOT / "CONTRIBUTING.md",
         REPO_ROOT / "SECURITY.md",
+        REPO_ROOT / "SUPPORT.md",
         REPO_ROOT / "Dockerfile",
         REPO_ROOT / ".dockerignore",
         REPO_ROOT / ".env.example",
@@ -49,6 +52,7 @@ def test_open_source_preview_surface_files_exist() -> None:
         REPO_ROOT / "deploy" / "kubernetes" / "service.yaml",
         REPO_ROOT / "deploy" / "kubernetes" / "migrate-job.yaml",
         REPO_ROOT / "docs" / "getting-started.md",
+        REPO_ROOT / "docs" / "api-quickstart.md",
     ]
     for path in required:
         assert path.exists(), str(path)
@@ -64,16 +68,27 @@ def test_release_scope_docs_are_consistent() -> None:
     operations = (REPO_ROOT / "docs" / "operations.md").read_text(encoding="utf-8")
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     release = (REPO_ROOT / "RELEASE.md").read_text(encoding="utf-8")
+    support = (REPO_ROOT / "SUPPORT.md").read_text(encoding="utf-8")
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    api_quickstart = (REPO_ROOT / "docs" / "api-quickstart.md").read_text(encoding="utf-8")
 
     assert "GitHub-first open-source preview" in readme
     assert "make up" in readme
+    assert "make token" in readme
     assert "What success looks like" in readme
     assert "managed localhost runtime for multiple local Codex instances" in readme
     assert "shared self-hosted Compose deployment for internal teams" in readme
     assert "direct public-internet exposure" in readme
+    assert "Windows: not yet claimed" in readme
+    assert "/docs" in readme
+    assert "OpenAPI JSON" in readme
     assert "make up" in deploy_local
+    assert "make uninstall" in deploy_local
+    assert "make purge-local" in deploy_local
     assert "make up" in getting_started
     assert "make status" in getting_started
+    assert "make token" in getting_started
+    assert "make uninstall" in getting_started
     assert "managed localhost runtime on `127.0.0.1:8010`" in architecture
     assert "internal-only" in deploy_shared
     assert "example-only" in deploy_kubernetes
@@ -81,6 +96,17 @@ def test_release_scope_docs_are_consistent() -> None:
     assert "`v0.1.0` preview" in operations
     assert "Initial open-source preview release." in changelog
     assert "GitHub source releases" in release
+    assert "make preview-check" in release
+    assert "real maintainer-owned security contact" in release
+    assert "Linux" in support
+    assert "macOS" in support
+    assert "Windows localhost installs" in support
+    assert "GitHub issues" in support
+    assert "make preview-check" in makefile
+    assert "make token" in makefile
+    assert "make uninstall" in makefile
+    assert "/openapi.json" in api_quickstart
+    assert "/api/admin/api-keys" in api_quickstart
 
 
 def test_package_metadata_matches_preview_contract() -> None:

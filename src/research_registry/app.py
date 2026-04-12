@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
+from . import __version__
 from .config import Settings, load_settings
 from .mcp_tools import create_mcp_server
 from .models import (
@@ -73,7 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         async with mcp.session_manager.run():
             yield
 
-    app = FastAPI(title="Research Registry", lifespan=lifespan)
+    app = FastAPI(title="Research Registry", version=__version__, lifespan=lifespan)
     app.state.settings = settings
     app.state.service = service
     app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)

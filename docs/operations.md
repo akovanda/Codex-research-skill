@@ -44,8 +44,8 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env up --build -d
 Managed localhost runtime:
 
 ```bash
-. .venv/bin/activate
-research-registry-local-install
+make up SEED_DEMO=0
+make status
 ```
 
 The current container startup path runs migrations before serving traffic. Upgrades should still be treated as intentional operational events, not invisible background changes.
@@ -61,8 +61,10 @@ If an upgrade fails:
 
 Managed localhost runtime rollback helpers:
 
-- stop with `research-registry-local-stop`
-- restore `~/.codex/config.toml` from `~/.codex/config.toml.research-registry.bak` if needed
+- stop with `make down`
+- remove the managed localhost integration with `make uninstall`
+- restore the previous Codex config from backup with `./.venv/bin/research-registry-local-uninstall --restore-codex-backup`
+- fully remove local config/data and Docker volumes with `make purge-local`
 
 ## Token Rotation
 
@@ -74,6 +76,12 @@ When rotating:
 2. update clients or Codex MCP config to use the replacement key
 3. revoke old keys
 4. restart the app if you changed admin token or session secret env vars
+
+For the managed localhost runtime, inspect the current admin token and API key with:
+
+```bash
+make token
+```
 
 ## Verification
 

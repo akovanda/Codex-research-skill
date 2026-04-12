@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from research_registry import __version__
 from research_registry.app import create_app
 from research_registry.config import Settings
 from research_registry.models import (
@@ -232,6 +233,21 @@ def test_empty_pages_include_onboarding_guidance(tmp_path: Path) -> None:
     assert workspace.status_code == 200
     assert "Private Workspace Is Empty" in workspace.text
     assert "make up" in workspace.text
+
+
+def test_openapi_docs_are_exposed_with_package_version(tmp_path: Path) -> None:
+    app = create_app(make_settings(tmp_path))
+    client = TestClient(app)
+
+    docs = client.get("/docs")
+    assert docs.status_code == 200
+    assert "swagger" in docs.text.lower()
+
+    openapi = client.get("/openapi.json")
+    assert openapi.status_code == 200
+    body = openapi.json()
+    assert body["info"]["title"] == "Research Registry"
+    assert body["info"]["version"] == __version__
 
 
 def test_search_ranks_fresh_reports_above_stale_reports(tmp_path: Path) -> None:

@@ -101,6 +101,26 @@ def test_ensure_codex_mcp_config_writes_backup_and_private_permissions(tmp_path:
     _assert_mode(backup_path, PRIVATE_FILE_MODE)
 
 
+def test_uninstall_removes_empty_managed_codex_config_file(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    monkeypatch.setenv("RESEARCH_REGISTRY_MANAGED_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("RESEARCH_REGISTRY_MANAGED_DATA_DIR", str(tmp_path / "data"))
+
+    config = replace(build_local_config(port=8027), api_key="test-key")
+    write_managed_local_config(config)
+    ensure_codex_mcp_config(config)
+
+    def fake_stop_local_stack(managed, *, remove_volumes: bool = False) -> None:
+        assert managed == config
+
+    monkeypatch.setattr(local_manager, "stop_local_stack", fake_stop_local_stack)
+
+    result = uninstall_local_runtime()
+
+    assert result.codex_block_removed is True
+    assert not (tmp_path / "codex" / "config.toml").exists()
+
+
 def test_remove_managed_codex_block_preserves_surrounding_content() -> None:
     config = replace(build_local_config(port=8023), api_key="test-key")
     content = (

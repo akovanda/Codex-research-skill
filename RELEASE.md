@@ -5,22 +5,18 @@ Use this for GitHub source releases in the current preview phase.
 ## Before tagging
 
 1. Ensure the repo is clean.
-2. Run the full test suite.
-3. Verify the managed localhost installer path.
-4. Verify the shared Compose path.
-5. Set `[project.urls]` in `pyproject.toml` to the real published repository location.
-6. Review docs for support-matrix consistency.
-7. Update `CHANGELOG.md` for the release.
+2. Run `make preview-check`.
+3. Review docs for support-matrix consistency.
+4. Update `CHANGELOG.md` for the release.
+5. Set a real maintainer-owned security contact in `SECURITY.md`.
+6. Set `[project.urls]` in `pyproject.toml` to the real published repository location.
+
+Do not tag a public preview release until items 5 and 6 are complete.
 
 ## Verification commands
 
 ```bash
-. .venv/bin/activate
-pytest -q
-python -m build
-research-registry-local-install
-research-registry-local-status
-research-registry-local-stop
+make preview-check
 ```
 
 ## Tagging
