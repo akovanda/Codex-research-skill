@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import research_registry.local_research as local_research
 from research_registry.research_capture import (
     format_capture_summary,
     is_research_request,
@@ -87,6 +88,29 @@ def test_implicit_capture_runs_live_research_then_reuses_on_second_pass(tmp_path
     assert second.capture_summary.stored_follow_up_question_ids
     assert second.summary_contract_passed is True
     assert "Stored session" in format_capture_summary(second.capture_summary)
+
+
+def test_implicit_capture_runs_live_research_without_rg(tmp_path: Path, monkeypatch) -> None:
+    service = make_service(tmp_path)
+    repo = make_branch_private_repo(tmp_path)
+
+    def missing_rg(term: str, root: Path):
+        raise FileNotFoundError("rg not installed")
+
+    monkeypatch.setattr(local_research, "run_rg", missing_rg)
+
+    outcome = run_implicit_research_capture(
+        "Research branch-private memory isolation strategies for divergent narrative and coding branches.",
+        backend=service,
+        source_signals=["choose-game: full stack verification checks coding branch isolation"],
+        source_roots=[repo],
+    )
+
+    assert outcome.specialized_domain == "memory-retrieval"
+    assert outcome.specialist_mode == "live_research"
+    assert outcome.capture_summary.stored_report_id is not None
+    assert outcome.capture_summary.stored_claim_ids
+    assert outcome.summary_contract_passed is True
 
 
 def test_implicit_capture_records_insufficient_evidence_without_report(tmp_path: Path) -> None:

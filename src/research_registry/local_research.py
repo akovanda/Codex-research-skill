@@ -95,6 +95,8 @@ RG_GLOBS = (
     "!*.jsonl",
     "!*.pyc",
 )
+IGNORED_DIR_NAMES = {".git", "dist", "node_modules", "__pycache__"}
+IGNORED_FILE_SUFFIXES = (".sqlite3", ".whl", ".jsonl", ".pyc", ".tar.gz")
 
 
 class LocalEvidenceHit(BaseModel):
@@ -267,7 +269,7 @@ def collect_local_hits(query_terms: list[str], *, focus: FocusTuple, roots: dict
     file_cache: dict[str, list[str]] = {}
     for term in query_terms:
         for repo_name, root in roots.items():
-            for match in run_rg(term, root):
+            for match in search_term(term, root):
                 key = (match["path"], match["line"])
                 record = matches.setdefault(
                     key,
@@ -323,6 +325,13 @@ def collect_local_hits(query_terms: list[str], *, focus: FocusTuple, roots: dict
         if len(selected) >= max_hits:
             break
     return selected
+
+
+def search_term(term: str, root: Path) -> list[dict[str, str | int]]:
+    try:
+        return run_rg(term, root)
+    except FileNotFoundError:
+        return run_python_scan(term, root)
 
 
 def build_claim_drafts(focus: FocusTuple, hits: list[LocalEvidenceHit]) -> list[LocalClaimDraft]:
@@ -588,10 +597,7 @@ def run_rg(term: str, root: Path) -> list[dict[str, str | int]]:
     for glob in RG_GLOBS:
         command.extend(["-g", glob])
     command.extend([term, str(root)])
-    try:
-        completed = subprocess.run(command, capture_output=True, text=True, check=False)
-    except FileNotFoundError:
-        return []
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
     results: list[dict[str, str | int]] = []
     for line in completed.stdout.splitlines():
         try:
@@ -609,6 +615,35 @@ def run_rg(term: str, root: Path) -> list[dict[str, str | int]]:
             }
         )
     return results
+
+
+def run_python_scan(term: str, root: Path) -> list[dict[str, str | int]]:
+    if not term or not root.exists():
+        return []
+    needle = term.casefold()
+    results: list[dict[str, str | int]] = []
+    for path in iter_searchable_files(root):
+        for index, line in enumerate(read_text_lines(str(path)), start=1):
+            if needle in line.casefold():
+                results.append({"path": str(path), "line": index})
+    return results
+
+
+def iter_searchable_files(root: Path):
+    for current_root, dirnames, filenames in os.walk(root):
+        dirnames[:] = [name for name in dirnames if name not in IGNORED_DIR_NAMES]
+        for filename in filenames:
+            path = Path(current_root) / filename
+            if should_skip_file(path):
+                continue
+            if not path.is_file():
+                continue
+            yield path
+
+
+def should_skip_file(path: Path) -> bool:
+    lowered = path.name.lower()
+    return any(lowered.endswith(suffix) for suffix in IGNORED_FILE_SUFFIXES)
 
 
 def read_text_lines(path: str) -> list[str]:
