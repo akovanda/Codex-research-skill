@@ -16,6 +16,8 @@ Preview support target:
 - Docker with Compose support
 - Codex on the same machine if you want the managed MCP wiring
 
+If `python3` on your host is older than 3.12, run with `PYTHON=python3.12` or create `.venv` first with a 3.12 interpreter and then rerun `make up`.
+
 ## Start
 
 ```bash
@@ -23,6 +25,15 @@ make up
 ```
 
 `make up` creates `.venv/`, installs the repo in editable mode, starts the managed localhost runtime, and seeds demo content by default.
+
+If you are on a host such as Ubuntu 20.04 where `python3` may still resolve to 3.8, you can bootstrap a compatible local env without changing system Python:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+~/.local/bin/uv python install 3.12
+~/.local/bin/uv venv --python 3.12 .venv
+make up
+```
 
 If you want the runtime without demo content:
 
@@ -56,6 +67,8 @@ What good looks like:
 - `codex_mcp_managed=true`
 - `GET /readyz` returns `{"status":"ready"}`
 - `GET /openapi.json` returns the generated OpenAPI document
+
+If you already had Codex open before the first install, restart those sessions so they reload `~/.codex/config.toml` and the newly installed skill links under `~/.codex/skills/`.
 
 Print the managed local token values:
 

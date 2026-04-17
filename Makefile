@@ -25,12 +25,16 @@ help:
 	@printf "  SEED_DEMO=0  Skip demo content during make up.\n"
 
 $(VENV_PYTHON):
+	@$(PYTHON) -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' || \
+		(printf "Research Registry requires Python 3.12+ for bootstrap. Set PYTHON=python3.12 or precreate .venv with a 3.12 interpreter.\n" >&2; exit 1)
 	$(PYTHON) -m venv $(VENV)
+	$(VENV_PYTHON) -m ensurepip --upgrade
 	$(VENV_PYTHON) -m pip install --upgrade pip
 
 venv: $(VENV_PYTHON)
 
 $(INSTALL_STAMP): $(VENV_PYTHON) pyproject.toml
+	$(VENV_PYTHON) -m ensurepip --upgrade
 	$(VENV_PYTHON) -m pip install -e ".[dev]"
 	touch $(INSTALL_STAMP)
 

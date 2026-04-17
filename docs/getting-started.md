@@ -15,6 +15,8 @@ The intended first run is:
 - Docker with Compose support
 - Codex on the same machine if you want the managed MCP setup
 
+If your host `python3` is older than 3.12, either run `make up` with `PYTHON=python3.12` or precreate `.venv` with a 3.12 interpreter before using `make`.
+
 ## Install the local runtime
 
 From the repo root:
@@ -32,6 +34,17 @@ That command does seven things for you:
 - writes a managed `researchRegistry` MCP block into `~/.codex/config.toml`
 - installs the research skills into `~/.codex/skills/`
 - seeds demo content by default so the UI is not empty
+
+If you need to bootstrap `.venv` on a machine where `python3` is too old, a user-local `uv` install works:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+~/.local/bin/uv python install 3.12
+~/.local/bin/uv venv --python 3.12 .venv
+make up
+```
+
+`make up` will reuse the precreated `.venv`.
 
 If you want the runtime without demo content:
 
@@ -72,6 +85,8 @@ You want to see:
 If the local install patched Codex correctly, `~/.codex/config.toml` now points at:
 
 - `http://127.0.0.1:8010/mcp/`
+
+If you already had Codex sessions open during the first install, restart them so they reload the managed MCP block and the newly installed `research-capture` and `research-memory-retrieval` skills.
 
 ## Make the UI useful immediately
 
@@ -120,6 +135,11 @@ Codex already has a manual `researchRegistry` MCP entry:
 
 - remove or rename the manual block in `~/.codex/config.toml`
 - rerun `make up`
+
+Your host `python3` is older than 3.12:
+
+- rerun with `PYTHON=python3.12 make up`
+- or precreate `.venv` with `uv venv --python 3.12 .venv` and rerun `make up`
 
 You want to stop the local stack:
 
