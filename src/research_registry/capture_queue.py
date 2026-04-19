@@ -8,15 +8,19 @@ from pydantic import BaseModel, Field
 
 from .backend_client import RegistryBackend
 from .models import (
-    AnnotationCreate,
     BackendStatus,
-    FindingCreate,
+    ClaimCreate,
+    ExcerptCreate,
+    FocusTuple,
+    GuidancePayload,
+    QuestionCreate,
     ReportCreate,
+    ResearchSessionCreate,
     RunCreate,
     SourceCreate,
     SourceSelector,
 )
-from .service import RegistryService, utc_now
+from .service import utc_now
 
 
 class QueuedAnnotation(BaseModel):
@@ -177,96 +181,145 @@ class CaptureQueue:
         return bundle.namespace_id == status.namespace_id
 
     def _replay_bundle(self, backend: RegistryBackend, bundle: QueuedCaptureBundle) -> dict[str, str]:
-        run = self._ensure_run(backend, bundle)
+        question = self._ensure_question(backend, bundle)
+        session = self._ensure_session(backend, bundle, question.id)
         annotation_map: dict[str, str] = {}
         for annotation in bundle.annotations:
-            annotation_map[annotation.temp_id] = self._ensure_annotation(backend, bundle, run.id, annotation, annotation_map)
+            annotation_map[annotation.temp_id] = self._ensure_excerpt(
+                backend,
+                bundle,
+                question_id=question.id,
+                session_id=session.id,
+                annotation=annotation,
+            )
         finding_map: dict[str, str] = {}
         for finding in bundle.findings:
-            annotation_ids = [annotation_map[temp_id] for temp_id in finding.annotation_temp_ids]
-            finding_map[finding.temp_id] = self._ensure_finding(backend, bundle, run.id, finding, annotation_ids)
+            excerpt_ids = [annotation_map[temp_id] for temp_id in finding.annotation_temp_ids]
+            finding_map[finding.temp_id] = self._ensure_claim(
+                backend,
+                bundle,
+                question_id=question.id,
+                session_id=session.id,
+                finding=finding,
+                excerpt_ids=excerpt_ids,
+            )
         finding_ids = [finding_map[temp_id] for temp_id in bundle.report.finding_temp_ids]
-        report_id = self._ensure_report(backend, bundle, run.id, bundle.report, finding_ids)
-        return {"run_id": run.id, "report_id": report_id}
+        report_id = self._ensure_report(
+            backend,
+            bundle,
+            question_id=question.id,
+            session_id=session.id,
+            report=bundle.report,
+            claim_ids=finding_ids,
+        )
+        backend.set_question_status(question.id, "answered")
+        return {"question_id": question.id, "session_id": session.id, "report_id": report_id}
 
-    def _ensure_run(self, backend: RegistryBackend, bundle: QueuedCaptureBundle):
-        notes = bundle.run.notes.strip() if bundle.run.notes else ""
-        notes = f"{notes}\ncapture_queue_id={bundle.queue_id}".strip()
-        return backend.create_run(
-            RunCreate(
-                question=bundle.run.question,
-                model_name=bundle.run.model_name,
-                model_version=bundle.run.model_version,
-                notes=notes,
+    def _ensure_question(self, backend: RegistryBackend, bundle: QueuedCaptureBundle):
+        prompt = bundle.prompt.strip() or bundle.report.question.strip() or bundle.run.question
+        focal_label = (bundle.report.subject or bundle.normalized_topic or "research").strip() or "research"
+        return backend.create_question(
+            QuestionCreate(
+                prompt=prompt,
+                focus=FocusTuple(label=focal_label),
                 visibility=bundle.run.visibility,
                 author_type=bundle.run.author_type,
-                freshness_ttl_days=bundle.run.freshness_ttl_days,
                 namespace_kind=bundle.namespace_kind,
                 namespace_id=bundle.namespace_id,
-                dedupe_key=f"{bundle.queue_id}:run",
+                dedupe_key=f"{bundle.queue_id}:question",
             )
         )
 
-    def _ensure_annotation(
+    def _ensure_session(self, backend: RegistryBackend, bundle: QueuedCaptureBundle, question_id: str):
+        notes = bundle.run.notes.strip() if bundle.run.notes else ""
+        notes = f"{notes}\ncapture_queue_id={bundle.queue_id}".strip()
+        return backend.create_session(
+            ResearchSessionCreate(
+                question_id=question_id,
+                prompt=bundle.prompt.strip() or bundle.report.question.strip() or bundle.run.question,
+                model_name=bundle.run.model_name,
+                model_version=bundle.run.model_version,
+                notes=notes,
+                mode="synthesis",
+                ttl_days=bundle.run.freshness_ttl_days,
+                source_signals=[f"capture-queue:{bundle.queue_id}"],
+                visibility=bundle.run.visibility,
+                author_type=bundle.run.author_type,
+                namespace_kind=bundle.namespace_kind,
+                namespace_id=bundle.namespace_id,
+                dedupe_key=f"{bundle.queue_id}:session",
+            )
+        )
+
+    def _ensure_excerpt(
         self,
         backend: RegistryBackend,
         bundle: QueuedCaptureBundle,
-        run_id: str,
+        *,
+        question_id: str,
+        session_id: str,
         annotation: QueuedAnnotation,
-        annotation_map: dict[str, str],
     ) -> str:
-        parent_id = annotation_map.get(annotation.parent_annotation_temp_id or "")
-        created = backend.create_annotation(
-            AnnotationCreate(
-                source=annotation.source.model_copy(
-                    update={
-                        "namespace_kind": bundle.namespace_kind,
-                        "namespace_id": bundle.namespace_id,
-                    }
-                ),
-                run_id=run_id,
-                subject=annotation.subject,
+        tags = list(annotation.tags)
+        if annotation.parent_annotation_temp_id:
+            tags.append(f"parent_annotation_temp_id:{annotation.parent_annotation_temp_id}")
+        created_source = backend.create_source(
+            annotation.source.model_copy(
+                update={
+                    "namespace_kind": bundle.namespace_kind,
+                    "namespace_id": bundle.namespace_id,
+                    "dedupe_key": f"source:{bundle.namespace_kind}:{bundle.namespace_id}:{annotation.source.locator}",
+                }
+            )
+        )
+        created = backend.create_excerpt(
+            ExcerptCreate(
+                source_id=created_source.id,
+                question_id=question_id,
+                session_id=session_id,
+                focal_label=annotation.subject,
                 note=annotation.note,
                 selector=annotation.selector,
-                quote_text=annotation.quote_text,
+                quote_text=annotation.quote_text or annotation.selector.exact or annotation.note,
                 confidence=annotation.confidence,
-                freshness_ttl_days=annotation.freshness_ttl_days,
+                tags=tags,
                 visibility=annotation.visibility,
                 author_type=annotation.author_type,
                 model_name=annotation.model_name,
                 model_version=annotation.model_version,
-                parent_annotation_id=parent_id,
-                tags=annotation.tags,
                 namespace_kind=bundle.namespace_kind,
                 namespace_id=bundle.namespace_id,
-                dedupe_key=f"{bundle.queue_id}:annotation:{annotation.temp_id}",
+                dedupe_key=f"{bundle.queue_id}:excerpt:{annotation.temp_id}",
             )
         )
         return created.id
 
-    def _ensure_finding(
+    def _ensure_claim(
         self,
         backend: RegistryBackend,
         bundle: QueuedCaptureBundle,
-        run_id: str,
+        *,
+        question_id: str,
+        session_id: str,
         finding: QueuedFinding,
-        annotation_ids: list[str],
+        excerpt_ids: list[str],
     ) -> str:
-        created = backend.create_finding(
-            FindingCreate(
+        created = backend.create_claim(
+            ClaimCreate(
+                question_id=question_id,
+                session_id=session_id,
                 title=finding.title,
-                subject=finding.subject,
-                claim=finding.claim,
-                annotation_ids=annotation_ids,
+                focal_label=finding.subject,
+                statement=finding.claim,
+                excerpt_ids=excerpt_ids,
                 visibility=finding.visibility,
                 author_type=finding.author_type,
                 model_name=finding.model_name,
                 model_version=finding.model_version,
-                run_id=run_id,
-                confidence=finding.confidence,
+                confidence=finding.confidence if finding.confidence is not None else 0.7,
                 namespace_kind=bundle.namespace_kind,
                 namespace_id=bundle.namespace_id,
-                dedupe_key=f"{bundle.queue_id}:finding:{finding.temp_id}",
+                dedupe_key=f"{bundle.queue_id}:claim:{finding.temp_id}",
             )
         )
         return created.id
@@ -275,21 +328,25 @@ class CaptureQueue:
         self,
         backend: RegistryBackend,
         bundle: QueuedCaptureBundle,
-        run_id: str,
+        *,
+        question_id: str,
+        session_id: str,
         report: QueuedReport,
-        finding_ids: list[str],
+        claim_ids: list[str],
     ) -> str:
         created = backend.create_report(
             ReportCreate(
-                question=report.question,
-                subject=report.subject,
+                question_id=question_id,
+                session_id=session_id,
+                title=report.question or bundle.prompt,
+                focal_label=report.subject,
                 summary_md=report.summary_md,
-                finding_ids=finding_ids,
+                guidance=GuidancePayload(),
+                claim_ids=claim_ids,
                 visibility=report.visibility,
                 author_type=report.author_type,
                 model_name=report.model_name,
                 model_version=report.model_version,
-                run_id=run_id,
                 namespace_kind=bundle.namespace_kind,
                 namespace_id=bundle.namespace_id,
                 dedupe_key=f"{bundle.queue_id}:report",
