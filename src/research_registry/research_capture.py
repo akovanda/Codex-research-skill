@@ -210,7 +210,7 @@ def run_implicit_research_capture(
                 notes="implicit research capture reuse",
             )
         )
-        summary_md, claim_points, context_points, source_refs = build_reuse_summary(
+        summary_md, guidance_points, context_points, source_refs = build_reuse_summary(
             prompt=prompt,
             focus=focus,
             backend=backend,
@@ -219,7 +219,7 @@ def run_implicit_research_capture(
             question_id=question.id,
             session_id=session.id,
         )
-        check = evaluate_summary_contract(summary_md, claims=claim_points, source_refs=source_refs, registry_ids=[question.id, session.id, *[report.id for report in reusable_reports], *[claim.id for claim in reusable_claims]])
+        check = evaluate_summary_contract(summary_md, claims=guidance_points, source_refs=source_refs, registry_ids=[question.id, session.id, *[report.id for report in reusable_reports], *[claim.id for claim in reusable_claims]])
         return ImplicitCaptureOutcome(
             specialized_domain=specialized_domain,
             specialized_skill=specialized_skill,
@@ -649,7 +649,7 @@ def build_reuse_summary(
             f"- Reused claims: {', '.join(claim.id for claim in selected_claims) or 'none'}",
         ]
     )
-    return "\n".join(lines).rstrip() + "\n", claim_points, context_points, source_refs
+    return "\n".join(lines).rstrip() + "\n", current_guidance, context_points, source_refs
 
 
 def build_live_summary(

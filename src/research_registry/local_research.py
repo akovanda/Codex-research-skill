@@ -24,6 +24,7 @@ LEADING_RESEARCH_PHRASES = (
 )
 
 SEGMENT_SPLIT_RE = re.compile(r"\b(?:for|between|under|when|across|with|in|on|of|against|from)\b")
+RELATIVE_CLAUSE_SPLIT_RE = re.compile(r"\b(?:that|which|who)\b")
 GENERIC_HEADS = (
     "coverage gaps",
     "retrieval failure modes",
@@ -36,6 +37,45 @@ GENERIC_HEADS = (
     "requirements",
 )
 GENERIC_TAIL_WORDS = {"strategy", "strategies", "design", "designs", "policy", "policies", "model", "models", "patterns", "requirements"}
+GENERIC_QUERY_WORDS = {
+    "adds",
+    "allocating",
+    "artifacts",
+    "batch",
+    "benchmark",
+    "candidate",
+    "candidates",
+    "comparisons",
+    "constraints",
+    "continuity",
+    "current",
+    "design",
+    "designs",
+    "diagnosis",
+    "differences",
+    "evaluation",
+    "history",
+    "management",
+    "patterns",
+    "policies",
+    "policy",
+    "post-run",
+    "official",
+    "pipeline",
+    "promoting",
+    "public",
+    "regression",
+    "reporting",
+    "requirements",
+    "review",
+    "runs",
+    "strategies",
+    "strategy",
+    "subset",
+    "systems",
+    "suite",
+    "useful",
+}
 CONSTRAINT_TERMS = {
     "cpu",
     "gpu",
@@ -95,6 +135,8 @@ RG_GLOBS = (
     "!*.jsonl",
     "!*.pyc",
 )
+TERM_MATCH_LIMIT = 200
+MAX_SEARCH_FILE_SIZE_BYTES = 1_000_000
 IGNORED_DIR_NAMES = {".git", "dist", "node_modules", "__pycache__"}
 IGNORED_FILE_SUFFIXES = (".sqlite3", ".whl", ".jsonl", ".pyc", ".tar.gz")
 
@@ -253,16 +295,22 @@ def select_source_roots(*, source_signals: list[str], source_roots: list[Path] |
 
 
 def build_query_terms(prompt: str, *, focus: FocusTuple, source_signals: list[str]) -> list[str]:
+    repo_labels = set(extract_signal_repos(source_signals))
     candidates: list[str] = []
     for part in [focus.object, focus.concern, focus.constraint]:
-        if part and part not in candidates:
+        if part and query_term_is_useful(part, repo_labels=repo_labels):
             candidates.append(part)
     for signal in source_signals:
-        if ":" in signal:
-            candidates.append(clean_phrase(signal.split(":", 1)[1]))
-        candidates.extend(extract_codeish_terms(signal))
+        body = clean_phrase(signal.split(":", 1)[1] if ":" in signal else signal)
+        if body and should_keep_exact_signal_phrase(body):
+            candidates.append(body)
+        if body:
+            signal_codeish_terms = extract_codeish_terms(body)
+            candidates.extend(signal_codeish_terms)
     candidates.extend(extract_codeish_terms(prompt))
-    candidates.extend(extract_keyword_phrases(prompt))
+    for part in [focus.object, focus.concern, focus.constraint]:
+        if part:
+            candidates.extend(extract_keyword_phrases(part))
     deduped: list[str] = []
     for term in candidates:
         cleaned = clean_phrase(term)
@@ -270,7 +318,7 @@ def build_query_terms(prompt: str, *, focus: FocusTuple, source_signals: list[st
             continue
         if cleaned in deduped:
             continue
-        if len(cleaned) < 4:
+        if not query_term_is_useful(cleaned, repo_labels=repo_labels):
             continue
         deduped.append(cleaned)
     deduped.sort(key=lambda item: (term_specificity(item), len(item)), reverse=True)
@@ -606,27 +654,42 @@ def build_follow_ups(focus: FocusTuple, *, hits: list[LocalEvidenceHit], gaps: l
 def run_rg(term: str, root: Path) -> list[dict[str, str | int]]:
     if not term or not root.exists():
         return []
-    command = ["rg", "--json", "-n", "-i", "-F"]
+    command = ["rg", "--json", "--line-buffered", "-n", "-i", "-F", "-m", "1", "--max-filesize", "1M"]
     for glob in RG_GLOBS:
         command.extend(["-g", glob])
     command.extend([term, str(root)])
-    completed = subprocess.run(command, capture_output=True, text=True, check=False)
     results: list[dict[str, str | int]] = []
-    for line in completed.stdout.splitlines():
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        assert process.stdout is not None
+        for line in process.stdout:
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if payload.get("type") != "match":
+                continue
+            data = payload["data"]
+            path = data["path"]["text"]
+            results.append(
+                {
+                    "path": path,
+                    "line": data["line_number"],
+                }
+            )
+            if len(results) >= TERM_MATCH_LIMIT:
+                process.terminate()
+                break
         try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if payload.get("type") != "match":
-            continue
-        data = payload["data"]
-        path = data["path"]["text"]
-        results.append(
-            {
-                "path": path,
-                "line": data["line_number"],
-            }
-        )
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+    finally:
+        if process.stdout:
+            process.stdout.close()
+        if process.stderr:
+            process.stderr.close()
     return results
 
 
@@ -639,6 +702,8 @@ def run_python_scan(term: str, root: Path) -> list[dict[str, str | int]]:
         for index, line in enumerate(read_text_lines(str(path)), start=1):
             if needle in line.casefold():
                 results.append({"path": str(path), "line": index})
+                if len(results) >= TERM_MATCH_LIMIT:
+                    return results
     return results
 
 
@@ -656,7 +721,12 @@ def iter_searchable_files(root: Path):
 
 def should_skip_file(path: Path) -> bool:
     lowered = path.name.lower()
-    return any(lowered.endswith(suffix) for suffix in IGNORED_FILE_SUFFIXES)
+    if any(lowered.endswith(suffix) for suffix in IGNORED_FILE_SUFFIXES):
+        return True
+    try:
+        return path.stat().st_size > MAX_SEARCH_FILE_SIZE_BYTES
+    except OSError:
+        return True
 
 
 def read_text_lines(path: str) -> list[str]:
@@ -751,7 +821,10 @@ def clean_phrase(value: str | None) -> str | None:
 def normalize_object_text(value: str | None) -> str | None:
     if not value:
         return None
-    words = value.split()
+    clipped = RELATIVE_CLAUSE_SPLIT_RE.split(value, maxsplit=1)[0].strip(" ,.-")
+    words = clipped.split()
+    while words and words[0] in {"the", "current", "public"}:
+        words = words[1:]
     while len(words) > 2 and words[-1] in GENERIC_TAIL_WORDS:
         words = words[:-1]
     return " ".join(words)
@@ -794,3 +867,45 @@ def term_specificity(term: str) -> tuple[int, int]:
     parts = term.split()
     codeish = int(bool(re.search(r"[_./-]", term)))
     return (codeish, len(parts))
+
+
+def should_keep_exact_signal_phrase(term: str) -> bool:
+    tokens = query_tokens(term)
+    if not 2 <= len(tokens) <= 7:
+        return False
+    informative = informative_query_tokens(tokens)
+    if len(informative) < 2:
+        return False
+    return has_query_anchor(term) or len(tokens) <= 4
+
+
+def query_term_is_useful(term: str, *, repo_labels: set[str]) -> bool:
+    normalized_term = normalize_research_text(term)
+    if not normalized_term or normalized_term in repo_labels:
+        return False
+    tokens = query_tokens(term)
+    if not tokens or len(tokens) > 8:
+        return False
+    if len(tokens) == 1:
+        token = tokens[0]
+        if token in repo_labels or token in GENERIC_QUERY_WORDS:
+            return False
+        return has_query_anchor(term) or len(token) >= 10
+    informative = informative_query_tokens(tokens)
+    if len(informative) < 2:
+        return False
+    if len(tokens) <= 2 and not has_query_anchor(term):
+        return False
+    return True
+
+
+def query_tokens(text: str) -> list[str]:
+    return [token for token in re.findall(r"[a-z0-9_-]+", normalize_research_text(text)) if token]
+
+
+def informative_query_tokens(tokens: list[str]) -> list[str]:
+    return [token for token in tokens if token not in STOPWORDS and token not in GENERIC_QUERY_WORDS]
+
+
+def has_query_anchor(term: str) -> bool:
+    return bool(re.search(r"[_./-]|\d", term))
