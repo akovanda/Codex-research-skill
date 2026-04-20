@@ -8,7 +8,7 @@ from importlib.resources import files
 from .db import DbConnection
 
 
-LEGACY_SCHEMA_VERSION = 3
+LEGACY_SCHEMA_VERSION = 4
 MANAGED_TABLES = {
     "topics",
     "questions",

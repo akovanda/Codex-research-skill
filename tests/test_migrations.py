@@ -34,6 +34,8 @@ def test_initialize_applies_sql_migrations_and_records_checksums(tmp_path: Path)
     assert migrations
     assert migrations[0]["migration_id"] == "0001_initial"
     assert migrations[0]["checksum_sha256"]
+    assert migrations[1]["migration_id"] == "0002_workflows_and_trust"
+    assert migrations[1]["checksum_sha256"]
 
 
 def test_initialize_adopts_existing_legacy_schema(tmp_path: Path) -> None:
@@ -47,8 +49,8 @@ def test_initialize_adopts_existing_legacy_schema(tmp_path: Path) -> None:
         migrations = conn.execute("SELECT migration_id FROM schema_migrations ORDER BY migration_id").fetchall()
         schema_meta = conn.execute("SELECT version FROM schema_meta").fetchone()
 
-    assert [row["migration_id"] for row in migrations] == ["0001_initial"]
-    assert schema_meta["version"] == 3
+    assert [row["migration_id"] for row in migrations] == ["0001_initial", "0002_workflows_and_trust"]
+    assert schema_meta["version"] == 4
 
 
 def test_load_settings_prefers_managed_local_config_for_client_defaults(

@@ -14,11 +14,15 @@ PublicIndexState = Literal["private", "namespace_only", "included", "suppressed"
 ApiKeyScope = Literal["ingest", "publish", "read_private", "admin"]
 ApiKeyStatus = Literal["active", "revoked", "blocked"]
 QuestionStatus = Literal["open", "answered", "insufficient_evidence"]
+FollowUpStatus = Literal["open", "ready", "blocked", "done"]
 SessionMode = Literal["reuse", "live_research", "synthesis", "insufficient_evidence"]
 SessionStatus = Literal["completed", "insufficient_evidence"]
 ClaimStatus = Literal["supported", "partial", "conflicted", "insufficient_evidence"]
 FreshnessState = Literal["fresh", "needs_refresh"]
 ReportKind = Literal["guidance", "legacy_answer"]
+ReviewState = Literal["unreviewed", "reviewed", "flagged"]
+TrustTier = Literal["low", "medium", "high"]
+ConflictState = Literal["none", "conflicted"]
 
 
 def slugify(text: str) -> str:
@@ -103,6 +107,7 @@ class QuestionCreate(BaseModel):
     generation_reason: str | None = None
     priority_score: float = 0.0
     status: QuestionStatus = "open"
+    follow_up_status: FollowUpStatus = "open"
     visibility: Visibility = "private"
     author_type: AuthorType = "agent"
     namespace_kind: NamespaceKind = "user"
@@ -192,6 +197,10 @@ class SourceCreate(BaseModel):
     snapshot_required: bool = False
     snapshot_present: bool = False
     last_verified_at: datetime | None = None
+    review_state: ReviewState = "unreviewed"
+    trust_tier: TrustTier = "low"
+    conflict_state: ConflictState = "none"
+    refresh_due_at: datetime | None = None
     visibility: Visibility = "private"
     namespace_kind: NamespaceKind = "user"
     namespace_id: str = "local"
@@ -226,6 +235,10 @@ class ExcerptCreate(BaseModel):
     quote_text: str
     confidence: float = Field(default=0.75, ge=0.0, le=1.0)
     tags: list[str] = Field(default_factory=list)
+    review_state: ReviewState = "unreviewed"
+    trust_tier: TrustTier = "low"
+    conflict_state: ConflictState = "none"
+    refresh_due_at: datetime | None = None
     visibility: Visibility = "private"
     author_type: AuthorType = "agent"
     model_name: str | None = None
@@ -271,6 +284,10 @@ class ClaimCreate(BaseModel):
     excerpt_ids: list[str] = Field(min_length=1, validation_alias=AliasChoices("excerpt_ids", "annotation_ids"))
     status: ClaimStatus = "supported"
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    review_state: ReviewState = "unreviewed"
+    trust_tier: TrustTier = "medium"
+    conflict_state: ConflictState = "none"
+    refresh_due_at: datetime | None = None
     visibility: Visibility = "private"
     author_type: AuthorType = "agent"
     model_name: str | None = None
@@ -315,8 +332,13 @@ class ReportCreate(BaseModel):
     focal_label: str = Field(validation_alias=AliasChoices("focal_label", "subject"))
     summary_md: str
     report_kind: ReportKind = "guidance"
+    refresh_of_report_id: str | None = None
     guidance: GuidancePayload = Field(default_factory=GuidancePayload, validation_alias=AliasChoices("guidance", "guidance_json"))
     claim_ids: list[str] = Field(min_length=1, validation_alias=AliasChoices("claim_ids", "finding_ids"))
+    review_state: ReviewState = "unreviewed"
+    trust_tier: TrustTier = "medium"
+    conflict_state: ConflictState = "none"
+    refresh_due_at: datetime | None = None
     visibility: Visibility = "private"
     author_type: AuthorType = "agent"
     model_name: str | None = None
@@ -374,9 +396,13 @@ class SearchHit(BaseModel):
     url: str
     source_title: str | None = None
     human_reviewed: bool = False
+    review_state: ReviewState = "unreviewed"
+    trust_tier: TrustTier = "low"
+    conflict_state: ConflictState = "none"
     freshness_state: FreshnessState | None = None
     expires_at: datetime | None = None
     is_stale: bool = False
+    refresh_due_at: datetime | None = None
     namespace_kind: NamespaceKind = "user"
     namespace_id: str = "local"
     public_namespace_slug: str | None = None
@@ -461,6 +487,72 @@ class BackendStatus(BaseModel):
     namespace_id: str = "local"
     api_key_present: bool = False
     org: str | None = None
+
+
+class FollowUpStatusUpdate(BaseModel):
+    follow_up_status: FollowUpStatus
+
+
+class ImportUrlRequest(BaseModel):
+    url: str
+    question_id: str | None = None
+    focal_label: str | None = None
+    note: str | None = None
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+
+
+class ImportDoiRequest(BaseModel):
+    doi: str
+    question_id: str | None = None
+    focal_label: str | None = None
+    note: str | None = None
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+
+
+class ImportBibtexRequest(BaseModel):
+    bibtex: str
+    question_id: str | None = None
+    focal_label: str | None = None
+    note: str | None = None
+    namespace_kind: NamespaceKind = "user"
+    namespace_id: str = "local"
+
+
+class ImportResult(BaseModel):
+    source_ids: list[str] = Field(default_factory=list)
+    excerpt_ids: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    review_state: ReviewState = "unreviewed"
+    question_id: str | None = None
+
+
+class BriefResolveRequest(BaseModel):
+    prompt: str
+    limit: int = Field(default=5, ge=1, le=20)
+    include_private: bool = True
+
+
+class RelatedQuestionCluster(BaseModel):
+    topic_id: str
+    focus_label: str
+    canonical_question_id: str
+    question_ids: list[str]
+    latest_report_id: str | None = None
+    question_count: int
+
+
+class BriefBundle(BaseModel):
+    prompt: str
+    focus: FocusTuple
+    reports: list[ReportRecord] = Field(default_factory=list)
+    claims: list[ClaimRecord] = Field(default_factory=list)
+    excerpts: list[ExcerptRecord] = Field(default_factory=list)
+    related_questions: list[QuestionRecord] = Field(default_factory=list)
+    related_clusters: list[RelatedQuestionCluster] = Field(default_factory=list)
+    stale_items: list[SearchHit] = Field(default_factory=list)
+    suggested_follow_ups: list[QuestionRecord] = Field(default_factory=list)
 
 
 # Compatibility types retained so older helper modules still import cleanly while the

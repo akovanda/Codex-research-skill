@@ -1,17 +1,30 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 from research_registry import __version__
 from research_registry.app import create_app
 from research_registry.config import Settings
+from research_registry.external_ingest import ImportedSourceCandidate
+from research_registry.local_research import (
+    LocalClaimDraft,
+    LocalEvidenceHit,
+    LocalFollowUpDraft,
+    LocalGuidanceDraft,
+    LocalResearchResult,
+)
 from research_registry.models import (
     ApiKeyCreate,
+    AuthContext,
+    BriefResolveRequest,
     ClaimCreate,
-    FocusTuple,
     ExcerptCreate,
+    FocusTuple,
+    ImportUrlRequest,
     IndexStateRequest,
     PublishRequest,
     QuestionCreate,
@@ -359,3 +372,369 @@ def test_registry_service_accepts_sqlite_database_url(tmp_path: Path) -> None:
     service.initialize()
     assert service.database.kind == "sqlite"
     assert service.database.sqlite_path == db_path.resolve()
+
+
+def test_import_brief_refresh_follow_up_and_source_review_work(tmp_path: Path, monkeypatch) -> None:
+    service = make_service(tmp_path)
+    auth = AuthContext(
+        is_admin=True,
+        scopes=["admin", "ingest", "publish", "read_private"],
+        namespace_kind="user",
+        namespace_id="local",
+    )
+    focus = FocusTuple(domain="memory-retrieval", object="implicit research reuse", concern="refresh planning")
+    question = service.create_question(QuestionCreate(prompt="Research implicit research reuse planning.", focus=focus))
+    session = service.create_session(
+        ResearchSessionCreate(
+            question_id=question.id,
+            prompt=question.prompt,
+            model_name="gpt-5.4",
+            model_version="2026-04-10",
+            mode="live_research",
+        )
+    )
+    source = service.create_source(
+        SourceCreate(
+            locator="https://example.com/reuse-baseline",
+            title="Reuse baseline",
+            source_type="documentation",
+            snippet="reuse baseline evidence",
+            snapshot_present=True,
+        )
+    )
+    excerpt = service.create_excerpt(
+        ExcerptCreate(
+            source_id=source.id,
+            question_id=question.id,
+            session_id=session.id,
+            focal_label=focus.label or "implicit research reuse",
+            note="Baseline reuse evidence.",
+            selector=SourceSelector(exact="reuse baseline evidence", deep_link="https://example.com/reuse-baseline#1"),
+            quote_text="reuse baseline evidence",
+        )
+    )
+    claim = service.create_claim(
+        ClaimCreate(
+            question_id=question.id,
+            session_id=session.id,
+            title="Reuse evidence exists",
+            focal_label=focus.label or "implicit research reuse",
+            statement="Baseline reuse evidence already exists in the registry.",
+            excerpt_ids=[excerpt.id],
+        )
+    )
+    report = service.create_report(
+        ReportCreate(
+            question_id=question.id,
+            session_id=session.id,
+            title=question.prompt,
+            focal_label=focus.label or "implicit research reuse",
+            summary_md="# Guidance\n\nReuse evidence already exists.\n",
+            claim_ids=[claim.id],
+        )
+    )
+
+    now = datetime.now(UTC).replace(microsecond=0)
+
+    def fake_fetch_url_candidate(url: str) -> ImportedSourceCandidate:
+        return ImportedSourceCandidate(
+            source=SourceCreate(
+                locator=url,
+                title="Imported reuse note",
+                source_type="documentation",
+                snippet="imported implicit reuse evidence",
+                accessed_at=now,
+                last_verified_at=now,
+                snapshot_required=True,
+                snapshot_present=False,
+                review_state="unreviewed",
+                trust_tier="medium",
+                refresh_due_at=now + timedelta(days=30),
+            ),
+            excerpt_text="imported implicit reuse evidence",
+        )
+
+    monkeypatch.setattr("research_registry.service.fetch_url_candidate", fake_fetch_url_candidate)
+
+    imported = service.import_url(
+        ImportUrlRequest(url="https://example.com/imported-reuse", question_id=question.id),
+        auth=auth,
+    )
+    assert len(imported.source_ids) == 1
+    assert len(imported.excerpt_ids) == 1
+    assert service.get_source(imported.source_ids[0], include_private=True).trust_tier == "medium"
+
+    brief = service.resolve_brief(
+        BriefResolveRequest(prompt="Research implicit research reuse planning.", include_private=True),
+        auth=auth,
+    )
+    assert [item.id for item in brief.reports] == [report.id]
+    assert imported.excerpt_ids[0] in {item.id for item in brief.excerpts}
+
+    def fake_run_local_research(prompt: str, *, domain: str | None = None, **_: object) -> LocalResearchResult:
+        return LocalResearchResult(
+            focus=FocusTuple(domain=domain, object="implicit research reuse", concern="refresh planning"),
+            query_terms=["implicit research reuse", "refresh planning"],
+            source_roots=[str(tmp_path)],
+            hits=[
+                LocalEvidenceHit(
+                    source=SourceCreate(
+                        locator=str(tmp_path / "notes" / "refresh.md"),
+                        title="Refresh evidence",
+                        source_type="documentation",
+                        snippet="refresh evidence for reuse planning",
+                        snapshot_present=True,
+                    ),
+                    selector=SourceSelector(
+                        exact="refresh evidence for reuse planning",
+                        deep_link=f"{tmp_path / 'notes' / 'refresh.md'}#L1",
+                        start_line=1,
+                        end_line=1,
+                    ),
+                    quote_text="refresh evidence for reuse planning",
+                    note="Matched refresh planning evidence.",
+                    matched_terms=["refresh planning", "implicit research reuse"],
+                    score=9.1,
+                    repo_name="llmresearch",
+                    file_path=str(tmp_path / "notes" / "refresh.md"),
+                )
+            ],
+            claim_drafts=[
+                LocalClaimDraft(
+                    title="Refresh planning stays useful",
+                    statement="Refresh planning evidence supports keeping reusable reports current.",
+                    excerpt_indexes=[0],
+                    status="supported",
+                    confidence=0.82,
+                )
+            ],
+            guidance=LocalGuidanceDraft(
+                current_guidance=["Refresh reusable reports when the evidence window changes."],
+                evidence_now=["Refresh evidence exists in local notes."],
+                gaps=["Need stronger reranking evidence."],
+                needs=["Need a benchmark for stale-vs-fresh reuse recall."],
+                wants=["Want a shared import workflow for DOI and URL sources."],
+                follow_ups=[
+                    LocalFollowUpDraft(
+                        prompt="Research stale-vs-fresh reuse recall benchmarks.",
+                        reason="need",
+                        rationale="Release guidance depends on measurable refresh benefit.",
+                        priority_score=0.9,
+                    )
+                ],
+            ),
+            gaps=["Need stronger reranking evidence."],
+            report_md="# Guidance\n\nRefresh reusable reports when the evidence window changes.\n",
+        )
+
+    monkeypatch.setattr("research_registry.service.run_local_research", fake_run_local_research)
+
+    refreshed = service.refresh_report(report.id, auth=auth)
+    assert refreshed.id != report.id
+    assert refreshed.refresh_of_report_id == report.id
+    child_questions = service.list_child_questions(question.id, include_private=True)
+    assert len(child_questions) == 1
+    assert child_questions[0].follow_up_status == "open"
+
+    service.set_follow_up_status(child_questions[0].id, "ready")
+    assert service.get_question(child_questions[0].id, include_private=True).follow_up_status == "ready"
+
+    imported_source = service.get_source(imported.source_ids[0], include_private=True)
+    service.review(ReviewRequest(kind="source", record_id=imported_source.id))
+    assert service.get_source(imported_source.id, include_private=True).review_state == "reviewed"
+
+
+def test_publish_blocks_sources_missing_snapshots(tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    source = service.create_source(
+        SourceCreate(
+            locator="https://example.com/needs-snapshot",
+            title="Needs snapshot",
+            snapshot_required=True,
+            snapshot_present=False,
+        )
+    )
+
+    with pytest.raises(PermissionError):
+        service.publish(PublishRequest(kind="source", record_id=source.id))
+
+
+def test_http_supports_import_brief_follow_up_and_refresh_routes(tmp_path: Path, monkeypatch) -> None:
+    app = create_app(make_settings(tmp_path))
+    client = TestClient(app)
+    service = app.state.service
+    issued = service.issue_api_key(ApiKeyCreate(label="writer", actor_user_id="alice"))
+    auth_headers = {"x-api-key": issued.token}
+    focus = FocusTuple(domain="memory-retrieval", object="route-level refresh")
+
+    question_id = client.post(
+        "/api/questions",
+        headers=auth_headers,
+        json=QuestionCreate(prompt="Research route-level refresh handling.", focus=focus).model_dump(mode="json"),
+    ).json()["id"]
+    session_id = client.post(
+        "/api/sessions",
+        headers=auth_headers,
+        json=ResearchSessionCreate(
+            question_id=question_id,
+            prompt="Research route-level refresh handling.",
+            model_name="gpt-5.4",
+            model_version="2026-04-10",
+            mode="live_research",
+        ).model_dump(mode="json"),
+    ).json()["id"]
+    source_id = client.post(
+        "/api/sources",
+        headers=auth_headers,
+        json=SourceCreate(
+            locator="https://example.com/route-refresh",
+            title="Route refresh baseline",
+            snippet="route refresh evidence",
+            snapshot_present=True,
+        ).model_dump(mode="json"),
+    ).json()["id"]
+    excerpt_id = client.post(
+        "/api/excerpts",
+        headers=auth_headers,
+        json=ExcerptCreate(
+            source_id=source_id,
+            question_id=question_id,
+            session_id=session_id,
+            focal_label=focus.label or "route-level refresh",
+            note="route refresh evidence",
+            selector=SourceSelector(exact="route refresh evidence", deep_link="https://example.com/route-refresh#1"),
+            quote_text="route refresh evidence",
+        ).model_dump(mode="json"),
+    ).json()["id"]
+    claim_id = client.post(
+        "/api/claims",
+        headers=auth_headers,
+        json=ClaimCreate(
+            question_id=question_id,
+            session_id=session_id,
+            title="Route refresh works",
+            focal_label=focus.label or "route-level refresh",
+            statement="The HTTP routes expose refresh-capable workflows.",
+            excerpt_ids=[excerpt_id],
+        ).model_dump(mode="json"),
+    ).json()["id"]
+    report_id = client.post(
+        "/api/reports",
+        headers=auth_headers,
+        json=ReportCreate(
+            question_id=question_id,
+            session_id=session_id,
+            title="Route refresh report",
+            focal_label=focus.label or "route-level refresh",
+            summary_md="# Guidance\n\nRoute refresh is wired.\n",
+            claim_ids=[claim_id],
+        ).model_dump(mode="json"),
+    ).json()["id"]
+
+    now = datetime.now(UTC).replace(microsecond=0)
+
+    monkeypatch.setattr(
+        "research_registry.service.fetch_url_candidate",
+        lambda url: ImportedSourceCandidate(
+            source=SourceCreate(
+                locator=url,
+                title="Imported route note",
+                source_type="documentation",
+                snippet="route import evidence",
+                accessed_at=now,
+                last_verified_at=now,
+                snapshot_required=True,
+                snapshot_present=False,
+                trust_tier="medium",
+                refresh_due_at=now + timedelta(days=30),
+            ),
+            excerpt_text="route import evidence",
+        ),
+    )
+
+    import_response = client.post(
+        "/api/import/url",
+        headers=auth_headers,
+        json=ImportUrlRequest(url="https://example.com/route-import", question_id=question_id).model_dump(mode="json"),
+    )
+    assert import_response.status_code == 200
+    assert len(import_response.json()["source_ids"]) == 1
+
+    brief_response = client.post(
+        "/api/briefs/resolve",
+        headers=auth_headers,
+        json=BriefResolveRequest(prompt="Research route-level refresh handling.", include_private=True).model_dump(mode="json"),
+    )
+    assert brief_response.status_code == 200
+    assert [item["id"] for item in brief_response.json()["reports"]] == [report_id]
+
+    monkeypatch.setattr(
+        "research_registry.service.run_local_research",
+        lambda prompt, *, domain=None, **_: LocalResearchResult(
+            focus=FocusTuple(domain=domain, object="route-level refresh"),
+            query_terms=["route-level refresh"],
+            source_roots=[str(tmp_path)],
+            hits=[
+                LocalEvidenceHit(
+                    source=SourceCreate(
+                        locator=str(tmp_path / "route.md"),
+                        title="Route evidence",
+                        source_type="documentation",
+                        snippet="route-level refresh evidence",
+                        snapshot_present=True,
+                    ),
+                    selector=SourceSelector(
+                        exact="route-level refresh evidence",
+                        deep_link=f"{tmp_path / 'route.md'}#L1",
+                        start_line=1,
+                        end_line=1,
+                    ),
+                    quote_text="route-level refresh evidence",
+                    note="route-level refresh evidence",
+                    matched_terms=["route-level refresh"],
+                    score=8.8,
+                    repo_name="llmresearch",
+                    file_path=str(tmp_path / "route.md"),
+                )
+            ],
+            claim_drafts=[
+                LocalClaimDraft(
+                    title="Route refresh stays wired",
+                    statement="Refresh routes create successor reports and follow-up questions.",
+                    excerpt_indexes=[0],
+                )
+            ],
+            guidance=LocalGuidanceDraft(
+                current_guidance=["Keep refresh routes available to clients."],
+                evidence_now=["Refresh route evidence exists."],
+                gaps=["Need client SDK coverage."],
+                needs=["Need route regression coverage."],
+                wants=["Want preview UI actions."],
+                follow_ups=[
+                    LocalFollowUpDraft(
+                        prompt="Research route regression coverage.",
+                        reason="need",
+                        rationale="The refresh route should stay stable for clients.",
+                        priority_score=0.8,
+                    )
+                ],
+            ),
+            gaps=["Need client SDK coverage."],
+            report_md="# Guidance\n\nKeep refresh routes available to clients.\n",
+        ),
+    )
+
+    refresh_response = client.post(f"/api/reports/{report_id}/refresh", headers=auth_headers)
+    assert refresh_response.status_code == 200
+    refreshed_id = refresh_response.json()["id"]
+    assert refreshed_id != report_id
+
+    child_questions = service.list_child_questions(question_id, include_private=True)
+    assert len(child_questions) == 1
+    follow_up_response = client.post(
+        f"/api/follow-ups/{child_questions[0].id}/status",
+        headers=auth_headers,
+        json={"follow_up_status": "done"},
+    )
+    assert follow_up_response.status_code == 200
+    assert service.get_question(child_questions[0].id, include_private=True).follow_up_status == "done"

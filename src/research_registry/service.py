@@ -9,19 +9,33 @@ from typing import Any
 from uuid import uuid4
 
 from .db import DbConnection, resolve_database_target, connect_database
+from .external_ingest import (
+    bibtex_candidates,
+    fetch_doi_candidate,
+    fetch_url_candidate,
+)
+from .local_research import build_focus, run_local_research
 from .migration_runner import MigrationRunner
 from .models import (
     ApiKeyCreate,
     ApiKeyRecord,
     AuthContext,
     BackendStatus,
+    BriefBundle,
+    BriefResolveRequest,
     ClaimCreate,
     ClaimRecord,
+    ConflictState,
     DashboardData,
     ExcerptCreate,
     ExcerptRecord,
     FocusTuple,
+    FollowUpStatus,
     GuidancePayload,
+    ImportBibtexRequest,
+    ImportDoiRequest,
+    ImportResult,
+    ImportUrlRequest,
     IndexStateRequest,
     IssuedApiKey,
     OrganizationRecord,
@@ -30,10 +44,12 @@ from .models import (
     QuestionRecord,
     QuestionStatus,
     RecordKind,
+    RelatedQuestionCluster,
     ReportCreate,
     ReportRecord,
     ResearchSessionCreate,
     ResearchSessionRecord,
+    ReviewState,
     ReviewRequest,
     SearchHit,
     SearchResponse,
@@ -42,11 +58,12 @@ from .models import (
     SourceSelector,
     TopicCreate,
     TopicRecord,
+    TrustTier,
     UserRecord,
     Visibility,
 )
 
-LEGACY_SCHEMA_VERSION = 3
+LEGACY_SCHEMA_VERSION = 4
 
 
 def utc_now() -> datetime:
@@ -63,6 +80,25 @@ def first_non_heading_line(markdown: str) -> str:
         if stripped and not stripped.startswith("#"):
             return stripped
     return markdown.strip().splitlines()[0] if markdown.strip() else ""
+
+
+def default_trust_tier_for_source_type(source_type: str) -> TrustTier:
+    return {
+        "paper": "medium",
+        "official-docs": "medium",
+        "documentation": "medium",
+        "dataset": "medium",
+        "report": "medium",
+        "test": "medium",
+        "code": "medium",
+        "webpage": "low",
+        "article": "low",
+        "note": "low",
+    }.get(source_type, "low")
+
+
+def review_state_for_human_reviewed(human_reviewed: bool) -> ReviewState:
+    return "reviewed" if human_reviewed else "unreviewed"
 
 
 class RegistryService:
@@ -189,11 +225,11 @@ class RegistryService:
                 """
                 INSERT INTO questions (
                     id, topic_id, prompt, normalized_prompt, focus_json, status,
-                    parent_question_id, generated_by_session_id, generation_reason, priority_score,
+                    follow_up_status, parent_question_id, generated_by_session_id, generation_reason, priority_score,
                     visibility, author_type, namespace_kind, namespace_id, actor_user_id,
                     actor_org_id, api_key_id, public_namespace_slug, public_index_state,
                     dedupe_key, human_reviewed, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     question_id,
@@ -202,6 +238,7 @@ class RegistryService:
                     normalized_prompt,
                     topic.focus.model_dump_json(),
                     payload.status,
+                    payload.follow_up_status,
                     payload.parent_question_id,
                     payload.generated_by_session_id,
                     payload.generation_reason,
@@ -239,6 +276,10 @@ class RegistryService:
     def set_question_status(self, question_id: str, status: QuestionStatus) -> None:
         with self.connect() as conn:
             conn.execute("UPDATE questions SET status = ? WHERE id = ?", (status, question_id))
+
+    def set_follow_up_status(self, question_id: str, follow_up_status: FollowUpStatus) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE questions SET follow_up_status = ? WHERE id = ?", (follow_up_status, question_id))
 
     def create_session(self, payload: ResearchSessionCreate, auth: AuthContext | None = None) -> ResearchSessionRecord:
         question = self.get_question(payload.question_id, include_private=True)
@@ -331,10 +372,11 @@ class RegistryService:
                 INSERT INTO sources (
                     id, locator, title, source_type, site_name, published_at, accessed_at,
                     author, snippet, content_sha256, snapshot_url, snapshot_required,
-                    snapshot_present, last_verified_at, visibility, namespace_kind, namespace_id,
-                    actor_user_id, actor_org_id, api_key_id, public_namespace_slug,
+                    snapshot_present, last_verified_at, review_state, trust_tier, conflict_state,
+                    refresh_due_at, visibility, namespace_kind, namespace_id, actor_user_id,
+                    actor_org_id, api_key_id, public_namespace_slug,
                     public_index_state, dedupe_key, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     source_id,
@@ -351,6 +393,10 @@ class RegistryService:
                     int(payload.snapshot_required),
                     int(payload.snapshot_present),
                     self._encode_dt(payload.last_verified_at),
+                    payload.review_state,
+                    payload.trust_tier,
+                    payload.conflict_state,
+                    self._encode_dt(payload.refresh_due_at),
                     payload.visibility,
                     metadata["namespace_kind"],
                     metadata["namespace_id"],
@@ -394,11 +440,12 @@ class RegistryService:
                 """
                 INSERT INTO excerpts (
                     id, source_id, question_id, session_id, topic_id, focal_label, note,
-                    selector_json, quote_text, confidence, tags_json, visibility,
-                    author_type, model_name, model_version, namespace_kind, namespace_id,
+                    selector_json, quote_text, confidence, tags_json, review_state, trust_tier,
+                    conflict_state, refresh_due_at, visibility, author_type, model_name,
+                    model_version, namespace_kind, namespace_id,
                     actor_user_id, actor_org_id, api_key_id, public_namespace_slug,
                     public_index_state, dedupe_key, human_reviewed, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     excerpt_id,
@@ -412,6 +459,10 @@ class RegistryService:
                     payload.quote_text,
                     payload.confidence,
                     json.dumps(payload.tags),
+                    payload.review_state,
+                    payload.trust_tier,
+                    payload.conflict_state,
+                    self._encode_dt(payload.refresh_due_at),
                     payload.visibility,
                     payload.author_type,
                     payload.model_name,
@@ -462,11 +513,12 @@ class RegistryService:
                 """
                 INSERT INTO claims (
                     id, question_id, session_id, topic_id, title, focal_label,
-                    statement, status, confidence, visibility, author_type,
-                    model_name, model_version, namespace_kind, namespace_id,
+                    statement, status, confidence, review_state, trust_tier, conflict_state,
+                    refresh_due_at, visibility, author_type, model_name, model_version,
+                    namespace_kind, namespace_id,
                     actor_user_id, actor_org_id, api_key_id, public_namespace_slug,
                     public_index_state, dedupe_key, human_reviewed, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     claim_id,
@@ -478,6 +530,10 @@ class RegistryService:
                     payload.statement,
                     payload.status,
                     payload.confidence,
+                    payload.review_state,
+                    payload.trust_tier,
+                    payload.conflict_state,
+                    self._encode_dt(payload.refresh_due_at),
                     payload.visibility,
                     payload.author_type,
                     payload.model_name,
@@ -532,11 +588,12 @@ class RegistryService:
                 """
                 INSERT INTO reports (
                     id, question_id, session_id, title, focal_label, summary_md,
-                    report_kind, guidance_json, visibility, author_type, model_name,
+                    report_kind, refresh_of_report_id, guidance_json, review_state, trust_tier,
+                    conflict_state, refresh_due_at, visibility, author_type, model_name,
                     model_version, namespace_kind, namespace_id, actor_user_id, actor_org_id,
                     api_key_id, public_namespace_slug, public_index_state, dedupe_key,
                     human_reviewed, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     report_id,
@@ -546,7 +603,12 @@ class RegistryService:
                     payload.focal_label,
                     payload.summary_md,
                     payload.report_kind,
+                    payload.refresh_of_report_id,
                     payload.guidance.model_dump_json(),
+                    payload.review_state,
+                    payload.trust_tier,
+                    payload.conflict_state,
+                    self._encode_dt(payload.refresh_due_at),
                     payload.visibility,
                     payload.author_type,
                     payload.model_name,
@@ -741,10 +803,243 @@ class RegistryService:
         questions = self._list_questions(include_private=include_private, limit=limit, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
         return DashboardData(reports=reports, claims=claims, questions=questions)
 
+    def import_url(self, payload: ImportUrlRequest, auth: AuthContext | None = None) -> ImportResult:
+        candidate = fetch_url_candidate(payload.url)
+        return self._materialize_import_candidate(
+            candidate.source,
+            excerpt_text=candidate.excerpt_text,
+            question_id=payload.question_id,
+            focal_label=payload.focal_label,
+            note=payload.note,
+            warnings=candidate.warnings,
+            namespace_kind=payload.namespace_kind,
+            namespace_id=payload.namespace_id,
+            auth=auth,
+        )
+
+    def import_doi(self, payload: ImportDoiRequest, auth: AuthContext | None = None) -> ImportResult:
+        candidate = fetch_doi_candidate(payload.doi)
+        return self._materialize_import_candidate(
+            candidate.source,
+            excerpt_text=candidate.excerpt_text,
+            question_id=payload.question_id,
+            focal_label=payload.focal_label,
+            note=payload.note,
+            warnings=candidate.warnings,
+            namespace_kind=payload.namespace_kind,
+            namespace_id=payload.namespace_id,
+            auth=auth,
+        )
+
+    def import_bibtex(self, payload: ImportBibtexRequest, auth: AuthContext | None = None) -> ImportResult:
+        source_ids: list[str] = []
+        excerpt_ids: list[str] = []
+        warnings: list[str] = []
+        for candidate in bibtex_candidates(payload.bibtex):
+            result = self._materialize_import_candidate(
+                candidate.source,
+                excerpt_text=candidate.excerpt_text,
+                question_id=payload.question_id,
+                focal_label=payload.focal_label,
+                note=payload.note,
+                warnings=candidate.warnings,
+                namespace_kind=payload.namespace_kind,
+                namespace_id=payload.namespace_id,
+                auth=auth,
+            )
+            source_ids.extend(result.source_ids)
+            excerpt_ids.extend(result.excerpt_ids)
+            warnings.extend(result.warnings)
+        return ImportResult(
+            source_ids=list(dict.fromkeys(source_ids)),
+            excerpt_ids=list(dict.fromkeys(excerpt_ids)),
+            warnings=warnings,
+            question_id=payload.question_id,
+        )
+
+    def resolve_brief(
+        self,
+        payload: BriefResolveRequest,
+        *,
+        auth: AuthContext | None = None,
+    ) -> BriefBundle:
+        focus = build_focus(payload.prompt)
+        include_private = payload.include_private and auth is not None
+        queries = [
+            payload.prompt,
+            focus.label or "",
+            focus.object or "",
+            " ".join(part for part in [focus.object, focus.concern] if part),
+        ]
+        report_ids: list[str] = []
+        claim_ids: list[str] = []
+        excerpt_ids: list[str] = []
+        question_ids: list[str] = []
+        for query in queries:
+            if not query.strip():
+                continue
+            for hit in self.search(query, kind="report", include_private=include_private, limit=payload.limit, auth=auth).hits:
+                if hit.id not in report_ids:
+                    report_ids.append(hit.id)
+            for hit in self.search(query, kind="claim", include_private=include_private, limit=payload.limit, auth=auth).hits:
+                if hit.id not in claim_ids:
+                    claim_ids.append(hit.id)
+            for hit in self.search(query, kind="excerpt", include_private=include_private, limit=payload.limit, auth=auth).hits:
+                if hit.id not in excerpt_ids:
+                    excerpt_ids.append(hit.id)
+            for hit in self.search(query, kind="question", include_private=include_private, limit=payload.limit * 2, auth=auth).hits:
+                if hit.id not in question_ids:
+                    question_ids.append(hit.id)
+
+        reports = [self.get_report(report_id, include_private=include_private, auth=auth) for report_id in report_ids[: payload.limit]]
+        claims = [self.get_claim(claim_id, include_private=include_private, auth=auth) for claim_id in claim_ids[: payload.limit]]
+        excerpts = [self.get_excerpt(excerpt_id, include_private=include_private, auth=auth) for excerpt_id in excerpt_ids[: payload.limit]]
+
+        related_questions = [
+            self.get_question(question_id, include_private=include_private, auth=auth)
+            for question_id in question_ids
+            if not reports or all(question_id != report.question_id for report in reports)
+        ][: payload.limit]
+
+        related_clusters = self._cluster_related_questions(related_questions)
+        stale_items = self._brief_stale_items(reports=reports, claims=claims, excerpts=excerpts)
+        suggested_follow_ups = self._brief_follow_ups(reports=reports, related_questions=related_questions, include_private=include_private, auth=auth)
+
+        return BriefBundle(
+            prompt=payload.prompt,
+            focus=focus,
+            reports=reports,
+            claims=claims,
+            excerpts=excerpts,
+            related_questions=related_questions,
+            related_clusters=related_clusters,
+            stale_items=stale_items,
+            suggested_follow_ups=suggested_follow_ups,
+        )
+
+    def refresh_report(self, report_id: str, auth: AuthContext | None = None) -> ReportRecord:
+        existing = self.get_report(report_id, include_private=True, auth=auth)
+        question = self.get_question(existing.question_id, include_private=True, auth=auth)
+        live_result = run_local_research(question.prompt, domain=question.focus.domain)
+        prior_session_id = existing.session_id
+        session = self.create_session(
+            ResearchSessionCreate(
+                question_id=question.id,
+                prompt=question.prompt,
+                model_name="gpt-5.4",
+                model_version="2026-04-10",
+                mode="live_research" if live_result.hits else "insufficient_evidence",
+                refresh_of_session_id=prior_session_id,
+                source_signals=[f"refresh:{existing.id}"],
+                notes=f"refresh of report {existing.id}",
+                namespace_kind=question.namespace_kind,
+                namespace_id=question.namespace_id,
+            ),
+            auth=auth,
+        )
+        if not live_result.hits:
+            self.set_question_status(question.id, "insufficient_evidence")
+            return existing
+
+        created_sources: dict[str, str] = {}
+        created_excerpt_ids: list[str] = []
+        created_claim_ids: list[str] = []
+        for hit in live_result.hits:
+            source_payload = hit.source.model_copy(
+                update={
+                    "namespace_kind": question.namespace_kind,
+                    "namespace_id": question.namespace_id,
+                    "dedupe_key": f"refresh-source:{question.id}:{hit.source.locator}",
+                }
+            )
+            created_source = self.create_source(source_payload, auth=auth)
+            created_sources[created_source.locator] = created_source.id
+            created_excerpt = self.create_excerpt(
+                ExcerptCreate(
+                    source_id=created_source.id,
+                    question_id=question.id,
+                    session_id=session.id,
+                    topic_id=question.topic_id,
+                    focal_label=live_result.focus.label or question.focus.label or "research",
+                    note=hit.note,
+                    selector=hit.selector,
+                    quote_text=hit.quote_text,
+                    confidence=min(0.95, max(0.55, hit.score / 10.0)),
+                    tags=hit.matched_terms[:4],
+                    namespace_kind=question.namespace_kind,
+                    namespace_id=question.namespace_id,
+                    dedupe_key=f"refresh-excerpt:{session.id}:{created_source.id}:{len(created_excerpt_ids)}",
+                    refresh_due_at=session.expires_at,
+                ),
+                auth=auth,
+            )
+            created_excerpt_ids.append(created_excerpt.id)
+
+        for draft in live_result.claim_drafts:
+            excerpt_ids = [created_excerpt_ids[index] for index in draft.excerpt_indexes if index < len(created_excerpt_ids)]
+            if not excerpt_ids:
+                continue
+            created_claim = self.create_claim(
+                ClaimCreate(
+                    question_id=question.id,
+                    session_id=session.id,
+                    topic_id=question.topic_id,
+                    title=draft.title,
+                    focal_label=live_result.focus.label or question.focus.label or "research",
+                    statement=draft.statement,
+                    excerpt_ids=excerpt_ids,
+                    status=draft.status,
+                    confidence=draft.confidence,
+                    namespace_kind=question.namespace_kind,
+                    namespace_id=question.namespace_id,
+                    dedupe_key=f"refresh-claim:{session.id}:{draft.title}",
+                    refresh_due_at=session.expires_at,
+                ),
+                auth=auth,
+            )
+            created_claim_ids.append(created_claim.id)
+
+        follow_up_question_ids = self._create_follow_up_questions(
+            parent_question=question,
+            session_id=session.id,
+            prompts=live_result.guidance.follow_ups,
+            namespace_kind=question.namespace_kind,
+            namespace_id=question.namespace_id,
+            auth=auth,
+        )
+        refreshed = self.create_report(
+            ReportCreate(
+                question_id=question.id,
+                session_id=session.id,
+                title=existing.title,
+                focal_label=live_result.focus.label or question.focus.label or "research",
+                summary_md=live_result.report_md or existing.summary_md,
+                report_kind=existing.report_kind,
+                refresh_of_report_id=existing.id,
+                guidance=GuidancePayload(
+                    current_guidance=live_result.guidance.current_guidance,
+                    evidence_now=live_result.guidance.evidence_now,
+                    gaps=live_result.guidance.gaps,
+                    needs=live_result.guidance.needs,
+                    wants=live_result.guidance.wants,
+                    follow_up_question_ids=follow_up_question_ids,
+                ),
+                claim_ids=created_claim_ids or existing.claim_ids,
+                namespace_kind=question.namespace_kind,
+                namespace_id=question.namespace_id,
+                dedupe_key=f"refresh-report:{existing.id}:{session.id}",
+                refresh_due_at=session.expires_at,
+            ),
+            auth=auth,
+        )
+        self.set_question_status(question.id, "answered")
+        return refreshed
+
     def publish(self, payload: PublishRequest, auth: AuthContext | None = None) -> None:
         if auth is not None and not auth.has_scope("publish"):
             raise PermissionError("publish scope required")
         canonical_kind = self._canonical_kind(payload.kind)
+        self._assert_publish_ready(canonical_kind, payload.record_id)
         with self.connect() as conn:
             self._set_visibility(conn, canonical_kind, payload.record_id, "public", include_in_global_index=payload.include_in_global_index)
             if payload.cascade_linked_sources:
@@ -760,11 +1055,18 @@ class RegistryService:
 
     def review(self, payload: ReviewRequest, auth: AuthContext | None = None) -> None:
         canonical_kind = self._canonical_kind(payload.kind)
+        table_name = self._table_name(canonical_kind)
         with self.connect() as conn:
-            conn.execute(
-                f"UPDATE {self._table_name(canonical_kind)} SET human_reviewed = ? WHERE id = ?",
-                (int(payload.reviewed), payload.record_id),
-            )
+            if self._column_exists(conn, table_name, "human_reviewed"):
+                conn.execute(
+                    f"UPDATE {table_name} SET human_reviewed = ?, review_state = ? WHERE id = ?",
+                    (int(payload.reviewed), review_state_for_human_reviewed(payload.reviewed), payload.record_id),
+                )
+            else:
+                conn.execute(
+                    f"UPDATE {table_name} SET review_state = ? WHERE id = ?",
+                    (review_state_for_human_reviewed(payload.reviewed), payload.record_id),
+                )
             self._record_audit(
                 conn,
                 action="review",
@@ -791,6 +1093,185 @@ class RegistryService:
                 auth=auth,
                 details={"state": payload.state},
             )
+
+    def _materialize_import_candidate(
+        self,
+        source: SourceCreate,
+        *,
+        excerpt_text: str | None,
+        question_id: str | None,
+        focal_label: str | None,
+        note: str | None,
+        warnings: list[str],
+        namespace_kind: str,
+        namespace_id: str,
+        auth: AuthContext | None,
+    ) -> ImportResult:
+        source_record = self.create_source(
+            source.model_copy(
+                update={
+                    "namespace_kind": namespace_kind,
+                    "namespace_id": namespace_id,
+                    "dedupe_key": source.dedupe_key or f"import-source:{source.locator}",
+                }
+            ),
+            auth=auth,
+        )
+        excerpt_ids: list[str] = []
+        if question_id and excerpt_text:
+            question = self.get_question(question_id, include_private=True, auth=auth)
+            excerpt = self.create_excerpt(
+                ExcerptCreate(
+                    source_id=source_record.id,
+                    question_id=question.id,
+                    focal_label=focal_label or question.focus.label or question.prompt,
+                    note=note or "Imported external source candidate.",
+                    selector=SourceSelector(exact=excerpt_text, deep_link=source_record.locator),
+                    quote_text=excerpt_text,
+                    namespace_kind=namespace_kind,
+                    namespace_id=namespace_id,
+                    dedupe_key=f"import-excerpt:{question.id}:{source_record.id}",
+                    refresh_due_at=source_record.refresh_due_at,
+                ),
+                auth=auth,
+            )
+            excerpt_ids.append(excerpt.id)
+        elif question_id and not excerpt_text:
+            warnings = [*warnings, "No excerpt candidate could be derived from the imported metadata."]
+        return ImportResult(
+            source_ids=[source_record.id],
+            excerpt_ids=excerpt_ids,
+            warnings=warnings,
+            review_state=source_record.review_state,
+            question_id=question_id,
+        )
+
+    def _create_follow_up_questions(
+        self,
+        *,
+        parent_question: QuestionRecord,
+        session_id: str,
+        prompts: list[Any],
+        namespace_kind: str,
+        namespace_id: str,
+        auth: AuthContext | None,
+    ) -> list[str]:
+        created: list[str] = []
+        for prompt_draft in prompts[:5]:
+            child_focus = build_focus(prompt_draft.prompt, domain=parent_question.focus.domain)
+            child = self.create_question(
+                QuestionCreate(
+                    prompt=prompt_draft.prompt,
+                    focus=child_focus,
+                    parent_question_id=parent_question.id,
+                    generated_by_session_id=session_id,
+                    generation_reason=prompt_draft.reason,
+                    priority_score=prompt_draft.priority_score,
+                    namespace_kind=namespace_kind,
+                    namespace_id=namespace_id,
+                    dedupe_key=f"follow-up:{parent_question.id}:{normalize_prompt(prompt_draft.prompt)}",
+                ),
+                auth=auth,
+            )
+            if child.id not in created:
+                created.append(child.id)
+        return created
+
+    def _cluster_related_questions(self, questions: list[QuestionRecord]) -> list[RelatedQuestionCluster]:
+        grouped: dict[str, list[QuestionRecord]] = {}
+        for question in questions:
+            grouped.setdefault(question.topic_id, []).append(question)
+        clusters: list[RelatedQuestionCluster] = []
+        for topic_id, members in grouped.items():
+            ordered = sorted(
+                members,
+                key=lambda question: (
+                    question.follow_up_status in {"open", "ready"},
+                    question.priority_score,
+                    not question.latest_session_is_stale,
+                    question.created_at,
+                ),
+                reverse=True,
+            )
+            canonical = ordered[0]
+            clusters.append(
+                RelatedQuestionCluster(
+                    topic_id=topic_id,
+                    focus_label=canonical.focus.label or canonical.prompt,
+                    canonical_question_id=canonical.id,
+                    question_ids=[question.id for question in ordered],
+                    latest_report_id=canonical.latest_report_id,
+                    question_count=len(ordered),
+                )
+            )
+        clusters.sort(key=lambda cluster: cluster.question_count, reverse=True)
+        return clusters
+
+    def _brief_stale_items(
+        self,
+        *,
+        reports: list[ReportRecord],
+        claims: list[ClaimRecord],
+        excerpts: list[ExcerptRecord],
+    ) -> list[SearchHit]:
+        stale: list[SearchHit] = []
+        for report in reports:
+            if report.is_stale:
+                stale.append(self._search_hit_for_report(report, score=0.1))
+        for claim in claims:
+            if claim.is_stale:
+                stale.append(self._search_hit_for_claim(claim, score=0.1))
+        for excerpt in excerpts:
+            if excerpt.is_stale:
+                stale.append(self._search_hit_for_excerpt(excerpt, score=0.1))
+        return stale
+
+    def _brief_follow_ups(
+        self,
+        *,
+        reports: list[ReportRecord],
+        related_questions: list[QuestionRecord],
+        include_private: bool,
+        auth: AuthContext | None,
+    ) -> list[QuestionRecord]:
+        question_ids: list[str] = []
+        for report in reports:
+            for question_id in report.guidance.follow_up_question_ids:
+                if question_id not in question_ids:
+                    question_ids.append(question_id)
+        for question in related_questions:
+            if question.parent_question_id and question.id not in question_ids:
+                question_ids.append(question.id)
+        follow_ups: list[QuestionRecord] = []
+        for question_id in question_ids:
+            try:
+                follow_ups.append(self.get_question(question_id, include_private=include_private, auth=auth))
+            except (KeyError, PermissionError):
+                continue
+        follow_ups.sort(
+            key=lambda question: (
+                question.follow_up_status in {"open", "ready"},
+                question.priority_score,
+                question.created_at,
+            ),
+            reverse=True,
+        )
+        return follow_ups[:5]
+
+    def _assert_publish_ready(self, kind: str, record_id: str) -> None:
+        source_ids: list[str] = []
+        if kind == "source":
+            source_ids = [record_id]
+        elif kind == "excerpt":
+            source_ids = [self.get_excerpt(record_id, include_private=True).source_id]
+        elif kind == "claim":
+            source_ids = [excerpt.source_id for excerpt in self.list_excerpts_for_claim(record_id, include_private=True)]
+        elif kind == "report":
+            source_ids = self.get_report(record_id, include_private=True).source_ids
+        for source_id in sorted(set(source_ids)):
+            source = self.get_source(source_id, include_private=True)
+            if source.snapshot_required and not source.snapshot_present:
+                raise PermissionError(f"source {source.id} requires a snapshot before publishing")
 
     def seed_demo(self) -> dict[str, str]:
         if self.search("zebra", include_private=True).hits:
@@ -1009,6 +1490,7 @@ class RegistryService:
                 normalized_prompt TEXT NOT NULL,
                 focus_json TEXT NOT NULL,
                 status TEXT NOT NULL,
+                follow_up_status TEXT NOT NULL DEFAULT 'open',
                 parent_question_id TEXT REFERENCES questions(id) ON DELETE SET NULL,
                 generated_by_session_id TEXT,
                 generation_reason TEXT,
@@ -1081,6 +1563,10 @@ class RegistryService:
                 snapshot_required INTEGER NOT NULL DEFAULT 0,
                 snapshot_present INTEGER NOT NULL DEFAULT 0,
                 last_verified_at TEXT,
+                review_state TEXT NOT NULL DEFAULT 'unreviewed',
+                trust_tier TEXT NOT NULL DEFAULT 'low',
+                conflict_state TEXT NOT NULL DEFAULT 'none',
+                refresh_due_at TEXT,
                 visibility TEXT NOT NULL,
                 namespace_kind TEXT NOT NULL DEFAULT 'user',
                 namespace_id TEXT NOT NULL DEFAULT 'local',
@@ -1108,6 +1594,10 @@ class RegistryService:
                 quote_text TEXT NOT NULL,
                 confidence REAL NOT NULL,
                 tags_json TEXT NOT NULL,
+                review_state TEXT NOT NULL DEFAULT 'unreviewed',
+                trust_tier TEXT NOT NULL DEFAULT 'low',
+                conflict_state TEXT NOT NULL DEFAULT 'none',
+                refresh_due_at TEXT,
                 visibility TEXT NOT NULL,
                 author_type TEXT NOT NULL,
                 model_name TEXT,
@@ -1137,6 +1627,10 @@ class RegistryService:
                 statement TEXT NOT NULL,
                 status TEXT NOT NULL,
                 confidence REAL NOT NULL,
+                review_state TEXT NOT NULL DEFAULT 'unreviewed',
+                trust_tier TEXT NOT NULL DEFAULT 'medium',
+                conflict_state TEXT NOT NULL DEFAULT 'none',
+                refresh_due_at TEXT,
                 visibility TEXT NOT NULL,
                 author_type TEXT NOT NULL,
                 model_name TEXT,
@@ -1171,7 +1665,12 @@ class RegistryService:
                 focal_label TEXT NOT NULL,
                 summary_md TEXT NOT NULL,
                 report_kind TEXT NOT NULL DEFAULT 'guidance',
+                refresh_of_report_id TEXT,
                 guidance_json TEXT NOT NULL DEFAULT '{}',
+                review_state TEXT NOT NULL DEFAULT 'unreviewed',
+                trust_tier TEXT NOT NULL DEFAULT 'medium',
+                conflict_state TEXT NOT NULL DEFAULT 'none',
+                refresh_due_at TEXT,
                 visibility TEXT NOT NULL,
                 author_type TEXT NOT NULL,
                 model_name TEXT,
@@ -1189,6 +1688,11 @@ class RegistryService:
             );
 
             CREATE INDEX IF NOT EXISTS idx_reports_question ON reports (question_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_questions_follow_up_status
+                ON questions (follow_up_status, priority_score DESC, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_sources_refresh_due_at ON sources (refresh_due_at);
+            CREATE INDEX IF NOT EXISTS idx_claims_refresh_due_at ON claims (refresh_due_at);
+            CREATE INDEX IF NOT EXISTS idx_reports_refresh_due_at ON reports (refresh_due_at);
 
             CREATE TABLE IF NOT EXISTS report_claims (
                 report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
@@ -1247,7 +1751,7 @@ class RegistryService:
         conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (LEGACY_SCHEMA_VERSION,))
 
     def _migrate_schema_legacy(self, conn: DbConnection, version: int) -> None:
-        if version >= 3:
+        if version >= LEGACY_SCHEMA_VERSION:
             conn.execute("DELETE FROM schema_meta")
             conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (LEGACY_SCHEMA_VERSION,))
             return
@@ -1295,6 +1799,67 @@ class RegistryService:
             conn.execute("ALTER TABLE reports ADD COLUMN guidance_json TEXT NOT NULL DEFAULT '{}'")
         conn.execute("UPDATE reports SET report_kind = COALESCE(report_kind, 'legacy_answer')")
         conn.execute("UPDATE reports SET guidance_json = COALESCE(guidance_json, '{}')")
+
+        if not self._column_exists(conn, "questions", "follow_up_status"):
+            conn.execute("ALTER TABLE questions ADD COLUMN follow_up_status TEXT NOT NULL DEFAULT 'open'")
+        conn.execute("UPDATE questions SET follow_up_status = COALESCE(follow_up_status, 'open')")
+
+        if not self._column_exists(conn, "sources", "review_state"):
+            conn.execute("ALTER TABLE sources ADD COLUMN review_state TEXT NOT NULL DEFAULT 'unreviewed'")
+        if not self._column_exists(conn, "sources", "trust_tier"):
+            conn.execute("ALTER TABLE sources ADD COLUMN trust_tier TEXT NOT NULL DEFAULT 'low'")
+        if not self._column_exists(conn, "sources", "conflict_state"):
+            conn.execute("ALTER TABLE sources ADD COLUMN conflict_state TEXT NOT NULL DEFAULT 'none'")
+        if not self._column_exists(conn, "sources", "refresh_due_at"):
+            conn.execute("ALTER TABLE sources ADD COLUMN refresh_due_at TEXT")
+        conn.execute("UPDATE sources SET review_state = COALESCE(review_state, 'unreviewed')")
+        conn.execute("UPDATE sources SET trust_tier = COALESCE(trust_tier, 'low')")
+        conn.execute("UPDATE sources SET conflict_state = COALESCE(conflict_state, 'none')")
+
+        if not self._column_exists(conn, "excerpts", "review_state"):
+            conn.execute("ALTER TABLE excerpts ADD COLUMN review_state TEXT NOT NULL DEFAULT 'unreviewed'")
+        if not self._column_exists(conn, "excerpts", "trust_tier"):
+            conn.execute("ALTER TABLE excerpts ADD COLUMN trust_tier TEXT NOT NULL DEFAULT 'low'")
+        if not self._column_exists(conn, "excerpts", "conflict_state"):
+            conn.execute("ALTER TABLE excerpts ADD COLUMN conflict_state TEXT NOT NULL DEFAULT 'none'")
+        if not self._column_exists(conn, "excerpts", "refresh_due_at"):
+            conn.execute("ALTER TABLE excerpts ADD COLUMN refresh_due_at TEXT")
+        conn.execute("UPDATE excerpts SET review_state = COALESCE(review_state, 'unreviewed')")
+        conn.execute("UPDATE excerpts SET trust_tier = COALESCE(trust_tier, 'low')")
+        conn.execute("UPDATE excerpts SET conflict_state = COALESCE(conflict_state, 'none')")
+
+        if not self._column_exists(conn, "claims", "review_state"):
+            conn.execute("ALTER TABLE claims ADD COLUMN review_state TEXT NOT NULL DEFAULT 'unreviewed'")
+        if not self._column_exists(conn, "claims", "trust_tier"):
+            conn.execute("ALTER TABLE claims ADD COLUMN trust_tier TEXT NOT NULL DEFAULT 'medium'")
+        if not self._column_exists(conn, "claims", "conflict_state"):
+            conn.execute("ALTER TABLE claims ADD COLUMN conflict_state TEXT NOT NULL DEFAULT 'none'")
+        if not self._column_exists(conn, "claims", "refresh_due_at"):
+            conn.execute("ALTER TABLE claims ADD COLUMN refresh_due_at TEXT")
+        conn.execute("UPDATE claims SET review_state = COALESCE(review_state, 'unreviewed')")
+        conn.execute("UPDATE claims SET trust_tier = COALESCE(trust_tier, 'medium')")
+        conn.execute("UPDATE claims SET conflict_state = COALESCE(conflict_state, 'none')")
+
+        if not self._column_exists(conn, "reports", "refresh_of_report_id"):
+            conn.execute("ALTER TABLE reports ADD COLUMN refresh_of_report_id TEXT")
+        if not self._column_exists(conn, "reports", "review_state"):
+            conn.execute("ALTER TABLE reports ADD COLUMN review_state TEXT NOT NULL DEFAULT 'unreviewed'")
+        if not self._column_exists(conn, "reports", "trust_tier"):
+            conn.execute("ALTER TABLE reports ADD COLUMN trust_tier TEXT NOT NULL DEFAULT 'medium'")
+        if not self._column_exists(conn, "reports", "conflict_state"):
+            conn.execute("ALTER TABLE reports ADD COLUMN conflict_state TEXT NOT NULL DEFAULT 'none'")
+        if not self._column_exists(conn, "reports", "refresh_due_at"):
+            conn.execute("ALTER TABLE reports ADD COLUMN refresh_due_at TEXT")
+        conn.execute("UPDATE reports SET review_state = COALESCE(review_state, 'unreviewed')")
+        conn.execute("UPDATE reports SET trust_tier = COALESCE(trust_tier, 'medium')")
+        conn.execute("UPDATE reports SET conflict_state = COALESCE(conflict_state, 'none')")
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_questions_follow_up_status ON questions (follow_up_status, priority_score DESC, created_at DESC)"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sources_refresh_due_at ON sources (refresh_due_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_claims_refresh_due_at ON claims (refresh_due_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reports_refresh_due_at ON reports (refresh_due_at)")
 
         conn.execute("DELETE FROM schema_meta")
         conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (LEGACY_SCHEMA_VERSION,))
@@ -1371,7 +1936,16 @@ class RegistryService:
             for row in rows
             if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
         ]
-        records.sort(key=lambda question: (question.status == "open", question.priority_score, not question.latest_session_is_stale, question.created_at), reverse=True)
+        records.sort(
+            key=lambda question: (
+                question.follow_up_status in {"open", "ready"},
+                question.status == "open",
+                question.priority_score,
+                not question.latest_session_is_stale,
+                question.created_at,
+            ),
+            reverse=True,
+        )
         return records[:limit]
 
     def _list_claims(
@@ -1412,6 +1986,108 @@ class RegistryService:
         records.sort(key=lambda report: (not report.is_stale, report.created_at), reverse=True)
         return records[:limit]
 
+    def _search_hit_for_question(self, question: QuestionRecord, *, score: float) -> SearchHit:
+        return SearchHit(
+            kind="question",
+            id=question.id,
+            title=question.prompt,
+            summary=question.focus.label or question.prompt,
+            subject=question.focus.label or "question",
+            visibility=question.visibility,
+            created_at=question.created_at,
+            score=score,
+            url=f"/questions/{question.id}",
+            human_reviewed=False,
+            review_state="unreviewed",
+            trust_tier="medium",
+            conflict_state="none",
+            freshness_state=question.latest_session_freshness_state,
+            expires_at=question.latest_session_expires_at,
+            is_stale=question.latest_session_is_stale,
+            refresh_due_at=question.latest_session_expires_at,
+            namespace_kind=question.namespace_kind,
+            namespace_id=question.namespace_id,
+            public_namespace_slug=question.public_namespace_slug,
+            public_index_state=question.public_index_state,
+        )
+
+    def _search_hit_for_claim(self, claim: ClaimRecord, *, score: float) -> SearchHit:
+        return SearchHit(
+            kind="claim",
+            id=claim.id,
+            title=claim.title,
+            summary=claim.statement,
+            subject=claim.focal_label,
+            visibility=claim.visibility,
+            created_at=claim.created_at,
+            score=score,
+            url=f"/claims/{claim.id}",
+            human_reviewed=claim.human_reviewed,
+            review_state=claim.review_state,
+            trust_tier=claim.trust_tier,
+            conflict_state=claim.conflict_state,
+            freshness_state=claim.freshness_state,
+            expires_at=claim.expires_at,
+            is_stale=claim.is_stale,
+            refresh_due_at=claim.refresh_due_at,
+            namespace_kind=claim.namespace_kind,
+            namespace_id=claim.namespace_id,
+            public_namespace_slug=claim.public_namespace_slug,
+            public_index_state=claim.public_index_state,
+        )
+
+    def _search_hit_for_report(self, report: ReportRecord, *, score: float) -> SearchHit:
+        return SearchHit(
+            kind="report",
+            id=report.id,
+            title=report.title,
+            summary=first_non_heading_line(report.summary_md),
+            subject=report.focal_label,
+            visibility=report.visibility,
+            created_at=report.created_at,
+            score=score,
+            url=f"/reports/{report.id}",
+            human_reviewed=report.human_reviewed,
+            review_state=report.review_state,
+            trust_tier=report.trust_tier,
+            conflict_state=report.conflict_state,
+            freshness_state=report.freshness_state,
+            expires_at=report.expires_at,
+            is_stale=report.is_stale,
+            refresh_due_at=report.refresh_due_at,
+            namespace_kind=report.namespace_kind,
+            namespace_id=report.namespace_id,
+            public_namespace_slug=report.public_namespace_slug,
+            public_index_state=report.public_index_state,
+        )
+
+    def _search_hit_for_excerpt(self, excerpt: ExcerptRecord, *, score: float) -> SearchHit:
+        source = self.get_source(excerpt.source_id, include_private=True)
+        return SearchHit(
+            kind="excerpt",
+            id=excerpt.id,
+            title=excerpt.focal_label,
+            summary=excerpt.note,
+            subject=excerpt.focal_label,
+            visibility=excerpt.visibility,
+            created_at=excerpt.created_at,
+            score=score,
+            url=f"/excerpts/{excerpt.id}",
+            source_title=source.title,
+            human_reviewed=excerpt.human_reviewed,
+            review_state=excerpt.review_state,
+            trust_tier=excerpt.trust_tier,
+            conflict_state=excerpt.conflict_state,
+            freshness_state=excerpt.freshness_state,
+            expires_at=excerpt.expires_at,
+            is_stale=excerpt.is_stale,
+            refresh_due_at=excerpt.refresh_due_at,
+            namespace_kind=excerpt.namespace_kind,
+            namespace_id=excerpt.namespace_id,
+            public_namespace_slug=excerpt.public_namespace_slug,
+            public_index_state=excerpt.public_index_state,
+        )
+
     def _search_questions(
         self,
         normalized: str,
@@ -1431,31 +2107,12 @@ class RegistryService:
                 human_reviewed=False,
                 created_at=question.created_at,
                 provenance_fields=[question.topic_id, question.latest_report_id, question.latest_session_id],
+                trust_tier="medium",
                 is_stale=question.latest_session_is_stale,
             )
             if score <= 0:
                 continue
-            hits.append(
-                SearchHit(
-                    kind="question",
-                    id=question.id,
-                    title=question.prompt,
-                    summary=question.focus.label or question.prompt,
-                    subject=question.focus.label or "question",
-                    visibility=question.visibility,
-                    created_at=question.created_at,
-                    score=score,
-                    url=f"/questions/{question.id}",
-                    human_reviewed=False,
-                    freshness_state=question.latest_session_freshness_state,
-                    expires_at=question.latest_session_expires_at,
-                    is_stale=question.latest_session_is_stale,
-                    namespace_kind=question.namespace_kind,
-                    namespace_id=question.namespace_id,
-                    public_namespace_slug=question.public_namespace_slug,
-                    public_index_state=question.public_index_state,
-                )
-            )
+            hits.append(self._search_hit_for_question(question, score=score))
         return hits
 
     def _search_claims(
@@ -1477,31 +2134,14 @@ class RegistryService:
                 human_reviewed=claim.human_reviewed,
                 created_at=claim.created_at,
                 provenance_fields=[claim.session_id, *claim.excerpt_ids],
+                review_state=claim.review_state,
+                trust_tier=claim.trust_tier,
+                conflict_state=claim.conflict_state,
                 is_stale=claim.is_stale,
             )
             if score <= 0:
                 continue
-            hits.append(
-                SearchHit(
-                    kind="claim",
-                    id=claim.id,
-                    title=claim.title,
-                    summary=claim.statement,
-                    subject=claim.focal_label,
-                    visibility=claim.visibility,
-                    created_at=claim.created_at,
-                    score=score,
-                    url=f"/claims/{claim.id}",
-                    human_reviewed=claim.human_reviewed,
-                    freshness_state=claim.freshness_state,
-                    expires_at=claim.expires_at,
-                    is_stale=claim.is_stale,
-                    namespace_kind=claim.namespace_kind,
-                    namespace_id=claim.namespace_id,
-                    public_namespace_slug=claim.public_namespace_slug,
-                    public_index_state=claim.public_index_state,
-                )
-            )
+            hits.append(self._search_hit_for_claim(claim, score=score))
         return hits
 
     def _search_reports(
@@ -1523,31 +2163,14 @@ class RegistryService:
                 human_reviewed=report.human_reviewed,
                 created_at=report.created_at,
                 provenance_fields=[report.session_id, *report.claim_ids, *report.source_ids],
+                review_state=report.review_state,
+                trust_tier=report.trust_tier,
+                conflict_state=report.conflict_state,
                 is_stale=report.is_stale,
             )
             if score <= 0:
                 continue
-            hits.append(
-                SearchHit(
-                    kind="report",
-                    id=report.id,
-                    title=report.title,
-                    summary=first_non_heading_line(report.summary_md),
-                    subject=report.focal_label,
-                    visibility=report.visibility,
-                    created_at=report.created_at,
-                    score=score,
-                    url=f"/reports/{report.id}",
-                    human_reviewed=report.human_reviewed,
-                    freshness_state=report.freshness_state,
-                    expires_at=report.expires_at,
-                    is_stale=report.is_stale,
-                    namespace_kind=report.namespace_kind,
-                    namespace_id=report.namespace_id,
-                    public_namespace_slug=report.public_namespace_slug,
-                    public_index_state=report.public_index_state,
-                )
-            )
+            hits.append(self._search_hit_for_report(report, score=score))
         return hits
 
     def _search_sources(
@@ -1567,7 +2190,17 @@ class RegistryService:
                 continue
             source = self._source_from_row(row)
             haystack = " ".join([source.title, source.locator, source.source_type, source.snippet or "", source.site_name or "", source.author or ""]).lower()
-            score = self._search_score(normalized, haystack, source_type=source.source_type, human_reviewed=False, created_at=source.created_at, provenance_fields=[source.content_sha256, source.snapshot_url])
+            score = self._search_score(
+                normalized,
+                haystack,
+                source_type=source.source_type,
+                human_reviewed=False,
+                created_at=source.created_at,
+                provenance_fields=[source.content_sha256, source.snapshot_url],
+                review_state=source.review_state,
+                trust_tier=source.trust_tier,
+                conflict_state=source.conflict_state,
+            )
             if score <= 0:
                 continue
             hits.append(
@@ -1581,6 +2214,10 @@ class RegistryService:
                     created_at=source.created_at,
                     score=score,
                     url=f"/sources/{source.id}",
+                    review_state=source.review_state,
+                    trust_tier=source.trust_tier,
+                    conflict_state=source.conflict_state,
+                    refresh_due_at=source.refresh_due_at,
                     namespace_kind=source.namespace_kind,
                     namespace_id=source.namespace_id,
                     public_namespace_slug=source.public_namespace_slug,
@@ -1614,32 +2251,14 @@ class RegistryService:
                 human_reviewed=excerpt.human_reviewed,
                 created_at=excerpt.created_at,
                 provenance_fields=[excerpt.source_id, excerpt.session_id, excerpt.model_name],
+                review_state=excerpt.review_state,
+                trust_tier=excerpt.trust_tier,
+                conflict_state=excerpt.conflict_state,
                 is_stale=excerpt.is_stale,
             )
             if score <= 0:
                 continue
-            hits.append(
-                SearchHit(
-                    kind="excerpt",
-                    id=excerpt.id,
-                    title=excerpt.focal_label,
-                    summary=excerpt.note,
-                    subject=excerpt.focal_label,
-                    visibility=excerpt.visibility,
-                    created_at=excerpt.created_at,
-                    score=score,
-                    url=f"/excerpts/{excerpt.id}",
-                    source_title=source.title,
-                    human_reviewed=excerpt.human_reviewed,
-                    freshness_state=excerpt.freshness_state,
-                    expires_at=excerpt.expires_at,
-                    is_stale=excerpt.is_stale,
-                    namespace_kind=excerpt.namespace_kind,
-                    namespace_id=excerpt.namespace_id,
-                    public_namespace_slug=excerpt.public_namespace_slug,
-                    public_index_state=excerpt.public_index_state,
-                )
-            )
+            hits.append(self._search_hit_for_excerpt(excerpt, score=score))
         return hits
 
     def _resolve_source(self, payload: ExcerptCreate, auth: AuthContext | None = None) -> SourceRecord:
@@ -1782,6 +2401,9 @@ class RegistryService:
         human_reviewed: bool,
         created_at: datetime,
         provenance_fields: list[str | None],
+        review_state: ReviewState = "unreviewed",
+        trust_tier: TrustTier = "low",
+        conflict_state: ConflictState = "none",
         is_stale: bool = False,
     ) -> float:
         if not normalized:
@@ -1799,10 +2421,24 @@ class RegistryService:
                     lexical += 2.0
         provenance_score = sum(1 for field in provenance_fields if field) * 0.4
         review_score = 3.0 if human_reviewed else 0.0
+        review_state_score = 1.5 if review_state == "reviewed" else (-1.0 if review_state == "flagged" else 0.0)
+        trust_score = {"low": 0.0, "medium": 1.0, "high": 2.0}[trust_tier]
+        conflict_penalty = 2.0 if conflict_state == "conflicted" else 0.0
         age_days = max((utc_now() - created_at).days, 0)
         recency_score = max(0.0, 3.0 - (age_days / 30.0))
         freshness_penalty = 2.5 if is_stale else 0.0
-        return round(lexical + self._source_quality(source_type or "webpage") + provenance_score + review_score + recency_score - freshness_penalty, 3)
+        return round(
+            lexical
+            + self._source_quality(source_type or "webpage")
+            + provenance_score
+            + review_score
+            + review_state_score
+            + trust_score
+            + recency_score
+            - freshness_penalty
+            - conflict_penalty,
+            3,
+        )
 
     def _source_quality(self, source_type: str) -> int:
         return {
@@ -1875,6 +2511,7 @@ class RegistryService:
             prompt=row["prompt"],
             normalized_prompt=row["normalized_prompt"],
             focus=FocusTuple.model_validate_json(row["focus_json"]),
+            follow_up_status=row["follow_up_status"],
             parent_question_id=row["parent_question_id"],
             generated_by_session_id=row["generated_by_session_id"],
             generation_reason=row["generation_reason"],
@@ -1960,6 +2597,10 @@ class RegistryService:
             snapshot_required=bool(row["snapshot_required"]),
             snapshot_present=bool(row["snapshot_present"]),
             last_verified_at=self._decode_dt(row["last_verified_at"]),
+            review_state=row["review_state"],
+            trust_tier=row["trust_tier"],
+            conflict_state=row["conflict_state"],
+            refresh_due_at=self._decode_dt(row["refresh_due_at"]),
             visibility=row["visibility"],
             namespace_kind=row["namespace_kind"],
             namespace_id=row["namespace_id"],
@@ -1986,6 +2627,10 @@ class RegistryService:
             quote_text=row["quote_text"],
             confidence=row["confidence"],
             tags=json.loads(row["tags_json"]),
+            review_state=row["review_state"],
+            trust_tier=row["trust_tier"],
+            conflict_state=row["conflict_state"],
+            refresh_due_at=self._decode_dt(row["refresh_due_at"]),
             visibility=row["visibility"],
             author_type=row["author_type"],
             model_name=row["model_name"],
@@ -2023,6 +2668,10 @@ class RegistryService:
             excerpt_ids=[excerpt_row["excerpt_id"] for excerpt_row in excerpt_rows],
             status=row["status"],
             confidence=row["confidence"],
+            review_state=row["review_state"],
+            trust_tier=row["trust_tier"],
+            conflict_state=row["conflict_state"],
+            refresh_due_at=self._decode_dt(row["refresh_due_at"]),
             visibility=row["visibility"],
             author_type=row["author_type"],
             model_name=row["model_name"],
@@ -2059,9 +2708,14 @@ class RegistryService:
             focal_label=row["focal_label"],
             summary_md=row["summary_md"],
             report_kind=row["report_kind"],
+            refresh_of_report_id=row["refresh_of_report_id"],
             guidance=GuidancePayload.model_validate_json(row["guidance_json"]),
             claim_ids=claim_ids,
             source_ids=source_ids,
+            review_state=row["review_state"],
+            trust_tier=row["trust_tier"],
+            conflict_state=row["conflict_state"],
+            refresh_due_at=self._decode_dt(row["refresh_due_at"]),
             visibility=row["visibility"],
             author_type=row["author_type"],
             model_name=row["model_name"],

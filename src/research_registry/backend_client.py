@@ -8,10 +8,17 @@ from .backend_selection import load_backend_profiles, resolve_backend
 from .config import Settings
 from .models import (
     BackendStatus,
+    BriefBundle,
+    BriefResolveRequest,
     ClaimCreate,
     ClaimRecord,
     ExcerptCreate,
     ExcerptRecord,
+    FollowUpStatusUpdate,
+    ImportBibtexRequest,
+    ImportDoiRequest,
+    ImportResult,
+    ImportUrlRequest,
     PublishRequest,
     QuestionCreate,
     QuestionRecord,
@@ -40,6 +47,12 @@ class RegistryBackend(Protocol):
     def create_claim(self, payload: ClaimCreate) -> ClaimRecord: ...
     def create_report(self, payload: ReportCreate) -> ReportRecord: ...
     def set_question_status(self, question_id: str, status: str) -> None: ...
+    def set_follow_up_status(self, question_id: str, follow_up_status: str) -> None: ...
+    def import_url(self, payload: ImportUrlRequest) -> ImportResult: ...
+    def import_doi(self, payload: ImportDoiRequest) -> ImportResult: ...
+    def import_bibtex(self, payload: ImportBibtexRequest) -> ImportResult: ...
+    def resolve_brief(self, payload: BriefResolveRequest) -> BriefBundle: ...
+    def refresh_report(self, report_id: str) -> ReportRecord: ...
     def publish(self, payload: PublishRequest) -> None: ...
     def backend_status(self) -> BackendStatus: ...
 
@@ -98,6 +111,25 @@ class RegistryApiClient:
 
     def set_question_status(self, question_id: str, status: str) -> None:
         self._request("POST", f"/api/questions/{question_id}/status", json={"status": status})
+
+    def set_follow_up_status(self, question_id: str, follow_up_status: str) -> None:
+        payload = FollowUpStatusUpdate(follow_up_status=follow_up_status)
+        self._request("POST", f"/api/follow-ups/{question_id}/status", json=payload.model_dump(mode="json"))
+
+    def import_url(self, payload: ImportUrlRequest) -> ImportResult:
+        return ImportResult.model_validate(self._request("POST", "/api/import/url", json=payload.model_dump(mode="json")))
+
+    def import_doi(self, payload: ImportDoiRequest) -> ImportResult:
+        return ImportResult.model_validate(self._request("POST", "/api/import/doi", json=payload.model_dump(mode="json")))
+
+    def import_bibtex(self, payload: ImportBibtexRequest) -> ImportResult:
+        return ImportResult.model_validate(self._request("POST", "/api/import/bibtex", json=payload.model_dump(mode="json")))
+
+    def resolve_brief(self, payload: BriefResolveRequest) -> BriefBundle:
+        return BriefBundle.model_validate(self._request("POST", "/api/briefs/resolve", json=payload.model_dump(mode="json")))
+
+    def refresh_report(self, report_id: str) -> ReportRecord:
+        return ReportRecord.model_validate(self._request("POST", f"/api/reports/{report_id}/refresh"))
 
     def publish(self, payload: PublishRequest) -> None:
         self._request("POST", "/api/publish", json=payload.model_dump(mode="json"))

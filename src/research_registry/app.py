@@ -17,8 +17,13 @@ from .models import (
     ApiKeyCreate,
     AuthContext,
     BackendStatus,
+    BriefResolveRequest,
     ClaimCreate,
     ExcerptCreate,
+    FollowUpStatusUpdate,
+    ImportBibtexRequest,
+    ImportDoiRequest,
+    ImportUrlRequest,
     IndexStateRequest,
     PublishRequest,
     QuestionCreate,
@@ -264,6 +269,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         q: str = "",
         kind: str | None = None,
         include_private: bool = False,
+        limit: int = 20,
         namespace_slug: str | None = None,
         global_index_only: bool | None = None,
     ) -> SearchResponse:
@@ -274,6 +280,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             q,
             kind=kind,
             include_private=include_private and auth is not None,
+            limit=limit,
             auth=auth,
             public_index_only=global_index_only,
             namespace_slug=namespace_slug,
@@ -308,6 +315,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         service.set_question_status(question_id, payload.status)
         return {"status": "ok"}
 
+    @app.post("/api/follow-ups/{question_id}/status")
+    def api_set_follow_up_status(question_id: str, payload: FollowUpStatusUpdate, auth: AuthContext = Depends(_ingest_guard)):
+        service.set_follow_up_status(question_id, payload.follow_up_status)
+        return {"status": "ok"}
+
     @app.get("/api/sessions/{session_id}")
     def api_get_session(session_id: str, request: Request, include_private: bool = False):
         auth = _optional_auth(request)
@@ -325,6 +337,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/sources")
     def api_create_source(payload: SourceCreate, auth: AuthContext = Depends(_ingest_guard)):
         return service.create_source(payload, auth=auth)
+
+    @app.post("/api/import/url")
+    def api_import_url(payload: ImportUrlRequest, auth: AuthContext = Depends(_ingest_guard)):
+        return service.import_url(payload, auth=auth)
+
+    @app.post("/api/import/doi")
+    def api_import_doi(payload: ImportDoiRequest, auth: AuthContext = Depends(_ingest_guard)):
+        return service.import_doi(payload, auth=auth)
+
+    @app.post("/api/import/bibtex")
+    def api_import_bibtex(payload: ImportBibtexRequest, auth: AuthContext = Depends(_ingest_guard)):
+        return service.import_bibtex(payload, auth=auth)
 
     @app.get("/api/excerpts/{excerpt_id}")
     def api_get_excerpt(excerpt_id: str, request: Request, include_private: bool = False):
@@ -360,6 +384,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/reports")
     def api_create_report(payload: ReportCreate, auth: AuthContext = Depends(_ingest_guard)):
         return service.create_report(payload, auth=auth)
+
+    @app.post("/api/reports/{report_id}/refresh")
+    def api_refresh_report(report_id: str, auth: AuthContext = Depends(_ingest_guard)):
+        return _safe_get(lambda: service.refresh_report(report_id, auth=auth))
+
+    @app.post("/api/briefs/resolve")
+    def api_resolve_brief(payload: BriefResolveRequest, request: Request):
+        auth = _optional_auth(request)
+        return service.resolve_brief(payload, auth=auth)
 
     @app.post("/api/publish")
     def api_publish(payload: PublishRequest, auth: AuthContext = Depends(_publish_guard)):
