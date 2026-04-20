@@ -77,6 +77,19 @@ def test_live_http_end_to_end(tmp_path: Path) -> None:
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}"
     db_path = (tmp_path / "e2e.sqlite3").resolve()
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "refresh.md").write_text(
+        "Managed localhost runtime for multiple local Codex instances is the local default.\n"
+        "Shared self-hosted Compose deployment for internal teams is the shared preview path.\n"
+        "Workflow validation uses import, brief resolution, refresh, and follow-up status.\n",
+        encoding="utf-8",
+    )
+    (corpus_dir / "validation.md").write_text(
+        "Benchmark and artifact evidence should back workflow validation for managed localhost runtime.\n"
+        "Documentation and design notes explain why refresh should create successor reports.\n",
+        encoding="utf-8",
+    )
     env = os.environ.copy()
     python_path = env.get("PYTHONPATH")
     env.update(
@@ -89,6 +102,7 @@ def test_live_http_end_to_end(tmp_path: Path) -> None:
             "RESEARCH_REGISTRY_HOST": "127.0.0.1",
             "RESEARCH_REGISTRY_PORT": str(port),
             "RESEARCH_REGISTRY_PUBLIC_BASE_URL": base_url,
+            "RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS": str(corpus_dir),
         }
     )
     server = subprocess.Popen(
@@ -106,7 +120,7 @@ def test_live_http_end_to_end(tmp_path: Path) -> None:
 
         focus = FocusTuple(domain="memory-retrieval", object="shared registry recall", context="e2e-test")
 
-        with httpx.Client(base_url=base_url, timeout=10.0) as client:
+        with httpx.Client(base_url=base_url, timeout=30.0) as client:
             assert client.get("/healthz").json() == {"status": "ok"}
             assert client.get("/readyz").json() == {"status": "ready"}
             assert client.get("/").status_code == 200
@@ -294,6 +308,190 @@ def test_live_http_end_to_end(tmp_path: Path) -> None:
             backend_status = client.get("/api/backend/status")
             assert backend_status.status_code == 200
             assert backend_status.json()["url"] == base_url
+
+            bibtex_response = client.post(
+                "/api/import/bibtex",
+                headers=auth_headers,
+                json={
+                    "bibtex": (
+                        "@article{shared_registry_2026,\n"
+                        "  title={Shared registry retrieval patterns},\n"
+                        "  author={Doe, Alex},\n"
+                        "  journal={Registry Notes},\n"
+                        "  year={2026},\n"
+                        "  doi={10.1000/shared-registry},\n"
+                        "  abstract={Deep links, provenance, and typed records improve research reuse.}\n"
+                        "}"
+                    ),
+                    "question_id": question_id,
+                    "focal_label": focus.label or "shared registry recall",
+                    "namespace_kind": "org",
+                    "namespace_id": "acme",
+                },
+            )
+            assert bibtex_response.status_code == 200
+            imported_source_id = bibtex_response.json()["source_ids"][0]
+            imported_excerpt_id = bibtex_response.json()["excerpt_ids"][0]
+
+            publish_imported_source = client.post(
+                "/api/publish",
+                headers=auth_headers,
+                json=PublishRequest(kind="source", record_id=imported_source_id).model_dump(mode="json"),
+            )
+            assert publish_imported_source.status_code == 403
+
+            brief_response = client.post(
+                "/api/briefs/resolve",
+                headers=auth_headers,
+                json={"prompt": "Research shared registry memory retrieval optimization.", "include_private": True, "limit": 5},
+            )
+            assert brief_response.status_code == 200
+            brief_payload = brief_response.json()
+            assert report_id in {item["id"] for item in brief_payload["reports"]}
+            assert imported_excerpt_id in {item["id"] for item in brief_payload["excerpts"]}
+
+            refresh_focus = FocusTuple(
+                domain="memory-retrieval",
+                object="managed localhost runtime",
+                context="e2e-refresh",
+            )
+            refresh_prompt = (
+                "Research managed localhost runtime for multiple local Codex instances and "
+                "shared self-hosted Compose deployment for internal teams."
+            )
+            refresh_question_response = client.post(
+                "/api/questions",
+                headers=auth_headers,
+                json=QuestionCreate(
+                    prompt=refresh_prompt,
+                    focus=refresh_focus,
+                    namespace_kind="org",
+                    namespace_id="acme",
+                ).model_dump(mode="json"),
+            )
+            assert refresh_question_response.status_code == 200
+            refresh_question_id = refresh_question_response.json()["id"]
+
+            refresh_session_response = client.post(
+                "/api/sessions",
+                headers=auth_headers,
+                json=ResearchSessionCreate(
+                    question_id=refresh_question_id,
+                    prompt=refresh_prompt,
+                    model_name="gpt-5.4",
+                    model_version="2026-04-10",
+                    mode="live_research",
+                    namespace_kind="org",
+                    namespace_id="acme",
+                    source_signals=["e2e: managed localhost runtime validation"],
+                ).model_dump(mode="json"),
+            )
+            assert refresh_session_response.status_code == 200
+            refresh_session_id = refresh_session_response.json()["id"]
+
+            refresh_source_response = client.post(
+                "/api/sources",
+                headers=auth_headers,
+                json=SourceCreate(
+                    locator="https://example.com/managed-localhost-runtime",
+                    title="Managed localhost runtime note",
+                    snippet="managed localhost runtime for multiple local Codex instances",
+                    snapshot_present=True,
+                    namespace_kind="org",
+                    namespace_id="acme",
+                ).model_dump(mode="json"),
+            )
+            assert refresh_source_response.status_code == 200
+            refresh_source_id = refresh_source_response.json()["id"]
+
+            refresh_excerpt_response = client.post(
+                "/api/excerpts",
+                headers=auth_headers,
+                json=ExcerptCreate(
+                    source_id=refresh_source_id,
+                    question_id=refresh_question_id,
+                    session_id=refresh_session_id,
+                    focal_label=refresh_focus.label or "managed localhost runtime",
+                    note="Managed localhost runtime is the default local operator path.",
+                    selector=SourceSelector(
+                        exact="managed localhost runtime for multiple local Codex instances",
+                        deep_link="https://example.com/managed-localhost-runtime#default-path",
+                    ),
+                    quote_text="managed localhost runtime for multiple local Codex instances",
+                    namespace_kind="org",
+                    namespace_id="acme",
+                ).model_dump(mode="json"),
+            )
+            assert refresh_excerpt_response.status_code == 200
+            refresh_excerpt_id = refresh_excerpt_response.json()["id"]
+
+            refresh_claim_response = client.post(
+                "/api/claims",
+                headers=auth_headers,
+                json=ClaimCreate(
+                    question_id=refresh_question_id,
+                    session_id=refresh_session_id,
+                    title="Managed localhost runtime is the local default",
+                    focal_label=refresh_focus.label or "managed localhost runtime",
+                    statement="Managed localhost runtime is the supported local default for multiple Codex instances.",
+                    excerpt_ids=[refresh_excerpt_id],
+                    namespace_kind="org",
+                    namespace_id="acme",
+                ).model_dump(mode="json"),
+            )
+            assert refresh_claim_response.status_code == 200
+            refresh_claim_id = refresh_claim_response.json()["id"]
+
+            refresh_report_response = client.post(
+                "/api/reports",
+                headers=auth_headers,
+                json=ReportCreate(
+                    question_id=refresh_question_id,
+                    session_id=refresh_session_id,
+                    title="Managed localhost runtime guidance",
+                    focal_label=refresh_focus.label or "managed localhost runtime",
+                    summary_md="# Guidance\n\nUse the managed localhost runtime as the default local deployment path.",
+                    claim_ids=[refresh_claim_id],
+                    namespace_kind="org",
+                    namespace_id="acme",
+                ).model_dump(mode="json"),
+            )
+            assert refresh_report_response.status_code == 200
+            refresh_report_id = refresh_report_response.json()["id"]
+
+            refreshed_report_response = client.post(
+                f"/api/reports/{refresh_report_id}/refresh",
+                headers=auth_headers,
+            )
+            assert refreshed_report_response.status_code == 200
+            refreshed_report_id = refreshed_report_response.json()["id"]
+            assert refreshed_report_id != refresh_report_id
+            assert refreshed_report_response.json()["refresh_of_report_id"] == refresh_report_id
+
+            refresh_brief_response = client.post(
+                "/api/briefs/resolve",
+                headers=auth_headers,
+                json={"prompt": refresh_prompt, "include_private": True, "limit": 5},
+            )
+            assert refresh_brief_response.status_code == 200
+            follow_up_questions = refresh_brief_response.json()["suggested_follow_ups"]
+            assert follow_up_questions
+            follow_up_id = follow_up_questions[0]["id"]
+
+            follow_up_status_response = client.post(
+                f"/api/follow-ups/{follow_up_id}/status",
+                headers=auth_headers,
+                json={"follow_up_status": "done"},
+            )
+            assert follow_up_status_response.status_code == 200
+
+            follow_up_get = client.get(
+                f"/api/questions/{follow_up_id}",
+                headers=auth_headers,
+                params={"include_private": "true"},
+            )
+            assert follow_up_get.status_code == 200
+            assert follow_up_get.json()["follow_up_status"] == "done"
     except Exception:
         logs = _terminate_server(server)
         raise AssertionError(f"live HTTP end-to-end test failed\n\n{logs}") from None

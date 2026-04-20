@@ -37,10 +37,11 @@ This gives the skill a shared localhost backend plus a managed MCP endpoint in `
 
 ```bash
 make test
-./.venv/bin/research-registry-memory-retrieval-harness --scenario reuse-optimization
-./.venv/bin/research-registry-memory-retrieval-harness --scenario synthesis-failures
-./.venv/bin/research-registry-memory-retrieval-harness --scenario gap-fill-metrics
+make workflow-check
+make grounded-pass-check
 ```
+
+`make workflow-check` constrains the harnesses to the current repo for fast deterministic validation. `make grounded-pass-check` is the deeper project-specific run that writes `.data/research-pass-runner.md`.
 
 ## Expected behavior
 
@@ -49,3 +50,4 @@ make test
 - new work stores excerpts, claims, and a guidance report
 - unsupported claims are not deposited
 - summaries preserve reusable guidance, current evidence, and follow-up questions
+- refresh can create successor reports plus follow-up questions when newer local evidence exists

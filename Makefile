@@ -7,7 +7,7 @@ VENV_PYTHON := $(VENV)/bin/python
 INSTALL_STAMP := $(VENV)/.editable-installed
 SEED_DEMO ?= 1
 
-.PHONY: help venv install up status down token uninstall purge-local test build preview-check
+.PHONY: help venv install up status down token uninstall purge-local test build preview-check workflow-check grounded-pass-check
 
 help:
 	@printf "Targets:\n"
@@ -20,6 +20,8 @@ help:
 	@printf "  make test    Run the test suite.\n"
 	@printf "  make build   Build wheel and sdist artifacts.\n"
 	@printf "  make preview-check  Run tests, build artifacts, and both smoke suites.\n"
+	@printf "  make workflow-check  Run the repo-local HTTP e2e test plus the research harnesses.\n"
+	@printf "  make grounded-pass-check  Run the 27-pass grounded research suite and write a markdown report.\n"
 	@printf "\n"
 	@printf "Options:\n"
 	@printf "  SEED_DEMO=0  Skip demo content during make up.\n"
@@ -75,3 +77,11 @@ preview-check: install
 	PYTHONPATH=src $(VENV_PYTHON) -m build
 	RUN_LOCAL_INSTALL_SMOKE=1 PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_local_install_smoke.py
 	RUN_SHARED_COMPOSE_SMOKE=1 PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_shared_compose_smoke.py
+
+workflow-check: install
+	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_http_e2e.py
+	RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS=$(CURDIR) PYTHONPATH=src $(VENV_PYTHON) -m research_registry.memory_retrieval_harness --all --reset --db-path .data/memory-retrieval-harness.sqlite3
+	RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS=$(CURDIR) PYTHONPATH=src $(VENV_PYTHON) -m research_registry.domain_research_harness --all --reset --db-path .data/domain-research-harness.sqlite3
+
+grounded-pass-check: install
+	PYTHONPATH=src $(VENV_PYTHON) -m research_registry.research_pass_runner --db-path .data/research-pass-runner.sqlite3 --reset --rounds 2 --markdown-out .data/research-pass-runner.md

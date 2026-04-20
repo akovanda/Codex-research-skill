@@ -308,17 +308,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/questions")
     def api_create_question(payload: QuestionCreate, auth: AuthContext = Depends(_ingest_guard)):
-        return service.create_question(payload, auth=auth)
+        return _safe_mutation(lambda: service.create_question(payload, auth=auth))
 
     @app.post("/api/questions/{question_id}/status")
     def api_set_question_status(question_id: str, payload: QuestionStatusUpdate, auth: AuthContext = Depends(_ingest_guard)):
-        service.set_question_status(question_id, payload.status)
-        return {"status": "ok"}
+        return _safe_mutation(lambda: _status_ok(service.set_question_status(question_id, payload.status)))
 
     @app.post("/api/follow-ups/{question_id}/status")
     def api_set_follow_up_status(question_id: str, payload: FollowUpStatusUpdate, auth: AuthContext = Depends(_ingest_guard)):
-        service.set_follow_up_status(question_id, payload.follow_up_status)
-        return {"status": "ok"}
+        return _safe_mutation(lambda: _status_ok(service.set_follow_up_status(question_id, payload.follow_up_status)))
 
     @app.get("/api/sessions/{session_id}")
     def api_get_session(session_id: str, request: Request, include_private: bool = False):
@@ -327,7 +325,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/sessions")
     def api_create_session(payload: ResearchSessionCreate, auth: AuthContext = Depends(_ingest_guard)):
-        return service.create_session(payload, auth=auth)
+        return _safe_mutation(lambda: service.create_session(payload, auth=auth))
 
     @app.get("/api/sources/{source_id}")
     def api_get_source(source_id: str, request: Request, include_private: bool = False):
@@ -336,19 +334,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/sources")
     def api_create_source(payload: SourceCreate, auth: AuthContext = Depends(_ingest_guard)):
-        return service.create_source(payload, auth=auth)
+        return _safe_mutation(lambda: service.create_source(payload, auth=auth))
 
     @app.post("/api/import/url")
     def api_import_url(payload: ImportUrlRequest, auth: AuthContext = Depends(_ingest_guard)):
-        return service.import_url(payload, auth=auth)
+        return _safe_mutation(lambda: service.import_url(payload, auth=auth))
 
     @app.post("/api/import/doi")
     def api_import_doi(payload: ImportDoiRequest, auth: AuthContext = Depends(_ingest_guard)):
-        return service.import_doi(payload, auth=auth)
+        return _safe_mutation(lambda: service.import_doi(payload, auth=auth))
 
     @app.post("/api/import/bibtex")
     def api_import_bibtex(payload: ImportBibtexRequest, auth: AuthContext = Depends(_ingest_guard)):
-        return service.import_bibtex(payload, auth=auth)
+        return _safe_mutation(lambda: service.import_bibtex(payload, auth=auth))
 
     @app.get("/api/excerpts/{excerpt_id}")
     def api_get_excerpt(excerpt_id: str, request: Request, include_private: bool = False):
@@ -361,7 +359,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/excerpts")
     def api_create_excerpt(payload: ExcerptCreate, auth: AuthContext = Depends(_ingest_guard)):
-        return service.create_excerpt(payload, auth=auth)
+        return _safe_mutation(lambda: service.create_excerpt(payload, auth=auth))
 
     @app.get("/api/claims/{claim_id}")
     def api_get_claim(claim_id: str, request: Request, include_private: bool = False):
@@ -374,7 +372,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/claims")
     def api_create_claim(payload: ClaimCreate, auth: AuthContext = Depends(_ingest_guard)):
-        return service.create_claim(payload, auth=auth)
+        return _safe_mutation(lambda: service.create_claim(payload, auth=auth))
 
     @app.get("/api/reports/{report_id}")
     def api_get_report(report_id: str, request: Request, include_private: bool = False):
@@ -383,39 +381,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/reports")
     def api_create_report(payload: ReportCreate, auth: AuthContext = Depends(_ingest_guard)):
-        return service.create_report(payload, auth=auth)
+        return _safe_mutation(lambda: service.create_report(payload, auth=auth))
 
     @app.post("/api/reports/{report_id}/refresh")
     def api_refresh_report(report_id: str, auth: AuthContext = Depends(_ingest_guard)):
-        return _safe_get(lambda: service.refresh_report(report_id, auth=auth))
+        return _safe_mutation(lambda: service.refresh_report(report_id, auth=auth))
 
     @app.post("/api/briefs/resolve")
     def api_resolve_brief(payload: BriefResolveRequest, request: Request):
         auth = _optional_auth(request)
-        return service.resolve_brief(payload, auth=auth)
+        return _safe_mutation(lambda: service.resolve_brief(payload, auth=auth))
 
     @app.post("/api/publish")
     def api_publish(payload: PublishRequest, auth: AuthContext = Depends(_publish_guard)):
-        service.publish(payload, auth=auth)
-        return {"status": "ok"}
+        return _safe_mutation(lambda: _status_ok(service.publish(payload, auth=auth)))
 
     @app.post("/api/review")
     def api_review(payload: ReviewRequest, auth: AuthContext = Depends(_admin_guard)):
-        service.review(payload, auth=auth)
-        return {"status": "ok"}
+        return _safe_mutation(lambda: _status_ok(service.review(payload, auth=auth)))
 
     @app.post("/api/index-state")
     def api_index_state(payload: IndexStateRequest, auth: AuthContext = Depends(_admin_guard)):
-        service.set_index_state(payload, auth=auth)
-        return {"status": "ok"}
+        return _safe_mutation(lambda: _status_ok(service.set_index_state(payload, auth=auth)))
 
     @app.post("/api/admin/organizations")
     def api_admin_ensure_org(payload: OrganizationBootstrapRequest, auth: AuthContext = Depends(_admin_guard)):
-        return service.ensure_organization(payload.org_id, payload.display_name).model_dump(mode="json")
+        return _safe_mutation(lambda: service.ensure_organization(payload.org_id, payload.display_name).model_dump(mode="json"))
 
     @app.post("/api/admin/api-keys")
     def api_admin_issue_key(payload: ApiKeyCreate, auth: AuthContext = Depends(_admin_guard)):
-        return service.issue_api_key(payload).model_dump(mode="json")
+        return _safe_mutation(lambda: service.issue_api_key(payload).model_dump(mode="json"))
 
     return app
 
@@ -427,6 +422,19 @@ def _safe_get(operation):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _safe_mutation(operation):
+    try:
+        return operation()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+def _status_ok(_: object = None) -> dict[str, str]:
+    return {"status": "ok"}
 
 
 def _is_admin(request: Request) -> bool:

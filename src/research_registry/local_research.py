@@ -146,6 +146,19 @@ class LocalResearchResult(BaseModel):
 
 
 def default_source_roots() -> dict[str, Path]:
+    configured_roots = os.getenv("RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS", "").strip()
+    if configured_roots:
+        roots: dict[str, Path] = {}
+        for index, raw_path in enumerate(configured_roots.split(os.pathsep), start=1):
+            path = Path(raw_path).expanduser().resolve()
+            if not path.exists():
+                continue
+            name = path.name or f"root-{index}"
+            if name in roots:
+                name = f"{name}-{index}"
+            roots[name] = path
+        if roots:
+            return roots
     roots = {
         "llmresearch": Path.cwd(),
         "continuity-core": Path("/home/akovanda/game/continuity-core"),

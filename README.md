@@ -242,12 +242,21 @@ Authenticated writes:
 
 - `POST /api/questions`
 - `POST /api/questions/{id}/status`
+- `POST /api/follow-ups/{id}/status`
 - `POST /api/sessions`
 - `POST /api/sources`
+- `POST /api/import/url`
+- `POST /api/import/doi`
+- `POST /api/import/bibtex`
 - `POST /api/excerpts`
 - `POST /api/claims`
 - `POST /api/reports`
+- `POST /api/reports/{id}/refresh`
 - `POST /api/publish`
+
+Workflow helpers:
+
+- `POST /api/briefs/resolve`
 
 Admin moderation:
 
@@ -258,6 +267,34 @@ Compatibility aliases:
 
 - `/api/annotations/{id}` maps to excerpts
 - `/api/findings/{id}` maps to claims
+
+## Workflow Validation
+
+Run the end-to-end workflow gate:
+
+```bash
+make workflow-check
+```
+
+This runs:
+
+- the live `uvicorn` HTTP end-to-end test
+- the memory/retrieval harness across all built-in scenarios using the current repo as the local source root
+- the multi-domain harness across memory, inference, and eval topics using the current repo as the local source root
+
+For the deeper project-specific suite:
+
+```bash
+make grounded-pass-check
+```
+
+This runs the 27-pass grounded research suite and writes a markdown report.
+
+Artifacts:
+
+- `.data/memory-retrieval-harness.sqlite3`
+- `.data/domain-research-harness.sqlite3`
+- `.data/research-pass-runner.md`
 
 ## MCP And Skills
 

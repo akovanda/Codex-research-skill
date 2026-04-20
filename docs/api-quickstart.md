@@ -133,3 +133,49 @@ curl -sS \
   -H "x-api-key: $API_KEY" \
   "$BASE_URL/api/search?q=typed%20memory&include_private=true"
 ```
+
+## 6. Import an external source into the question
+
+Use BibTeX for a deterministic local example:
+
+```bash
+curl -sS -X POST \
+  -H "x-api-key: $API_KEY" \
+  -H "content-type: application/json" \
+  "$BASE_URL/api/import/bibtex" \
+  -d "{\"bibtex\":\"@article{typed_memory_2026,title={Typed memory structures},author={Doe, Alex},journal={Memory Notes},year={2026},doi={10.1000/typed-memory},abstract={Typed records, deep links, and reranking improve reusable research retrieval.}}\",\"question_id\":\"$QUESTION_ID\",\"focal_label\":\"llm long-term memory structure\",\"namespace_kind\":\"org\",\"namespace_id\":\"acme\"}"
+```
+
+## 7. Resolve a reuse-first brief before researching again
+
+```bash
+curl -sS -X POST \
+  -H "x-api-key: $API_KEY" \
+  -H "content-type: application/json" \
+  "$BASE_URL/api/briefs/resolve" \
+  -d '{"prompt":"How should LLM long-term memory retrieval be structured?","include_private":true,"limit":5}' \
+  | jq '{reports: [.reports[].id], claims: [.claims[].id], follow_ups: [.suggested_follow_ups[].id]}'
+```
+
+## 8. Refresh a report when your local source roots have newer evidence
+
+The refresh flow reruns local research for the report's question prompt. It is most useful when your repo or connected local source roots contain relevant material.
+
+```bash
+curl -sS -X POST \
+  -H "x-api-key: $API_KEY" \
+  "$BASE_URL/api/reports/$REPORT_ID/refresh" \
+  | jq '{id, refresh_of_report_id, claim_ids}'
+```
+
+If refresh creates follow-up questions, you can mark one complete:
+
+```bash
+export FOLLOW_UP_ID="<from /api/briefs/resolve or the report detail page>"
+
+curl -sS -X POST \
+  -H "x-api-key: $API_KEY" \
+  -H "content-type: application/json" \
+  "$BASE_URL/api/follow-ups/$FOLLOW_UP_ID/status" \
+  -d '{"follow_up_status":"done"}'
+```

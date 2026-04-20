@@ -55,6 +55,25 @@ Run the full suite against a seeded local registry and write reports:
 research-registry-pass-runner --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2 --json-out /tmp/research-pass-runner.json --markdown-out /tmp/research-pass-runner.md
 ```
 
+Run only one wave when you want a faster focused pass:
+
+```bash
+. .venv/bin/activate
+research-registry-pass-runner --wave 1 --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2 --markdown-out /tmp/research-pass-runner-wave1.md
+```
+
+Run the broader preview workflow gate:
+
+```bash
+make workflow-check
+```
+
+Run the grounded pass suite gate:
+
+```bash
+make grounded-pass-check
+```
+
 ## How To Use It
 
 Run the passes in wave order.
@@ -74,3 +93,7 @@ For evaluation, the first pass on a topic should usually be a gap-fill capture. 
 - summary-contract pass rate for every execution
 
 This is not live web research. It is a local execution harness for the current registry and specialist-domain behavior.
+
+`make grounded-pass-check` leaves the pass runner markdown report at `.data/research-pass-runner.md` for inspection after the run.
+
+The runner now prints per-pass progress to stderr, which matters because the grounded suite can take multiple minutes on larger local workspaces.

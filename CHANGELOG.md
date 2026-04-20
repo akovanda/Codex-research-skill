@@ -12,6 +12,8 @@ Highlights:
 - managed localhost runtime for multiple local Codex instances
 - shared self-hosted Compose deployment for internal teams
 - source-backed research capture and memory/retrieval skills
+- import, brief, refresh, and follow-up workflow endpoints for reuse-first research iteration
+- `make workflow-check` for live HTTP plus harness validation
 
 Known limits:
 

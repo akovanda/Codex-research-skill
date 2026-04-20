@@ -5,6 +5,8 @@ import json
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
+from typing import Callable
 
 from pydantic import BaseModel, Field
 
@@ -89,13 +91,16 @@ def execute_passes(
     *,
     rounds: int = 2,
     source_roots: list[Path] | None = None,
+    progress: Callable[[int, int, int, int, ResearchPassSpec], None] | None = None,
 ) -> ResearchPassRunReport:
     executions: list[ResearchPassExecution] = []
     round_summaries: list[ResearchPassRoundSummary] = []
 
     for round_index in range(1, rounds + 1):
         round_rows: list[ResearchPassExecution] = []
-        for spec in specs:
+        for pass_index, spec in enumerate(specs, start=1):
+            if progress is not None:
+                progress(round_index, rounds, pass_index, len(specs), spec)
             outcome = run_implicit_research_capture(
                 spec.prompt,
                 backend=service,
@@ -247,6 +252,12 @@ def main() -> None:
         help="How many sequential rounds to execute against the same registry.",
     )
     parser.add_argument(
+        "--wave",
+        type=int,
+        action="append",
+        help="Optional wave number to include. Repeat to run more than one wave.",
+    )
+    parser.add_argument(
         "--reset",
         action="store_true",
         help="Delete the existing runner database before execution.",
@@ -269,7 +280,20 @@ def main() -> None:
 
     service = build_seeded_service(Path(args.db_path), reset=args.reset)
     specs = load_research_pass_suite()
-    report = execute_passes(service, specs, rounds=args.rounds)
+    if args.wave:
+        requested_waves = set(args.wave)
+        specs = [spec for spec in specs if spec.wave in requested_waves]
+    if not specs:
+        raise SystemExit("no research passes matched the selected filters")
+
+    def emit_progress(round_index: int, total_rounds: int, pass_index: int, total_passes: int, spec: ResearchPassSpec) -> None:
+        print(
+            f"[round {round_index}/{total_rounds}] pass {pass_index}/{total_passes}: {spec.pass_id}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    report = execute_passes(service, specs, rounds=args.rounds, progress=emit_progress)
 
     if args.json_out:
         json_path = Path(args.json_out)

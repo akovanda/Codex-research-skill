@@ -97,16 +97,28 @@ def test_release_scope_docs_are_consistent() -> None:
     assert "Initial open-source preview release." in changelog
     assert "GitHub source releases" in release
     assert "make preview-check" in release
+    assert "make workflow-check" in release
+    assert "make grounded-pass-check" in release
     assert "real maintainer-owned security contact" in release
     assert "Linux" in support
     assert "macOS" in support
     assert "Windows localhost installs" in support
     assert "GitHub issues" in support
     assert "make preview-check" in makefile
+    assert "make workflow-check" in makefile
+    assert "make grounded-pass-check" in makefile
     assert "make token" in makefile
     assert "make uninstall" in makefile
     assert "/openapi.json" in api_quickstart
     assert "/api/admin/api-keys" in api_quickstart
+    assert "/api/import/bibtex" in api_quickstart
+    assert "/api/briefs/resolve" in api_quickstart
+    assert "/api/reports/$REPORT_ID/refresh" in api_quickstart
+    assert "/api/follow-ups/$FOLLOW_UP_ID/status" in api_quickstart
+    assert "make workflow-check" in readme
+    assert "make grounded-pass-check" in readme
+    assert "POST /api/import/bibtex" in readme
+    assert "POST /api/briefs/resolve" in readme
 
 
 def test_package_metadata_matches_preview_contract() -> None:
