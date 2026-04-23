@@ -228,6 +228,30 @@ def test_api_key_isolation_and_public_namespace_vs_global_index(tmp_path: Path) 
     assert key_response.json()["record"]["namespace_kind"] == "org"
 
 
+def test_create_question_accepts_legacy_subject_and_string_focus(tmp_path: Path) -> None:
+    app = create_app(make_settings(tmp_path))
+    client = TestClient(app)
+    service = app.state.service
+
+    api_key = service.issue_api_key(ApiKeyCreate(label="writer", actor_user_id="alice"))
+
+    response = client.post(
+        "/api/questions",
+        headers={"x-api-key": api_key.token},
+        json={
+            "subject": "Star Wars ship template expansion and layout-feel guidance for ScalaGalaxies",
+            "focus": "catalog metadata, origin worlds, hull role coverage, and interior topology heuristics for ship templates",
+            "visibility": "private",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["prompt"] == "Star Wars ship template expansion and layout-feel guidance for ScalaGalaxies"
+    assert payload["focus"]["label"] == "catalog metadata, origin worlds, hull role coverage, and interior topology heuristics for ship templates"
+    assert payload["visibility"] == "private"
+
+
 def test_empty_pages_include_onboarding_guidance(tmp_path: Path) -> None:
     app = create_app(make_settings(tmp_path))
     client = TestClient(app)

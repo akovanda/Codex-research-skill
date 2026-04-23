@@ -99,7 +99,9 @@ class TopicRecord(TopicCreate):
 
 
 class QuestionCreate(BaseModel):
-    prompt: str = Field(validation_alias=AliasChoices("prompt", "question"))
+    model_config = ConfigDict(populate_by_name=True)
+
+    prompt: str = Field(validation_alias=AliasChoices("prompt", "question", "subject"))
     focus: FocusTuple | None = None
     topic_id: str | None = None
     parent_question_id: str | None = None
@@ -113,6 +115,17 @@ class QuestionCreate(BaseModel):
     namespace_kind: NamespaceKind = "user"
     namespace_id: str = "local"
     dedupe_key: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_payload(cls, value):
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        focus = payload.get("focus")
+        if isinstance(focus, str):
+            payload["focus"] = {"label": focus}
+        return payload
 
     @model_validator(mode="after")
     def validate_focus_reference(self) -> "QuestionCreate":
