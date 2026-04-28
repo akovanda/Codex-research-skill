@@ -160,6 +160,12 @@ First real workflow:
 3. Open `/admin/login` and review what was stored.
 4. Publish the reusable reports or claims that should become visible on the public board.
 
+Repo-aware workflow:
+
+1. Add `.codex/repo-profile.toml` to the repo you want to analyze.
+2. Ask Codex for the exact command, repo triage, or reviewer concerns for a file or stack trace.
+3. Let implicit capture inspect the repo profile, nearest `AGENTS.md` files, local configs, targeted `rg` hits, git state, and coverage artifacts before storing the result.
+
 ### Shared self-hosted mode
 
 Use Postgres and point clients at a shared server:
@@ -304,6 +310,7 @@ The web app and API are the primary product surface. MCP and Codex skills sit on
 - stdio MCP server: `research-registry-mcp`
 - implicit capture skill: [`skills/research-capture`](skills/research-capture/SKILL.md)
 - memory/retrieval skill: [`skills/research-memory-retrieval`](skills/research-memory-retrieval/SKILL.md)
+- checked-in repo profile example: [`.codex/repo-profile.toml`](.codex/repo-profile.toml)
 
 ## Deployment
 
@@ -315,6 +322,7 @@ The web app and API are the primary product surface. MCP and Codex skills sit on
 - [Kubernetes deployment](docs/deploy-kubernetes.md)
 - [Operations](docs/operations.md)
 - [Implicit research capture](docs/implicit-research-capture.md)
+- [Repo-aware capture](docs/repo-aware-capture.md)
 - [Memory/retrieval skill](docs/memory-retrieval-skill.md)
 - [Research pass suite](docs/research-pass-suite.md)
 - [Support policy](SUPPORT.md)

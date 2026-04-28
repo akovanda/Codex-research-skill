@@ -16,6 +16,7 @@ PRIMARY_DOCS = [
     REPO_ROOT / "docs" / "deploy-kubernetes.md",
     REPO_ROOT / "docs" / "operations.md",
     REPO_ROOT / "docs" / "implicit-research-capture.md",
+    REPO_ROOT / "docs" / "repo-aware-capture.md",
     REPO_ROOT / "docs" / "memory-retrieval-skill.md",
     REPO_ROOT / "CHANGELOG.md",
     REPO_ROOT / "RELEASE.md",
@@ -46,6 +47,7 @@ def test_open_source_preview_surface_files_exist() -> None:
         REPO_ROOT / "Dockerfile",
         REPO_ROOT / ".dockerignore",
         REPO_ROOT / ".env.example",
+        REPO_ROOT / ".codex" / "repo-profile.toml",
         REPO_ROOT / "deploy" / "compose.yaml",
         REPO_ROOT / "deploy" / ".env.example",
         REPO_ROOT / "deploy" / "kubernetes" / "deployment.yaml",
@@ -53,6 +55,7 @@ def test_open_source_preview_surface_files_exist() -> None:
         REPO_ROOT / "deploy" / "kubernetes" / "migrate-job.yaml",
         REPO_ROOT / "docs" / "getting-started.md",
         REPO_ROOT / "docs" / "api-quickstart.md",
+        REPO_ROOT / "docs" / "repo-aware-capture.md",
     ]
     for path in required:
         assert path.exists(), str(path)
@@ -119,6 +122,7 @@ def test_release_scope_docs_are_consistent() -> None:
     assert "make grounded-pass-check" in readme
     assert "POST /api/import/bibtex" in readme
     assert "POST /api/briefs/resolve" in readme
+    assert ".codex/repo-profile.toml" in readme
 
 
 def test_package_metadata_matches_preview_contract() -> None:

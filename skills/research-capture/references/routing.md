@@ -20,7 +20,13 @@ Delegate when the topic includes any of these themes:
 
 ## Keep Work In `research-capture`
 
-Stay in the general skill for broad research outside that domain, such as:
+Stay in the general skill for repo-aware capture and broad research outside that domain, such as:
+
+- the exact command for a file or path
+- a failing test, stack trace, or local error log
+- repo-specific preflight or setup blockers
+- change review, reviewer concerns, or risk areas
+- checked-in `.codex/repo-profile.toml` or nearest `AGENTS.md` guidance
 
 - product comparisons
 - technical literature reviews outside memory/retrieval

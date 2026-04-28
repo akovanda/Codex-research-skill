@@ -1,6 +1,6 @@
 interface:
   display_name: "Research Capture"
-  short_description: "Implicit research capture and storage"
-  default_prompt: "Use $research-capture to research a topic, store the result privately, and summarize what was reused, stored, or queued."
+  short_description: "Implicit research, triage, and review capture"
+  default_prompt: "Use $research-capture to research a topic or repo workflow, store the result privately, and summarize what was reused, stored, or queued."
 policy:
   allow_implicit_invocation: true

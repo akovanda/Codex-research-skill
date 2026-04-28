@@ -1,6 +1,6 @@
 # Workflow
 
-Use this sequence for any research-shaped request.
+Use this sequence for any research-shaped or repo-aware capture request.
 
 ## 1. Flush Before New Work
 
@@ -15,9 +15,16 @@ Use this sequence for any research-shaped request.
 ## 3. Route By Topic
 
 - delegate memory/retrieval topics to `$research-memory-retrieval`
+- keep repo-aware command-routing, triage, and review prompts inside `research-capture`
 - otherwise stay in the general research-capture flow
 
-## 4. Store New Research
+## 4. Check The Repo First When Applicable
+
+- if the repo has `.codex/repo-profile.toml`, load it first
+- resolve the nearest `AGENTS.md` files for the affected path before summarizing instructions
+- inspect local manifests, config files, targeted `rg` hits, git state, and coverage artifacts before widening the search surface
+
+## 5. Store New Research
 
 - create a research session for new work
 - add source-backed excerpts first
@@ -25,7 +32,7 @@ Use this sequence for any research-shaped request.
 - create a private guidance report for the session
 - create follow-up questions when gaps, needs, or wants are concrete
 
-## 5. Summarize Explicitly
+## 6. Summarize Explicitly
 
 - tell the user what was reused
 - tell the user what was stored

@@ -10,6 +10,7 @@ Primary pieces:
 
 - [`skills/research-capture`](../skills/research-capture/SKILL.md)
 - [`skills/research-memory-retrieval`](../skills/research-memory-retrieval/SKILL.md)
+- [Repo-aware capture](repo-aware-capture.md)
 - local queue fallback
 - backend selection with localhost default and optional shared backend overrides
 
@@ -25,6 +26,14 @@ When a request is clearly research-shaped, the capture workflow should:
 6. queue the capture if the backend is temporarily unavailable
 
 Memory/retrieval research routes to the specialist skill and still writes into the same registry model.
+
+When the request is repo-aware instead of broad research, the capture workflow should:
+
+1. load `.codex/repo-profile.toml` when present
+2. resolve the nearest applicable `AGENTS.md` files
+3. inspect local manifests/configs, targeted `rg` hits, git state, and coverage artifacts
+4. recommend the narrowest valid command for the affected path
+5. store the triage or review result in the same registry model by default
 
 ## Backend selection
 

@@ -41,16 +41,21 @@ def test_capture_skill_package_has_required_files() -> None:
     assert (CAPTURE_SKILL_DIR / "references" / "workflow.md").exists()
     assert (CAPTURE_SKILL_DIR / "references" / "routing.md").exists()
     assert (CAPTURE_SKILL_DIR / "references" / "queue-fallback.md").exists()
+    assert (CAPTURE_SKILL_DIR / "references" / "repo-aware.md").exists()
 
 
 def test_capture_skill_instructions_cover_implicit_capture_and_queue() -> None:
     content = (CAPTURE_SKILL_DIR / "SKILL.md").read_text()
     openai_yaml = (CAPTURE_SKILL_DIR / "agents" / "openai.yaml").read_text()
+    repo_aware = (CAPTURE_SKILL_DIR / "references" / "repo-aware.md").read_text()
 
     assert "trigger on research intent" in content.lower() or "research intent" in content.lower()
     assert "Flush pending queue items first" in content
     assert "`$research-memory-retrieval`" in content
     assert "Always create a guidance report" in content
+    assert ".codex/repo-profile.toml" in content
+    assert "AGENTS.md" in content
     assert "research-registry-capture-queue enqueue" in (CAPTURE_SKILL_DIR / "references" / "queue-fallback.md").read_text()
+    assert "exact command for a file" in repo_aware
     assert 'allow_implicit_invocation: true' in openai_yaml
     assert "[TODO:" not in content

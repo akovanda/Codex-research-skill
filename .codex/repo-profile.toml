@@ -1,0 +1,44 @@
+[repo]
+name = "research-registry"
+default_test_command = "PYTHONPATH=src .venv/bin/python -m pytest -q {test_targets}"
+default_lint_command = "PYTHONPATH=src .venv/bin/python -m pytest -q {test_targets}"
+default_build_command = "make preview-check"
+
+[policy]
+prefer_non_interactive = true
+forbid_destructive_git = true
+no_full_repo_tests = true
+long_timeout_commands = ["make preview-check", "make workflow-check", "make grounded-pass-check"]
+review_conventions = ["Call out missing regression tests or docs when repo-surface changes affect capture, storage, or install flows."]
+
+[setup]
+required_tools = ["git", "python3"]
+required_paths = [".venv", "pyproject.toml"]
+coverage_paths = [".coverage", "htmlcov"]
+startup_notes = ["Use make up before relying on the managed localhost runtime or MCP wiring."]
+
+[[areas]]
+name = "python-core"
+globs = ["src/**/*.py", "tests/**/*.py"]
+test_command = "PYTHONPATH=src .venv/bin/python -m pytest -q {test_targets}"
+lint_command = "PYTHONPATH=src .venv/bin/python -m pytest -q {test_targets}"
+owners = ["registry-core"]
+review_conventions = ["Check for storage, contract, and implicit capture regressions in Python changes."]
+coverage_paths = [".coverage", "htmlcov"]
+
+[[areas]]
+name = "skills-and-docs"
+globs = ["skills/**/*.md", "skills/**/openai.yaml", "docs/**/*.md", "README.md", "SUPPORT.md", "RELEASE.md", "CHANGELOG.md"]
+test_command = "PYTHONPATH=src .venv/bin/python -m pytest -q tests/test_skill_package.py tests/test_docs_contract.py"
+lint_command = "PYTHONPATH=src .venv/bin/python -m pytest -q tests/test_skill_package.py tests/test_docs_contract.py"
+owners = ["docs-and-skills"]
+review_conventions = ["Keep the skill package contract and preview docs in sync with behavior changes."]
+
+[[areas]]
+name = "deploy-and-local-runtime"
+globs = ["deploy/**/*", "Dockerfile", ".env.example", "Makefile"]
+test_command = "PYTHONPATH=src .venv/bin/python -m pytest -q tests/test_local_manager.py"
+build_command = "make status"
+required_tools = ["docker"]
+owners = ["local-runtime"]
+review_conventions = ["Flag any change that makes make up or managed localhost install less deterministic."]
