@@ -6,7 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field
 
-from .local_research import build_focus, run_local_research
+from .local_research import LocalGuidanceDraft, build_focus, run_local_research
 from .models import (
     BackendStatus,
     ClaimCreate,
@@ -22,6 +22,11 @@ from .models import (
     SearchResponse,
     SourceCreate,
 )
+from .repo_intelligence import (
+    evaluate_repo_summary_contract,
+    resolve_repo_capture_request,
+    run_repo_capture,
+)
 
 RESEARCH_PATTERNS = (
     r"\bresearch\b",
@@ -34,6 +39,15 @@ RESEARCH_PATTERNS = (
     r"\bsurvey\b",
     r"\bwhat does the literature say\b",
     r"\bevaluate\b.+\bsource",
+)
+REPO_CAPTURE_PATTERNS = (
+    r"\bwhat exact command\b",
+    r"\bwhat command should i run\b",
+    r"\bwhy is this failing\b",
+    r"\bstack trace\b",
+    r"\berror log\b",
+    r"\breview this change\b",
+    r"\breviewer concerns?\b",
 )
 
 MEMORY_KEYWORDS = (
@@ -117,7 +131,7 @@ def is_research_request(prompt: str) -> bool:
     normalized = normalize_research_prompt(prompt)
     if not normalized:
         return False
-    return any(re.search(pattern, normalized) for pattern in RESEARCH_PATTERNS)
+    return any(re.search(pattern, normalized) for pattern in (*RESEARCH_PATTERNS, *REPO_CAPTURE_PATTERNS))
 
 
 def specialized_skill_for_prompt(prompt: str) -> str | None:
@@ -186,9 +200,12 @@ def run_implicit_research_capture(
     del prefer_report
     source_signals = source_signals or []
     backend_status = backend.backend_status()
-    specialized_domain = specialized_domain_for_prompt(prompt)
-    specialized_skill = specialized_skill_for_prompt(prompt)
-    focus = build_focus(prompt, domain=specialized_domain, source_signals=source_signals)
+    repo_request = resolve_repo_capture_request(prompt, source_roots=source_roots)
+    specialized_domain = specialized_domain_for_prompt(prompt) if repo_request is None else None
+    specialized_skill = specialized_skill_for_prompt(prompt) if repo_request is None else None
+    focus = repo_request.focus if repo_request is not None else build_focus(prompt, domain=specialized_domain, source_signals=source_signals)
+    effective_domain = focus.domain or specialized_domain
+    effective_skill = "research-capture" if repo_request is not None else specialized_skill
     question = backend.create_question(
         QuestionCreate(
             prompt=prompt,
@@ -221,8 +238,8 @@ def run_implicit_research_capture(
         )
         check = evaluate_summary_contract(summary_md, claims=guidance_points, source_refs=source_refs, registry_ids=[question.id, session.id, *[report.id for report in reusable_reports], *[claim.id for claim in reusable_claims]])
         return ImplicitCaptureOutcome(
-            specialized_domain=specialized_domain,
-            specialized_skill=specialized_skill,
+            specialized_domain=effective_domain,
+            specialized_skill=effective_skill,
             specialist_mode="reuse",
             capture_summary=CaptureSummary(
                 prompt=prompt,
@@ -238,6 +255,63 @@ def run_implicit_research_capture(
             ),
             narrative_summary_md=summary_md,
             summary_contract_passed=check.passed,
+        )
+
+    if repo_request is not None:
+        repo_result = run_repo_capture(prompt, repo_request)
+        session, created_sources, created_excerpt_ids, created_claim_ids, follow_up_questions, report, source_refs = store_capture_result(
+            backend,
+            question=question,
+            prompt=prompt,
+            focus=repo_result.focus,
+            hits=repo_result.hits,
+            claim_drafts=repo_result.claim_drafts,
+            guidance=repo_result.guidance,
+            report_md=repo_result.report_md,
+            session_mode=repo_result.mode,
+            session_notes="implicit research capture with repo-aware local evidence",
+            source_signals=source_signals,
+            focus_domain=repo_result.focus.domain,
+            model_name=model_name,
+            model_version=model_version,
+        )
+        summary_md = append_repo_registry_state(
+            repo_result.report_md,
+            question_id=question.id,
+            session_id=session.id,
+            report_id=report.id,
+            source_ids=list(created_sources.values()),
+            claim_ids=created_claim_ids,
+            follow_up_question_ids=[child.id for child in follow_up_questions],
+        )
+        summary_ok = evaluate_repo_summary_contract(
+            summary_md,
+            commands=repo_result.commands,
+            instructions=repo_result.instructions,
+            registry_ids=[question.id, session.id, report.id, *created_claim_ids, *created_excerpt_ids],
+        )
+        backend.set_question_status(question.id, "answered")
+        return ImplicitCaptureOutcome(
+            specialized_domain=repo_result.focus.domain,
+            specialized_skill=effective_skill,
+            specialist_mode=repo_result.mode,
+            capture_summary=CaptureSummary(
+                prompt=prompt,
+                stored_topic_id=question.topic_id,
+                stored_question_id=question.id,
+                stored_session_id=session.id,
+                stored_source_ids=list(created_sources.values()),
+                stored_excerpt_ids=created_excerpt_ids,
+                stored_claim_ids=created_claim_ids,
+                stored_follow_up_question_ids=[child.id for child in follow_up_questions],
+                stored_report_id=report.id,
+                created_at=datetime.now(timezone.utc),
+                backend_name=backend_status.name,
+                backend_url=backend_status.url,
+                namespace_id=backend_status.namespace_id,
+            ),
+            narrative_summary_md=summary_md,
+            summary_contract_passed=summary_ok,
         )
 
     live_result = run_local_research(prompt, domain=specialized_domain, source_signals=source_signals, source_roots=source_roots)
@@ -258,7 +332,7 @@ def run_implicit_research_capture(
             backend,
             parent_question=question,
             session_id=session.id,
-            specialized_domain=specialized_domain,
+            focus_domain=focus.domain,
             source_signals=source_signals,
             follow_ups=live_result.guidance.follow_ups,
         )
@@ -277,8 +351,8 @@ def run_implicit_research_capture(
             registry_ids=[question.id, session.id, *[child.id for child in follow_up_questions]],
         )
         return ImplicitCaptureOutcome(
-            specialized_domain=specialized_domain,
-            specialized_skill=specialized_skill,
+            specialized_domain=effective_domain,
+            specialized_skill=effective_skill,
             specialist_mode="insufficient_evidence",
             capture_summary=CaptureSummary(
                 prompt=prompt,
@@ -295,96 +369,21 @@ def run_implicit_research_capture(
             summary_contract_passed=check.passed,
         )
 
-    session = backend.create_session(
-        ResearchSessionCreate(
-            question_id=question.id,
-            prompt=prompt,
-            model_name=model_name,
-            model_version=model_version,
-            mode="live_research",
-            source_signals=source_signals,
-            notes="implicit research capture with live local evidence",
-        )
-    )
-
-    created_sources: dict[str, str] = {}
-    created_excerpt_ids: list[str] = []
-    created_claim_ids: list[str] = []
-    source_refs: list[str] = []
-    for hit in live_result.hits:
-        locator = hit.source.locator
-        source_id = created_sources.get(locator)
-        if source_id is None:
-            created_source = backend.create_source(hit.source)
-            created_sources[locator] = created_source.id
-            source_id = created_source.id
-            source_refs.append(created_source.locator)
-        created_excerpt = backend.create_excerpt(
-            ExcerptCreate(
-                source_id=source_id,
-                question_id=question.id,
-                session_id=session.id,
-                topic_id=question.topic_id,
-                focal_label=live_result.focus.label or question.focus.label or "research",
-                note=hit.note,
-                selector=hit.selector,
-                quote_text=hit.quote_text,
-                confidence=min(0.95, max(0.55, hit.score / 10.0)),
-                tags=hit.matched_terms[:4],
-                model_name=model_name,
-                model_version=model_version,
-            )
-        )
-        created_excerpt_ids.append(created_excerpt.id)
-
-    for draft in live_result.claim_drafts:
-        excerpt_ids = [created_excerpt_ids[index] for index in draft.excerpt_indexes if index < len(created_excerpt_ids)]
-        if not excerpt_ids:
-            continue
-        created_claim = backend.create_claim(
-            ClaimCreate(
-                question_id=question.id,
-                session_id=session.id,
-                topic_id=question.topic_id,
-                title=draft.title,
-                focal_label=live_result.focus.label or question.focus.label or "research",
-                statement=draft.statement,
-                excerpt_ids=excerpt_ids,
-                status=draft.status,
-                confidence=draft.confidence,
-                model_name=model_name,
-                model_version=model_version,
-            )
-        )
-        created_claim_ids.append(created_claim.id)
-
-    follow_up_questions = create_follow_up_questions(
+    session, created_sources, created_excerpt_ids, created_claim_ids, follow_up_questions, report, source_refs = store_capture_result(
         backend,
-        parent_question=question,
-        session_id=session.id,
-        specialized_domain=specialized_domain,
+        question=question,
+        prompt=prompt,
+        focus=live_result.focus,
+        hits=live_result.hits,
+        claim_drafts=live_result.claim_drafts,
+        guidance=live_result.guidance,
+        report_md=live_result.report_md,
+        session_mode="live_research",
+        session_notes="implicit research capture with live local evidence",
         source_signals=source_signals,
-        follow_ups=live_result.guidance.follow_ups,
-    )
-    report = backend.create_report(
-        ReportCreate(
-            question_id=question.id,
-            session_id=session.id,
-            title=prompt,
-            focal_label=live_result.focus.label or question.focus.label or "research",
-            summary_md=live_result.report_md or f"# {prompt}\n",
-            guidance=GuidancePayload(
-                current_guidance=live_result.guidance.current_guidance,
-                evidence_now=live_result.guidance.evidence_now,
-                gaps=live_result.guidance.gaps,
-                needs=live_result.guidance.needs,
-                wants=live_result.guidance.wants,
-                follow_up_question_ids=[child.id for child in follow_up_questions],
-            ),
-            claim_ids=created_claim_ids,
-            model_name=model_name,
-            model_version=model_version,
-        )
+        focus_domain=live_result.focus.domain or specialized_domain,
+        model_name=model_name,
+        model_version=model_version,
     )
     backend.set_question_status(question.id, "answered")
     claim_points = [draft.statement for draft in live_result.claim_drafts]
@@ -407,8 +406,8 @@ def run_implicit_research_capture(
         registry_ids=[question.id, session.id, report.id, *created_claim_ids, *created_excerpt_ids, *created_sources.values(), *[child.id for child in follow_up_questions]],
     )
     return ImplicitCaptureOutcome(
-        specialized_domain=specialized_domain,
-        specialized_skill=specialized_skill,
+        specialized_domain=effective_domain,
+        specialized_skill=effective_skill,
         specialist_mode="live_research",
         capture_summary=CaptureSummary(
             prompt=prompt,
@@ -537,14 +536,14 @@ def create_follow_up_questions(
     *,
     parent_question: QuestionRecord,
     session_id: str,
-    specialized_domain: str | None,
+    focus_domain: str | None,
     source_signals: list[str],
     follow_ups: list,
 ) -> list[QuestionRecord]:
     created: list[QuestionRecord] = []
     seen_ids: set[str] = set()
     for follow_up in follow_ups[:5]:
-        child_focus = build_focus(follow_up.prompt, domain=specialized_domain, source_signals=source_signals)
+        child_focus = build_focus(follow_up.prompt, domain=focus_domain, source_signals=source_signals)
         child = backend.create_question(
             QuestionCreate(
                 prompt=follow_up.prompt,
@@ -561,6 +560,136 @@ def create_follow_up_questions(
         seen_ids.add(child.id)
         created.append(child)
     return created
+
+
+def store_capture_result(
+    backend: ResearchRegistryBackend,
+    *,
+    question: QuestionRecord,
+    prompt: str,
+    focus: FocusTuple,
+    hits: list,
+    claim_drafts: list,
+    guidance: LocalGuidanceDraft,
+    report_md: str | None,
+    session_mode: str,
+    session_notes: str,
+    source_signals: list[str],
+    focus_domain: str | None,
+    model_name: str,
+    model_version: str,
+):
+    session = backend.create_session(
+        ResearchSessionCreate(
+            question_id=question.id,
+            prompt=prompt,
+            model_name=model_name,
+            model_version=model_version,
+            mode=session_mode,
+            source_signals=source_signals,
+            notes=session_notes,
+        )
+    )
+    created_sources: dict[str, str] = {}
+    created_excerpt_ids: list[str] = []
+    created_claim_ids: list[str] = []
+    source_refs: list[str] = []
+    for hit in hits:
+        locator = hit.source.locator
+        source_id = created_sources.get(locator)
+        if source_id is None:
+            created_source = backend.create_source(hit.source)
+            created_sources[locator] = created_source.id
+            source_id = created_source.id
+            source_refs.append(created_source.locator)
+        created_excerpt = backend.create_excerpt(
+            ExcerptCreate(
+                source_id=source_id,
+                question_id=question.id,
+                session_id=session.id,
+                topic_id=question.topic_id,
+                focal_label=focus.label or question.focus.label or "research",
+                note=hit.note,
+                selector=hit.selector,
+                quote_text=hit.quote_text,
+                confidence=min(0.95, max(0.55, hit.score / 10.0)),
+                tags=hit.matched_terms[:4],
+                model_name=model_name,
+                model_version=model_version,
+            )
+        )
+        created_excerpt_ids.append(created_excerpt.id)
+    for draft in claim_drafts:
+        excerpt_ids = [created_excerpt_ids[index] for index in draft.excerpt_indexes if index < len(created_excerpt_ids)]
+        if not excerpt_ids:
+            continue
+        created_claim = backend.create_claim(
+            ClaimCreate(
+                question_id=question.id,
+                session_id=session.id,
+                topic_id=question.topic_id,
+                title=draft.title,
+                focal_label=focus.label or question.focus.label or "research",
+                statement=draft.statement,
+                excerpt_ids=excerpt_ids,
+                status=draft.status,
+                confidence=draft.confidence,
+                model_name=model_name,
+                model_version=model_version,
+            )
+        )
+        created_claim_ids.append(created_claim.id)
+    follow_up_questions = create_follow_up_questions(
+        backend,
+        parent_question=question,
+        session_id=session.id,
+        focus_domain=focus_domain,
+        source_signals=source_signals,
+        follow_ups=guidance.follow_ups,
+    )
+    report = backend.create_report(
+        ReportCreate(
+            question_id=question.id,
+            session_id=session.id,
+            title=prompt,
+            focal_label=focus.label or question.focus.label or "research",
+            summary_md=report_md or f"# {prompt}\n",
+            guidance=GuidancePayload(
+                current_guidance=guidance.current_guidance,
+                evidence_now=guidance.evidence_now,
+                gaps=guidance.gaps,
+                needs=guidance.needs,
+                wants=guidance.wants,
+                follow_up_question_ids=[child.id for child in follow_up_questions],
+            ),
+            claim_ids=created_claim_ids,
+            model_name=model_name,
+            model_version=model_version,
+        )
+    )
+    return session, created_sources, created_excerpt_ids, created_claim_ids, follow_up_questions, report, source_refs
+
+
+def append_repo_registry_state(
+    summary_md: str,
+    *,
+    question_id: str,
+    session_id: str,
+    report_id: str,
+    source_ids: list[str],
+    claim_ids: list[str],
+    follow_up_question_ids: list[str],
+) -> str:
+    lines = [
+        summary_md.rstrip(),
+        f"- Question: {question_id}",
+        f"- Session: {session_id}",
+        f"- Report: {report_id}",
+        f"- Sources: {', '.join(source_ids) if source_ids else 'none'}",
+        f"- Claims: {', '.join(claim_ids) if claim_ids else 'none'}",
+        f"- Follow-up questions: {', '.join(follow_up_question_ids) if follow_up_question_ids else 'none'}",
+    ]
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def collect_follow_up_question_ids(reports: list[ReportRecord]) -> list[str]:
