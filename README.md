@@ -162,9 +162,10 @@ First real workflow:
 
 Repo-aware workflow:
 
-1. Add `.codex/repo-profile.toml` to the repo you want to analyze.
-2. Ask Codex for the exact command, repo triage, or reviewer concerns for a file or stack trace.
-3. Let implicit capture inspect the repo profile, nearest `AGENTS.md` files, local configs, targeted `rg` hits, git state, and coverage artifacts before storing the result.
+1. Prefer adding `.codex/repo-profile.toml` to the repo you want to analyze.
+2. If no profile exists yet, repo-aware capture falls back to nearest `AGENTS.md` files plus local manifests such as `Cargo.toml`, `package.json`, `Gemfile`, and `pyproject.toml`.
+3. Ask Codex for the exact command, repo triage, or reviewer concerns for a file or stack trace.
+4. Let implicit capture inspect the repo profile or manifest fallback, nearest `AGENTS.md` files, local configs, targeted `rg` hits, git state, and coverage artifacts before storing the result.
 
 ### Shared self-hosted mode
 

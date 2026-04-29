@@ -116,6 +116,75 @@ coverage_paths = ["coverage/workspace-ui.lcov"]
     return repo
 
 
+def make_profileless_rust_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "codex-like"
+    (repo / "codex-rs" / "tui" / "src" / "bottom_pane").mkdir(parents=True)
+    (repo / "codex-rs" / "tui" / "tests").mkdir(parents=True)
+    (repo / "AGENTS.md").write_text(
+        "# Rust/codex-rs\n"
+        "- Run `cargo test -p codex-tui` for TUI changes.\n"
+        "- Run `just fix -p <project>` before finalizing larger Rust changes.\n"
+        "- Run `just argument-comment-lint` to keep comment lint clean.\n",
+        encoding="utf-8",
+    )
+    (repo / "justfile").write_text(
+        "set working-directory := \"codex-rs\"\n"
+        "fix *args:\n"
+        "    cargo clippy --fix --tests --allow-dirty \"$@\"\n",
+        encoding="utf-8",
+    )
+    (repo / "codex-rs" / "tui" / "Cargo.toml").write_text(
+        "[package]\nname = \"codex-tui\"\nversion = \"0.1.0\"\n",
+        encoding="utf-8",
+    )
+    (repo / "codex-rs" / "tui" / "src" / "bottom_pane" / "chat_composer.rs").write_text(
+        "pub fn render() {}\n",
+        encoding="utf-8",
+    )
+    (repo / "codex-rs" / "tui" / "tests" / "chat_composer.rs").write_text(
+        "#[test]\nfn chat_composer() {}\n",
+        encoding="utf-8",
+    )
+    return repo
+
+
+def make_profileless_js_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "pathfinder-like"
+    (repo / "ui" / "app" / "src" / "pages" / "__tests__").mkdir(parents=True)
+    (repo / "AGENTS.md").write_text(
+        "# AGENTS.md\n"
+        "- Use the typed UI routes and keep validation scoped.\n"
+        "- Do not assume git status works in every environment.\n",
+        encoding="utf-8",
+    )
+    (repo / "Makefile").write_text(
+        "test-ui:\n"
+        "\tcd ui/app && npm test\n",
+        encoding="utf-8",
+    )
+    (repo / "ui" / "app" / "package.json").write_text(
+        '{\n'
+        '  "name": "pathfinder-ops-ui",\n'
+        '  "private": true,\n'
+        '  "scripts": {\n'
+        '    "build": "vite build",\n'
+        '    "test": "vitest run"\n'
+        "  },\n"
+        '  "packageManager": "pnpm@10.17.0"\n'
+        "}\n",
+        encoding="utf-8",
+    )
+    (repo / "ui" / "app" / "src" / "pages" / "CombatPage.tsx").write_text(
+        "export function CombatPage() { return null; }\n",
+        encoding="utf-8",
+    )
+    (repo / "ui" / "app" / "src" / "pages" / "__tests__" / "CombatPage.test.tsx").write_text(
+        "it('CombatPage', () => expect(true).toBe(true));\n",
+        encoding="utf-8",
+    )
+    return repo
+
+
 def test_repo_aware_prompts_are_treated_as_capture_requests() -> None:
     assert is_research_request("What exact command should I run for workspaces/chat/src/widget.tsx?")
     assert is_research_request("Review this change in app/models/ship.rb for reviewer concerns.")
@@ -182,6 +251,39 @@ def test_repo_capture_review_mode_adds_workspace_reviewer_notes(tmp_path: Path) 
     assert result.matched_area == "workspace-ui"
     assert "## Reviewer Notes" in result.report_md
     assert "Mention the owning workspace in reviewer notes." in result.report_md
+
+
+def test_profileless_rust_repo_infers_crate_commands(tmp_path: Path) -> None:
+    repo = make_profileless_rust_repo(tmp_path)
+    prompt = "What exact command should I run for codex-rs/tui/src/bottom_pane/chat_composer.rs?"
+    request = resolve_repo_capture_request(prompt, source_roots=[repo])
+
+    assert request is not None
+    assert request.primary_area is not None
+    assert request.primary_area.name == "codex-tui"
+
+    result = run_repo_capture(prompt, request)
+
+    assert result.matched_area == "codex-tui"
+    assert result.commands[0].command == "cargo test -p codex-tui"
+    assert any(command.command == "just fix -p codex-tui" for command in result.commands)
+    assert any("AGENTS.md" == instruction.path for instruction in result.instructions)
+
+
+def test_profileless_js_repo_infers_package_commands_and_test_target(tmp_path: Path) -> None:
+    repo = make_profileless_js_repo(tmp_path)
+    prompt = "What exact command should I run for ui/app/src/pages/CombatPage.tsx?"
+    request = resolve_repo_capture_request(prompt, source_roots=[repo])
+
+    assert request is not None
+    assert request.primary_area is not None
+    assert request.primary_area.name == "pathfinder-ops-ui"
+
+    result = run_repo_capture(prompt, request)
+
+    assert result.matched_area == "pathfinder-ops-ui"
+    assert result.commands[0].command == "pnpm --dir ui/app test -- ui/app/src/pages/__tests__/CombatPage.test.tsx"
+    assert any(check.status == "blocker" and "ui/app/node_modules is missing" in check.detail for check in result.preflight)
 
 
 def test_implicit_capture_stores_repo_triage_session(tmp_path: Path) -> None:

@@ -23,13 +23,22 @@ The profile defines:
 
 This repo ships a working example at [`.codex/repo-profile.toml`](../.codex/repo-profile.toml).
 
+If a repo does not have a checked-in profile yet, repo-aware capture falls back to the nearest local manifests and area hints it can prove:
+
+- `Cargo.toml` for Rust crate routing
+- `package.json` plus package-manager hints for JS and TS packages
+- `Gemfile` for Ruby areas
+- `pyproject.toml` for Python areas
+
+That fallback still resolves nearest `AGENTS.md` files, derives scoped commands when possible, and records the result as a repo-aware capture.
+
 ## Local Evidence Order
 
 Repo-aware capture checks local evidence in this order:
 
 1. `.codex/repo-profile.toml`
 2. nearest applicable `AGENTS.md` files
-3. local manifests and config files
+3. nearest local manifests and config files
 4. targeted `rg` hits
 5. git status, diff, or recent history
 6. coverage artifacts

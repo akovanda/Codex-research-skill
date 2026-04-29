@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from hashlib import sha256
 import fnmatch
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -95,10 +96,17 @@ INSTRUCTION_KEYWORDS = {
     ),
 }
 CONFIG_NAMES = (
+    "Cargo.toml",
+    "justfile",
+    "Justfile",
     "pyproject.toml",
     "pytest.ini",
     "Makefile",
     "package.json",
+    "pnpm-workspace.yaml",
+    "pnpm-lock.yaml",
+    "package-lock.json",
+    "yarn.lock",
     "vitest.config.ts",
     "vitest.config.js",
     "jest.config.ts",
@@ -214,6 +222,18 @@ class RepoCaptureResult(BaseModel):
     report_md: str
 
 
+TEST_PATH_MARKERS = (
+    "/tests/",
+    "/__tests__/",
+    "/spec/",
+    "test_",
+    "_test.",
+    "_spec.",
+    ".test.",
+    ".spec.",
+)
+
+
 def resolve_repo_capture_request(prompt: str, *, source_roots: list[Path] | None = None) -> RepoCaptureRequest | None:
     repo_root = discover_repo_root(source_roots=source_roots)
     if repo_root is None:
@@ -228,7 +248,7 @@ def resolve_repo_capture_request(prompt: str, *, source_roots: list[Path] | None
     target_paths = extract_target_paths(prompt, repo_root)
     if mode == "repo_review" and not target_paths:
         target_paths = collect_git_changed_paths(repo_root)
-    primary_area = resolve_primary_area(profile, target_paths)
+    primary_area = resolve_primary_area(profile, target_paths, repo_root=repo_root)
     focus = build_repo_focus(
         repo_name=profile.repo.name if profile else repo_root.name,
         mode=mode,
@@ -250,7 +270,7 @@ def resolve_repo_capture_request(prompt: str, *, source_roots: list[Path] | None
 def run_repo_capture(prompt: str, request: RepoCaptureRequest) -> RepoCaptureResult:
     repo_root = Path(request.repo_root)
     instructions = resolve_instructions(repo_root, request.target_paths, request.mode)
-    commands = build_command_recommendations(prompt, repo_root, request)
+    commands = build_command_recommendations(prompt, repo_root, request, instructions)
     preflight = evaluate_preflight(repo_root, request, commands)
     failure_bucket = classify_failure_bucket(prompt, preflight)
     evidence_hits = collect_repo_evidence(
@@ -362,20 +382,19 @@ def classify_repo_prompt(prompt: str) -> RepoCaptureMode | None:
     return None
 
 
-def resolve_primary_area(profile: RepoProfile | None, target_paths: list[str]) -> RepoProfileArea | None:
-    if profile is None or not target_paths:
-        return None
-    scores: dict[str, tuple[int, int]] = {}
-    areas = {area.name: area for area in profile.areas}
-    for area in profile.areas:
-        matched = [path for path in target_paths if any(path_matches_glob(path, pattern) for pattern in area.globs)]
-        if matched:
-            specificity = max(len(pattern) for pattern in area.globs)
-            scores[area.name] = (len(matched), specificity)
-    if not scores:
-        return None
-    winner = max(scores.items(), key=lambda item: item[1])[0]
-    return areas[winner]
+def resolve_primary_area(profile: RepoProfile | None, target_paths: list[str], *, repo_root: Path) -> RepoProfileArea | None:
+    if target_paths and profile is not None:
+        scores: dict[str, tuple[int, int]] = {}
+        areas = {area.name: area for area in profile.areas}
+        for area in profile.areas:
+            matched = [path for path in target_paths if any(path_matches_glob(path, pattern) for pattern in area.globs)]
+            if matched:
+                specificity = max(len(pattern) for pattern in area.globs)
+                scores[area.name] = (len(matched), specificity)
+        if scores:
+            winner = max(scores.items(), key=lambda item: item[1])[0]
+            return areas[winner]
+    return infer_profileless_area(repo_root, target_paths)
 
 
 def build_repo_focus(*, repo_name: str, mode: RepoCaptureMode, primary_area: str | None, target_paths: list[str]) -> FocusTuple:
@@ -388,6 +407,187 @@ def build_repo_focus(*, repo_name: str, mode: RepoCaptureMode, primary_area: str
         context=repo_name,
         constraint=constraint,
     )
+
+
+def infer_profileless_area(repo_root: Path, target_paths: list[str]) -> RepoProfileArea | None:
+    if not target_paths:
+        return None
+    manifest = find_nearest_area_manifest(repo_root, target_paths)
+    if manifest is None:
+        workspace = derive_workspace(target_paths)
+        if workspace:
+            return RepoProfileArea(
+                name=workspace,
+                globs=[f"workspaces/{workspace}/**/*", f"packages/{workspace}/**/*"],
+                test_command=f"yarn workspace {workspace} test {{test_targets}} --watch=false",
+                lint_command=f"yarn workspace {workspace} lint {{lint_targets}}",
+                build_command=f"yarn workspace {workspace} build",
+                required_tools=["yarn"],
+                required_paths=[f"workspaces/{workspace}/package.json"],
+                review_conventions=[f"Mention the owning workspace `{workspace}` in reviewer notes."],
+            )
+        return None
+    if manifest.name == "Cargo.toml":
+        return build_cargo_area(repo_root, manifest)
+    if manifest.name == "package.json":
+        return build_package_area(repo_root, manifest, target_paths)
+    if manifest.name == "Gemfile":
+        return build_ruby_area(repo_root, manifest)
+    if manifest.name == "pyproject.toml":
+        return build_python_area(repo_root, manifest)
+    return None
+
+
+def find_nearest_area_manifest(repo_root: Path, target_paths: list[str]) -> Path | None:
+    manifest_names = ("Cargo.toml", "package.json", "Gemfile", "pyproject.toml")
+    for target in target_paths:
+        current = (repo_root / target).resolve()
+        if current.is_file():
+            current = current.parent
+        for directory in [current, *current.parents]:
+            try:
+                directory.relative_to(repo_root)
+            except ValueError:
+                continue
+            for name in manifest_names:
+                candidate = directory / name
+                if candidate.exists():
+                    return candidate
+            if directory == repo_root:
+                break
+    return None
+
+
+def build_cargo_area(repo_root: Path, cargo_toml: Path) -> RepoProfileArea:
+    package_name = cargo_toml.parent.name
+    try:
+        cargo_data = tomllib.loads(cargo_toml.read_text(encoding="utf-8"))
+        package_name = cargo_data.get("package", {}).get("name") or package_name
+    except (OSError, tomllib.TOMLDecodeError):
+        pass
+    crate_root = cargo_toml.parent.relative_to(repo_root).as_posix()
+    lint_command = f"cargo clippy -p {package_name} --tests"
+    if (repo_root / "justfile").exists() or (repo_root / "Justfile").exists():
+        lint_command = f"just fix -p {package_name}"
+    return RepoProfileArea(
+        name=package_name,
+        globs=[f"{crate_root}/**/*"],
+        test_command=f"cargo test -p {package_name}",
+        lint_command=lint_command,
+        build_command=f"cargo build -p {package_name}",
+        required_tools=["cargo"],
+        required_paths=[cargo_toml.relative_to(repo_root).as_posix()],
+        review_conventions=[f"Keep review feedback scoped to the `{package_name}` crate."],
+    )
+
+
+def build_package_area(repo_root: Path, package_json: Path, target_paths: list[str]) -> RepoProfileArea:
+    package_name = package_json.parent.name
+    scripts: dict[str, str] = {}
+    package_manager = ""
+    try:
+        payload = json.loads(package_json.read_text(encoding="utf-8"))
+        package_name = payload.get("name") or package_name
+        scripts = payload.get("scripts", {}) if isinstance(payload.get("scripts", {}), dict) else {}
+        package_manager = str(payload.get("packageManager", "")).strip()
+    except (OSError, json.JSONDecodeError):
+        pass
+    package_root = package_json.parent.relative_to(repo_root).as_posix()
+    workspace = derive_workspace(target_paths)
+    manager = resolve_package_manager(repo_root, package_json.parent, package_manager)
+    test_command = None
+    lint_command = None
+    build_command = None
+    if workspace and manager == "yarn" and "test" in scripts:
+        test_command = f"yarn workspace {package_name} test {{test_targets}} --watch=false"
+    elif "test" in scripts:
+        test_command = build_package_script_command(manager, package_root, "test", "{test_targets}")
+    if workspace and manager == "yarn" and "lint" in scripts:
+        lint_command = f"yarn workspace {package_name} lint {{lint_targets}}"
+    elif "lint" in scripts:
+        lint_command = build_package_script_command(manager, package_root, "lint", "{lint_targets}")
+    if workspace and manager == "yarn" and "build" in scripts:
+        build_command = f"yarn workspace {package_name} build"
+    elif "build" in scripts:
+        build_command = build_package_script_command(manager, package_root, "build", "")
+    required_paths = [package_json.relative_to(repo_root).as_posix()]
+    if manager != "yarn":
+        required_paths.append(f"{package_root}/node_modules")
+    review_conventions = [f"Keep validation scoped to `{package_root}` and avoid broad repo-wide JS runs."]
+    if workspace:
+        review_conventions.append(f"Mention the owning workspace `{package_name}` in reviewer notes.")
+    return RepoProfileArea(
+        name=package_name,
+        globs=[f"{package_root}/**/*"],
+        test_command=test_command,
+        lint_command=lint_command,
+        build_command=build_command,
+        required_tools=[manager],
+        required_paths=required_paths,
+        review_conventions=review_conventions,
+    )
+
+
+def build_ruby_area(repo_root: Path, gemfile: Path) -> RepoProfileArea:
+    area_root = gemfile.parent.relative_to(repo_root).as_posix() or "."
+    required_paths = [gemfile.relative_to(repo_root).as_posix()]
+    if (repo_root / "script" / "spring").exists():
+        required_paths.append("script/spring")
+        test_command = "script/spring --non-interactive rspec {test_targets}"
+    else:
+        test_command = "bundle exec rspec {test_targets}"
+    return RepoProfileArea(
+        name=area_root if area_root != "." else repo_root.name,
+        globs=[f"{area_root}/**/*.rb" if area_root != "." else "**/*.rb"],
+        test_command=test_command,
+        lint_command="bundle exec rubocop {lint_targets}",
+        required_tools=["bundle"],
+        required_paths=required_paths,
+        review_conventions=["Prefer targeted spec runs and non-interactive Ruby commands."],
+    )
+
+
+def build_python_area(repo_root: Path, pyproject_toml: Path) -> RepoProfileArea:
+    area_root = pyproject_toml.parent.relative_to(repo_root).as_posix() or "."
+    return RepoProfileArea(
+        name=area_root if area_root != "." else repo_root.name,
+        globs=[f"{area_root}/**/*.py" if area_root != "." else "**/*.py"],
+        test_command="python -m pytest {test_targets}",
+        required_tools=["python"],
+        required_paths=[pyproject_toml.relative_to(repo_root).as_posix()],
+        review_conventions=["Prefer file-scoped pytest runs before broadening validation."],
+    )
+
+
+def resolve_package_manager(repo_root: Path, package_dir: Path, declared_manager: str) -> str:
+    if declared_manager:
+        return declared_manager.split("@", 1)[0]
+    for directory in [package_dir, *package_dir.parents]:
+        try:
+            directory.relative_to(repo_root)
+        except ValueError:
+            continue
+        if (directory / "pnpm-lock.yaml").exists() or (directory / "pnpm-workspace.yaml").exists():
+            return "pnpm"
+        if (directory / "yarn.lock").exists():
+            return "yarn"
+        if (directory / "package-lock.json").exists():
+            return "npm"
+        if directory == repo_root:
+            break
+    return "npm"
+
+
+def build_package_script_command(manager: str, package_root: str, script: str, script_args: str) -> str:
+    args = script_args.strip()
+    if manager == "pnpm":
+        base = f"pnpm --dir {package_root} {script}"
+        return f"{base} -- {args}".strip() if args else base
+    if manager == "yarn":
+        base = f"yarn --cwd {package_root} {script}"
+        return f"{base} {args}".strip() if args else base
+    base = f"npm --prefix {package_root} run {script}"
+    return f"{base} -- {args}".strip() if args else base
 
 
 def extract_target_paths(prompt: str, repo_root: Path) -> list[str]:
@@ -472,6 +672,7 @@ def resolve_instructions(repo_root: Path, target_paths: list[str], mode: RepoCap
 
 def extract_relevant_instructions(path: Path, *, repo_root: Path, mode: RepoCaptureMode, seen: set[tuple[str, int]]) -> list[RepoInstruction]:
     keywords = INSTRUCTION_KEYWORDS[mode]
+    directive_tokens = ("run ", "use ", "check ", "verify ", "install ", "prefer ", "avoid ", "do not", "must ", "never ", "always ", "keep ", "treat ", "mention ", "call out ")
     heading = ""
     extracted: list[RepoInstruction] = []
     for index, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -482,9 +683,13 @@ def extract_relevant_instructions(path: Path, *, repo_root: Path, mode: RepoCapt
             heading = stripped.lstrip("# ").strip()
             continue
         lowered = stripped.lower()
-        if not any(keyword in lowered for keyword in keywords) and not lowered.startswith(("- ", "* ", "1.", "2.", "3.")):
+        has_keyword = any(re.search(rf"\b{re.escape(keyword)}\b", lowered) for keyword in keywords)
+        has_guardrail = any(token in lowered for token in ("never", "always", "prefer", "avoid", "do not", "must", "keep "))
+        has_directive = any(token in lowered for token in directive_tokens)
+        has_command = extract_command_from_instruction(stripped) is not None
+        if not has_keyword and not has_guardrail and not has_directive and not has_command:
             continue
-        if not any(keyword in lowered for keyword in keywords) and not any(token in lowered for token in ("never", "always", "prefer", "avoid", "do not", "must")):
+        if not has_guardrail and not has_directive and not has_command:
             continue
         key = (str(path), index)
         if key in seen:
@@ -503,7 +708,12 @@ def extract_relevant_instructions(path: Path, *, repo_root: Path, mode: RepoCapt
     return extracted
 
 
-def build_command_recommendations(prompt: str, repo_root: Path, request: RepoCaptureRequest) -> list[RepoCommandRecommendation]:
+def build_command_recommendations(
+    prompt: str,
+    repo_root: Path,
+    request: RepoCaptureRequest,
+    instructions: list[RepoInstruction],
+) -> list[RepoCommandRecommendation]:
     area = request.primary_area
     profile = request.profile
     target_paths = request.target_paths
@@ -570,15 +780,6 @@ def build_command_recommendations(prompt: str, repo_root: Path, request: RepoCap
                 rationale="Repo-level build command for review validation.",
             )
         )
-    inspect_command = build_inspect_command(prompt, target_paths)
-    if inspect_command:
-        recommendations.append(
-            RepoCommandRecommendation(
-                kind="inspect",
-                command=inspect_command,
-                rationale="Targeted inspection command derived from the prompt and affected paths.",
-            )
-        )
     if request.mode == "repo_review" and target_paths:
         recommendations.append(
             RepoCommandRecommendation(
@@ -587,6 +788,16 @@ def build_command_recommendations(prompt: str, repo_root: Path, request: RepoCap
                 rationale="Review-specific diff scoped to the affected paths.",
             )
         )
+    inspect_command = build_inspect_command(prompt, target_paths)
+    if inspect_command and not (request.mode == "repo_review" and target_paths):
+        recommendations.append(
+            RepoCommandRecommendation(
+                kind="inspect",
+                command=inspect_command,
+                rationale="Targeted inspection command derived from the prompt and affected paths.",
+            )
+        )
+    recommendations.extend(build_instruction_command_recommendations(instructions, request))
     deduped: list[RepoCommandRecommendation] = []
     seen = set()
     for item in recommendations:
@@ -595,6 +806,75 @@ def build_command_recommendations(prompt: str, repo_root: Path, request: RepoCap
         seen.add(item.command)
         deduped.append(item)
     return deduped[:4]
+
+
+def build_instruction_command_recommendations(
+    instructions: list[RepoInstruction],
+    request: RepoCaptureRequest,
+) -> list[RepoCommandRecommendation]:
+    recommendations: list[RepoCommandRecommendation] = []
+    substitutions = {
+        "<file>": " ".join(resolve_test_targets(Path(request.repo_root), request.target_paths)) or (request.target_paths[0] if request.target_paths else ""),
+        "<project>": request.primary_area.name if request.primary_area else "",
+    }
+    for instruction in instructions:
+        command = extract_command_from_instruction(instruction.summary)
+        if not command:
+            continue
+        for placeholder, replacement in substitutions.items():
+            if placeholder in command and replacement:
+                command = command.replace(placeholder, replacement)
+        if "<" in command or ">" in command:
+            continue
+        recommendations.append(
+            RepoCommandRecommendation(
+                kind=classify_command_kind(command),
+                command=command,
+                rationale=f"Scoped command mentioned directly in {instruction.path}:{instruction.line_number}.",
+            )
+        )
+    return recommendations[:4]
+
+
+def extract_command_from_instruction(summary: str) -> str | None:
+    for match in re.finditer(r"`([^`]+)`", summary):
+        candidate = match.group(1).strip()
+        if is_command_like(candidate):
+            return candidate
+    stripped = summary.strip()
+    if ":" in stripped:
+        tail = stripped.split(":", 1)[1].strip()
+        if is_command_like(tail):
+            return tail
+    lowered = stripped.lower()
+    if any(token in lowered for token in ("run ", "use ", "execute ", "invoke ", "prefer ")):
+        command_match = re.search(
+            r"((?:cargo|just|pnpm|npm|yarn|bundle|python|pytest|script/spring|make)\s+[A-Za-z0-9_./:<>{}=-]+(?:\s+[A-Za-z0-9_./:<>{}=-]+)*)",
+            stripped,
+        )
+        if command_match:
+            return command_match.group(1).strip().rstrip(".,")
+    return None
+
+
+def is_command_like(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped or "\n" in stripped:
+        return False
+    return stripped.startswith(("cargo ", "just ", "pnpm ", "npm ", "yarn ", "bundle ", "python ", "pytest ", "script/spring ", "make "))
+
+
+def classify_command_kind(command: str) -> str:
+    lowered = command.lower()
+    if "diff" in lowered:
+        return "diff"
+    if any(token in lowered for token in ("fmt", "clippy", "lint", "eslint", "rubocop", "fix")):
+        return "lint"
+    if any(token in lowered for token in ("build", "preview")):
+        return "build"
+    if any(token in lowered for token in ("test", "rspec", "pytest", "vitest")):
+        return "test"
+    return "inspect"
 
 
 def evaluate_preflight(repo_root: Path, request: RepoCaptureRequest, commands: list[RepoCommandRecommendation]) -> list[RepoCheck]:
@@ -1215,16 +1495,18 @@ def resolve_test_targets(repo_root: Path, target_paths: list[str]) -> list[str]:
         return []
     targets: list[str] = []
     for target in target_paths:
-        if any(part in target for part in ("/tests/", "/spec/", "test_", "_test.", "_spec.")):
+        if is_testish_path(target):
             targets.append(target)
             continue
         stem = Path(target).stem
+        matched_for_target = False
         candidates = list(repo_root.rglob(f"*{stem}*"))
         for candidate in candidates:
             relative = candidate.relative_to(repo_root).as_posix()
-            if any(part in relative for part in ("/tests/", "/spec/", "test_", "_test.", "_spec.")) and relative not in targets:
+            if is_testish_path(relative) and relative not in targets:
                 targets.append(relative)
-        if not targets:
+                matched_for_target = True
+        if not matched_for_target:
             targets.append(target)
     return targets[:4]
 
@@ -1282,3 +1564,8 @@ def path_matches_glob(path: str, pattern: str) -> bool:
         fnmatch.fnmatch(normalized_path, variant) or PurePosixPath(normalized_path).match(variant)
         for variant in variants
     )
+
+
+def is_testish_path(path: str) -> bool:
+    lowered = path.lower()
+    return any(marker in lowered for marker in TEST_PATH_MARKERS)
