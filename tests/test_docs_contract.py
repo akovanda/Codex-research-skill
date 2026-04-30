@@ -21,12 +21,66 @@ PRIMARY_DOCS = [
     REPO_ROOT / "CHANGELOG.md",
     REPO_ROOT / "RELEASE.md",
 ]
+TEXT_SCAN_ROOTS = [
+    REPO_ROOT / "src",
+    REPO_ROOT / "tests",
+    REPO_ROOT / "docs",
+    REPO_ROOT / "README.md",
+    REPO_ROOT / "Makefile",
+    REPO_ROOT / ".codex",
+]
 
 
 def test_primary_docs_do_not_include_repo_local_absolute_paths() -> None:
+    forbidden_home = "/" + "home/"
     for path in PRIMARY_DOCS:
         content = path.read_text(encoding="utf-8")
-        assert "/home/akovanda" not in content
+        assert forbidden_home not in content
+
+
+def test_repo_text_files_do_not_include_user_specific_absolute_paths() -> None:
+    forbidden_patterns = (
+        "/" + "home/",
+        "/" + "Users/",
+        "C:" + "\\Users\\",
+    )
+    allowed_suffixes = {
+        ".md",
+        ".py",
+        ".toml",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".txt",
+        ".sql",
+        ".html",
+        ".css",
+        ".sh",
+    }
+    allowed_names = {
+        "Makefile",
+        "Dockerfile",
+        ".env.example",
+        ".dockerignore",
+        "LICENSE",
+    }
+
+    files: list[Path] = []
+    for root in TEXT_SCAN_ROOTS:
+        if root.is_file():
+            files.append(root)
+            continue
+        files.extend(path for path in root.rglob("*") if path.is_file())
+
+    offenders: list[str] = []
+    for path in files:
+        if path.suffix not in allowed_suffixes and path.name not in allowed_names:
+            continue
+        content = path.read_text(encoding="utf-8", errors="ignore")
+        if any(pattern in content for pattern in forbidden_patterns):
+            offenders.append(str(path.relative_to(REPO_ROOT)))
+
+    assert offenders == []
 
 
 def test_primary_docs_present_question_led_model() -> None:

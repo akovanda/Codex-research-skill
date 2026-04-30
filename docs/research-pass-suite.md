@@ -52,7 +52,14 @@ Run the full suite against a seeded local registry and write reports:
 
 ```bash
 . .venv/bin/activate
-research-registry-pass-runner --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2 --json-out /tmp/research-pass-runner.json --markdown-out /tmp/research-pass-runner.md
+research-registry-pass-runner \
+  --source-root /path/to/repo-a \
+  --source-root /path/to/repo-b \
+  --db-path /tmp/research-pass-runner.sqlite3 \
+  --reset \
+  --rounds 2 \
+  --json-out /tmp/research-pass-runner.json \
+  --markdown-out /tmp/research-pass-runner.md
 ```
 
 Run only one wave when you want a faster focused pass:
@@ -93,6 +100,8 @@ For evaluation, the first pass on a topic should usually be a gap-fill capture. 
 - summary-contract pass rate for every execution
 
 This is not live web research. It is a local execution harness for the current registry and specialist-domain behavior.
+
+No personal repo layout is assumed. Point the runner at your own corpus with repeated `--source-root` flags, or configure `RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS` / `RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS_FILE`.
 
 `make grounded-pass-check` leaves the pass runner markdown report at `.data/research-pass-runner.md` for inspection after the run.
 

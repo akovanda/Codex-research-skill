@@ -195,6 +195,11 @@ Client/backend-selection settings:
 - `RESEARCH_REGISTRY_ORG`
 - `RESEARCH_REGISTRY_DEFAULT_BACKEND_URL`
 
+Local research corpus settings:
+
+- `RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS`
+- `RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS_FILE`
+
 Compatibility fallback:
 
 - `RESEARCH_REGISTRY_DB_PATH` remains supported for local SQLite setups. If `RESEARCH_REGISTRY_DATABASE_URL` is unset, the app derives a local SQLite URL from that path.
@@ -211,6 +216,32 @@ Backend selection precedence for clients:
 3. org profile matched by `RESEARCH_REGISTRY_ORG`
 4. `RESEARCH_REGISTRY_DEFAULT_BACKEND_URL`
 5. localhost default
+
+Local research root precedence:
+
+1. explicit `source_roots` passed by code or CLI
+2. `RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS`
+3. `RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS_FILE`
+4. current workspace root only
+
+Example `RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS_FILE`:
+
+```toml
+paths = [
+  "/path/to/repo-a",
+  "/path/to/repo-b",
+]
+
+[roots]
+frontend = "/path/to/frontend-monolith"
+benchmarks = "/path/to/evals-repo"
+```
+
+Example env override:
+
+```bash
+export RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS="/path/to/repo-a:/path/to/repo-b"
+```
 
 ## Health And Bootstrap
 

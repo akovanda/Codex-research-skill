@@ -271,6 +271,11 @@ def main() -> None:
         help="Optional path for a markdown report.",
     )
     parser.add_argument(
+        "--source-root",
+        action="append",
+        help="Optional local repo or corpus root to search. Repeat for multiple roots.",
+    )
+    parser.add_argument(
         "--format",
         choices=["summary", "json", "markdown"],
         default="summary",
@@ -285,6 +290,7 @@ def main() -> None:
         specs = [spec for spec in specs if spec.wave in requested_waves]
     if not specs:
         raise SystemExit("no research passes matched the selected filters")
+    source_roots = [Path(path).expanduser().resolve() for path in args.source_root or []]
 
     def emit_progress(round_index: int, total_rounds: int, pass_index: int, total_passes: int, spec: ResearchPassSpec) -> None:
         print(
@@ -293,7 +299,7 @@ def main() -> None:
             flush=True,
         )
 
-    report = execute_passes(service, specs, rounds=args.rounds, progress=emit_progress)
+    report = execute_passes(service, specs, rounds=args.rounds, source_roots=source_roots or None, progress=emit_progress)
 
     if args.json_out:
         json_path = Path(args.json_out)

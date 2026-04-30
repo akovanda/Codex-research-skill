@@ -30,8 +30,8 @@ def scenario_prompt(scenario: str) -> str:
     raise ValueError(f"unknown scenario: {scenario}")
 
 
-def run_scenario(service: RegistryService, scenario: str) -> None:
-    result = run_implicit_research_capture(scenario_prompt(scenario), backend=service)
+def run_scenario(service: RegistryService, scenario: str, *, source_roots: list[Path] | None = None) -> None:
+    result = run_implicit_research_capture(scenario_prompt(scenario), backend=service, source_roots=source_roots)
 
     print(f"scenario={scenario}")
     print(f"mode={result.specialist_mode}")
@@ -69,6 +69,11 @@ def main() -> None:
         action="store_true",
         help="Delete the target database before running the harness.",
     )
+    parser.add_argument(
+        "--source-root",
+        action="append",
+        help="Optional local repo or corpus root to search. Repeat for multiple roots.",
+    )
     args = parser.parse_args()
 
     db_path = Path(args.db_path)
@@ -76,11 +81,12 @@ def main() -> None:
         reset_db(db_path)
     service = build_service(db_path)
     scenarios = SCENARIOS if args.all else (args.scenario,)
+    source_roots = [Path(path).expanduser().resolve() for path in args.source_root or []]
 
     for index, scenario in enumerate(scenarios, start=1):
         if index > 1:
             print("\n" + "=" * 80 + "\n")
-        run_scenario(service, scenario)
+        run_scenario(service, scenario, source_roots=source_roots or None)
 
     if args.all:
         print("\n" + "=" * 80 + "\n")

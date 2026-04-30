@@ -6,10 +6,12 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tomllib
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .managed_config import managed_config_dir
 from .models import ClaimStatus, FocusTuple, SourceCreate, SourceSelector
 
 LEADING_RESEARCH_PHRASES = (
@@ -139,6 +141,17 @@ TERM_MATCH_LIMIT = 200
 MAX_SEARCH_FILE_SIZE_BYTES = 1_000_000
 IGNORED_DIR_NAMES = {".git", "dist", "node_modules", "__pycache__"}
 IGNORED_FILE_SUFFIXES = (".sqlite3", ".whl", ".jsonl", ".pyc", ".tar.gz")
+WORKSPACE_ROOT_MARKERS = (
+    ".git",
+    ".codex/repo-profile.toml",
+    "AGENTS.md",
+    "pyproject.toml",
+    "package.json",
+    "Cargo.toml",
+    "go.mod",
+    "Gemfile",
+    "Makefile",
+)
 
 
 class LocalEvidenceHit(BaseModel):
@@ -188,28 +201,90 @@ class LocalResearchResult(BaseModel):
 
 
 def default_source_roots() -> dict[str, Path]:
+    roots = parse_roots_from_env()
+    if roots:
+        return roots
+    roots = parse_roots_from_file()
+    if roots:
+        return roots
+    workspace_root = discover_workspace_root(Path.cwd())
+    name = workspace_root.name or "workspace"
+    return {name: workspace_root}
+
+
+def parse_roots_from_env() -> dict[str, Path]:
     configured_roots = os.getenv("RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS", "").strip()
-    if configured_roots:
-        roots: dict[str, Path] = {}
-        for index, raw_path in enumerate(configured_roots.split(os.pathsep), start=1):
-            path = Path(raw_path).expanduser().resolve()
-            if not path.exists():
-                continue
-            name = path.name or f"root-{index}"
-            if name in roots:
-                name = f"{name}-{index}"
-            roots[name] = path
-        if roots:
-            return roots
-    roots = {
-        "llmresearch": Path.cwd(),
-        "continuity-core": Path("/home/akovanda/game/continuity-core"),
-        "continuity-benchmarks": Path("/home/akovanda/game/continuity-benchmarks"),
-        "choose-game": Path("/home/akovanda/game/choose-game"),
-        "better-mem": Path("/home/akovanda/game/better-mem"),
-        "better-mem-platform": Path("/home/akovanda/game/better-mem-platform"),
-    }
-    return {name: path for name, path in roots.items() if path.exists()}
+    if not configured_roots:
+        return {}
+    roots: dict[str, Path] = {}
+    for index, raw_path in enumerate(configured_roots.split(os.pathsep), start=1):
+        add_named_root(roots, candidate_name=None, raw_path=raw_path, fallback_index=index)
+    return roots
+
+
+def parse_roots_from_file() -> dict[str, Path]:
+    config_path = resolve_local_research_roots_file()
+    if config_path is None:
+        return {}
+    try:
+        raw = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    roots: dict[str, Path] = {}
+    for index, raw_path in enumerate(raw.get("paths", []), start=1):
+        add_named_root(roots, candidate_name=None, raw_path=raw_path, fallback_index=index)
+    root_map = raw.get("roots", {})
+    if isinstance(root_map, dict):
+        for index, (candidate_name, raw_path) in enumerate(root_map.items(), start=len(roots) + 1):
+            add_named_root(roots, candidate_name=candidate_name, raw_path=raw_path, fallback_index=index)
+    for index, entry in enumerate(raw.get("root", []), start=len(roots) + 1):
+        if not isinstance(entry, dict):
+            continue
+        add_named_root(
+            roots,
+            candidate_name=str(entry.get("name", "")).strip() or None,
+            raw_path=entry.get("path"),
+            fallback_index=index,
+        )
+    return roots
+
+
+def resolve_local_research_roots_file() -> Path | None:
+    override = os.getenv("RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS_FILE", "").strip()
+    if override:
+        path = Path(override).expanduser().resolve()
+        return path if path.exists() else None
+    default_path = managed_config_dir() / "local-research-roots.toml"
+    return default_path if default_path.exists() else None
+
+
+def add_named_root(roots: dict[str, Path], *, candidate_name: str | None, raw_path: object, fallback_index: int) -> None:
+    if raw_path is None:
+        return
+    path = Path(str(raw_path)).expanduser().resolve()
+    if not path.exists():
+        return
+    if any(existing == path for existing in roots.values()):
+        return
+    name = (candidate_name or path.name or f"root-{fallback_index}").strip()
+    if not name:
+        name = f"root-{fallback_index}"
+    original_name = name
+    suffix = 2
+    while name in roots:
+        name = f"{original_name}-{suffix}"
+        suffix += 1
+    roots[name] = path
+
+
+def discover_workspace_root(start: Path) -> Path:
+    current = start.resolve()
+    if current.is_file():
+        current = current.parent
+    for directory in [current, *current.parents]:
+        if any((directory / marker).exists() for marker in WORKSPACE_ROOT_MARKERS):
+            return directory
+    return current
 
 
 def build_focus(prompt: str, *, domain: str | None = None, source_signals: list[str] | None = None) -> FocusTuple:

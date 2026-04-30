@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import research_registry.local_research as local_research
-from research_registry.local_research import build_focus, build_query_terms, run_local_research
+from research_registry.local_research import build_focus, build_query_terms, default_source_roots, run_local_research
 
 
 def test_build_focus_avoids_generic_object_names() -> None:
@@ -33,6 +34,56 @@ def test_build_query_terms_prunes_repo_labels_and_generic_fragments() -> None:
     assert "post-run" not in terms
     assert "record-history" in terms
     assert "evaluation artifact schemas" in terms
+
+
+def test_default_source_roots_falls_back_to_current_workspace(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "workspace"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "subdir").mkdir()
+    monkeypatch.chdir(repo / "subdir")
+    monkeypatch.delenv("RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS", raising=False)
+    monkeypatch.delenv("RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS_FILE", raising=False)
+    monkeypatch.setenv("RESEARCH_REGISTRY_MANAGED_CONFIG_DIR", str(tmp_path / "managed-config"))
+
+    roots = default_source_roots()
+
+    assert roots == {"workspace": repo}
+
+
+def test_default_source_roots_supports_env_path_list(tmp_path: Path, monkeypatch) -> None:
+    repo_a = tmp_path / "alpha"
+    repo_b = tmp_path / "beta"
+    repo_a.mkdir()
+    repo_b.mkdir()
+    monkeypatch.setenv("RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS", f"{repo_a}{os.pathsep}{repo_b}")
+    monkeypatch.delenv("RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS_FILE", raising=False)
+
+    roots = default_source_roots()
+
+    assert roots == {"alpha": repo_a.resolve(), "beta": repo_b.resolve()}
+
+
+def test_default_source_roots_supports_toml_config_file(tmp_path: Path, monkeypatch) -> None:
+    repo_a = tmp_path / "alpha"
+    repo_b = tmp_path / "beta"
+    repo_a.mkdir()
+    repo_b.mkdir()
+    config_path = tmp_path / "local-research-roots.toml"
+    config_path.write_text(
+        (
+            f'paths = ["{repo_a}"]\n'
+            "\n"
+            "[roots]\n"
+            f'frontend = "{repo_b}"\n'
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS", raising=False)
+    monkeypatch.setenv("RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS_FILE", str(config_path))
+
+    roots = default_source_roots()
+
+    assert roots == {"alpha": repo_a.resolve(), "frontend": repo_b.resolve()}
 
 
 def test_local_research_collects_real_evidence_from_temp_repo(tmp_path: Path) -> None:

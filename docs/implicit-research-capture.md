@@ -48,6 +48,31 @@ Precedence:
 When no remote backend is configured, local skill use stays on the embedded local backend.
 When the managed localhost runtime is installed, local skill use should prefer that shared localhost backend.
 
+## Local Source Roots
+
+Implicit local research does not assume any personal repo layout.
+
+Source-root precedence:
+
+1. explicit `source_roots` passed by the caller
+2. `RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS`
+3. `RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS_FILE`
+4. current workspace root only
+
+Example roots file:
+
+```toml
+paths = [
+  "/path/to/repo-a",
+  "/path/to/repo-b",
+]
+
+[roots]
+frontend = "/path/to/frontend-monolith"
+```
+
+The default config-file location is `~/.config/research-registry/local-research-roots.toml` unless `RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS_FILE` overrides it.
+
 Useful local checks:
 
 ```bash
