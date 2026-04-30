@@ -2,6 +2,8 @@
 
 This is the fastest path for a new user who wants Research Registry working locally with Codex.
 
+If you want a quick answer to "what does this install change?" or "do I need Docker?", read [FAQ](faq.md) first.
+
 The intended first run is:
 
 1. run `make up`

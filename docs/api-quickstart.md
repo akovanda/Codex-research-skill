@@ -2,6 +2,15 @@
 
 This is the shortest end-to-end API flow for the localhost preview.
 
+This quickstart shows the full admin bootstrap flow so it also makes sense for shared self-hosted setups.
+
+If you used the managed localhost install from `make up`, you already have:
+
+- an admin token from `make token`
+- a shared local API key from `make token`
+
+You can skip the org bootstrap section and use that shared local API key directly if you only want to test private reads and writes on your own machine.
+
 Prerequisites:
 
 - run `make up`
@@ -21,6 +30,8 @@ curl "$BASE_URL/openapi.json" | jq '.info'
 ```
 
 ## 2. Bootstrap an org and issue an API key
+
+This section is most useful when you want an explicit org namespace instead of the default managed localhost key.
 
 ```bash
 curl -sS -X POST \

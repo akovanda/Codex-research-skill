@@ -14,6 +14,7 @@ Highlights:
 - source-backed research capture and memory/retrieval skills
 - import, brief, refresh, and follow-up workflow endpoints for reuse-first research iteration
 - `make workflow-check` for live HTTP plus harness validation
+- onboarding docs, FAQ, and issue templates for the preview release
 
 Known limits:
 

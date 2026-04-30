@@ -63,6 +63,17 @@ Legacy aliases such as `annotation` and `finding` still exist for compatibility,
 
 If you only want the fastest path that should work on a fresh machine, start with [Getting Started](docs/getting-started.md).
 
+If you are deciding whether this preview is even the right shape for you, read [docs/faq.md](docs/faq.md) first.
+
+### Choose Your Path
+
+- New user who wants the managed localhost install: [docs/getting-started.md](docs/getting-started.md)
+- Operator who wants a local shared runtime: [docs/deploy-local.md](docs/deploy-local.md)
+- Operator who wants a shared internal deployment: [docs/deploy-shared-compose.md](docs/deploy-shared-compose.md)
+- API user who wants a copy-paste HTTP flow: [docs/api-quickstart.md](docs/api-quickstart.md)
+- Codex user who wants implicit capture behavior: [docs/implicit-research-capture.md](docs/implicit-research-capture.md)
+- Repo-heavy user who wants command routing and triage: [docs/repo-aware-capture.md](docs/repo-aware-capture.md)
+
 ### Local default
 
 ```bash
@@ -347,6 +358,7 @@ The web app and API are the primary product surface. MCP and Codex skills sit on
 ## Deployment
 
 - [Getting started](docs/getting-started.md)
+- [FAQ](docs/faq.md)
 - [API quickstart](docs/api-quickstart.md)
 - [Architecture](docs/architecture.md)
 - [Local deployment](docs/deploy-local.md)
