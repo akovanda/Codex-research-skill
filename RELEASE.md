@@ -7,7 +7,7 @@ Use this for GitHub source releases in the current preview phase.
 1. Ensure the repo is clean.
 2. Run `make preview-check`.
 3. Run `make workflow-check`.
-4. Run `make grounded-pass-check` when validating the project-specific research suite.
+4. Run `make grounded-pass-check` when validating the built-in example research suite.
 5. Review docs for support-matrix consistency.
 6. Update `CHANGELOG.md` for the release.
 7. Set a real maintainer-owned security contact in `SECURITY.md`.

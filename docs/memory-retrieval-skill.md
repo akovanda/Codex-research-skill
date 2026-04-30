@@ -41,7 +41,7 @@ make workflow-check
 make grounded-pass-check
 ```
 
-`make workflow-check` constrains the harnesses to the current repo for fast deterministic validation. `make grounded-pass-check` is the deeper project-specific run that writes `.data/research-pass-runner.md`.
+`make workflow-check` constrains the harnesses to the current repo for fast deterministic validation. `make grounded-pass-check` is the deeper built-in example run that writes `.data/research-pass-runner.md`.
 
 ## Expected behavior
 

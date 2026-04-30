@@ -320,13 +320,13 @@ This runs:
 - the memory/retrieval harness across all built-in scenarios using the current repo as the local source root
 - the multi-domain harness across memory, inference, and eval topics using the current repo as the local source root
 
-For the deeper project-specific suite:
+For the deeper built-in example suite:
 
 ```bash
 make grounded-pass-check
 ```
 
-This runs the 27-pass grounded research suite and writes a markdown report.
+This runs the 27-pass example research suite and writes a markdown report.
 
 Artifacts:
 
