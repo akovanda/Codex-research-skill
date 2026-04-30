@@ -11,7 +11,7 @@ def test_build_focus_avoids_generic_object_names() -> None:
     focus = build_focus(
         "Research benchmark window sampling strategy for candidate comparisons under CPU budget constraints.",
         domain="llm-evals",
-        source_signals=["continuity-benchmarks: start-index slicing helps benchmark window sampling under CPU budget constraints"],
+        source_signals=["benchmark-lab: start-index slicing helps benchmark window sampling under CPU budget constraints"],
     )
 
     assert focus.object == "benchmark window sampling"
@@ -22,15 +22,15 @@ def test_build_focus_avoids_generic_object_names() -> None:
 def test_build_query_terms_prunes_repo_labels_and_generic_fragments() -> None:
     prompt = "Research evaluation artifact schemas that make benchmark history useful for post-run diagnosis and regression review."
     source_signals = [
-        "dnd2: overnight batch adds --record-history to official and subset runs",
-        "continuity-benchmarks: artifacts and reporting pipeline",
+        "benchmark-lab: overnight batch adds --record-history to official and subset runs",
+        "benchmark-lab: artifacts and reporting pipeline",
     ]
 
     focus = build_focus(prompt, domain="llm-evals", source_signals=source_signals)
     terms = build_query_terms(prompt, focus=focus, source_signals=source_signals)
 
     assert focus.object == "evaluation artifact schemas"
-    assert "continuity-benchmarks" not in terms
+    assert "benchmark-lab" not in terms
     assert "post-run" not in terms
     assert "record-history" in terms
     assert "evaluation artifact schemas" in terms

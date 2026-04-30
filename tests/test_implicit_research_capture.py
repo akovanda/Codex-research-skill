@@ -20,14 +20,14 @@ def make_service(tmp_path: Path) -> RegistryService:
 
 
 def make_branch_private_repo(tmp_path: Path) -> Path:
-    repo = tmp_path / "choose-game"
-    (repo / "src" / "choose_game").mkdir(parents=True)
+    repo = tmp_path / "branch-sandbox"
+    (repo / "src" / "branch_sandbox").mkdir(parents=True)
     (repo / "tests").mkdir()
     (repo / "README.md").write_text(
         "Branch-private memory keeps divergent narrative and coding branches isolated while preserving typed anchors.\n",
         encoding="utf-8",
     )
-    (repo / "src" / "choose_game" / "freeform_regression.py").write_text(
+    (repo / "src" / "branch_sandbox" / "freeform_regression.py").write_text(
         "def verify_branch_private_memory():\n"
         "    note = 'coding branch isolation remains branch-private and does not leak across divergent branches'\n",
         encoding="utf-8",
@@ -59,7 +59,7 @@ def test_implicit_capture_runs_live_research_then_reuses_on_second_pass(tmp_path
     first = run_implicit_research_capture(
         "Research branch-private memory isolation strategies for divergent narrative and coding branches.",
         backend=service,
-        source_signals=["choose-game: full stack verification checks coding branch isolation"],
+        source_signals=["branch-sandbox: full stack verification checks coding branch isolation"],
         source_roots=[repo],
     )
     assert first.specialized_domain == "memory-retrieval"
@@ -79,7 +79,7 @@ def test_implicit_capture_runs_live_research_then_reuses_on_second_pass(tmp_path
     second = run_implicit_research_capture(
         "Research branch-private memory isolation strategies for divergent narrative and coding branches.",
         backend=service,
-        source_signals=["choose-game: full stack verification checks coding branch isolation"],
+        source_signals=["branch-sandbox: full stack verification checks coding branch isolation"],
         source_roots=[repo],
     )
     assert second.specialist_mode == "reuse"
@@ -102,7 +102,7 @@ def test_implicit_capture_runs_live_research_without_rg(tmp_path: Path, monkeypa
     outcome = run_implicit_research_capture(
         "Research branch-private memory isolation strategies for divergent narrative and coding branches.",
         backend=service,
-        source_signals=["choose-game: full stack verification checks coding branch isolation"],
+        source_signals=["branch-sandbox: full stack verification checks coding branch isolation"],
         source_roots=[repo],
     )
 

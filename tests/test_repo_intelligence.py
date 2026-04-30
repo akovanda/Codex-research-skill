@@ -14,7 +14,7 @@ def make_service(tmp_path: Path) -> RegistryService:
 
 
 def make_monolith_repo(tmp_path: Path) -> Path:
-    repo = tmp_path / "manage5-fixture"
+    repo = tmp_path / "monolith-fixture"
     (repo / ".codex").mkdir(parents=True)
     (repo / "app" / "models").mkdir(parents=True)
     (repo / "spec" / "models").mkdir(parents=True)
@@ -26,7 +26,7 @@ def make_monolith_repo(tmp_path: Path) -> Path:
     (repo / ".codex" / "repo-profile.toml").write_text(
         """
 [repo]
-name = "manage5-fixture"
+name = "monolith-fixture"
 default_test_command = "make test"
 default_lint_command = "make test"
 default_build_command = "make preview-check"
@@ -117,7 +117,7 @@ coverage_paths = ["coverage/workspace-ui.lcov"]
 
 
 def make_profileless_rust_repo(tmp_path: Path) -> Path:
-    repo = tmp_path / "codex-like"
+    repo = tmp_path / "rust-workspace-like"
     (repo / "codex-rs" / "tui" / "src" / "bottom_pane").mkdir(parents=True)
     (repo / "codex-rs" / "tui" / "tests").mkdir(parents=True)
     (repo / "AGENTS.md").write_text(
@@ -151,7 +151,7 @@ def make_profileless_rust_repo(tmp_path: Path) -> Path:
 
 
 def make_profileless_js_repo(tmp_path: Path) -> Path:
-    repo = tmp_path / "pathfinder-like"
+    repo = tmp_path / "ops-ui-like"
     (repo / "ui" / "app" / "src" / "pages" / "__tests__").mkdir(parents=True)
     (repo / "AGENTS.md").write_text(
         "# Assistant Context Bootstrap\n"
@@ -167,7 +167,7 @@ def make_profileless_js_repo(tmp_path: Path) -> Path:
         "3. wire the new UI route/component to the typed API\n"
         "\n"
         "# Current Preferred Workflow for Debugging\n"
-        "- If combat looks wrong, check whether the UI is using stale offers in `CombatPage.tsx`.\n"
+        "- If the dashboard looks wrong, check whether the UI is using stale data in `DashboardPage.tsx`.\n"
         "- Do not assume git status works in every environment.\n",
         encoding="utf-8",
     )
@@ -178,7 +178,7 @@ def make_profileless_js_repo(tmp_path: Path) -> Path:
     )
     (repo / "ui" / "app" / "package.json").write_text(
         '{\n'
-        '  "name": "pathfinder-ops-ui",\n'
+        '  "name": "ops-control-ui",\n'
         '  "private": true,\n'
         '  "scripts": {\n'
         '    "build": "vite build",\n'
@@ -188,12 +188,12 @@ def make_profileless_js_repo(tmp_path: Path) -> Path:
         "}\n",
         encoding="utf-8",
     )
-    (repo / "ui" / "app" / "src" / "pages" / "CombatPage.tsx").write_text(
-        "export function CombatPage() { return null; }\n",
+    (repo / "ui" / "app" / "src" / "pages" / "DashboardPage.tsx").write_text(
+        "export function DashboardPage() { return null; }\n",
         encoding="utf-8",
     )
-    (repo / "ui" / "app" / "src" / "pages" / "__tests__" / "CombatPage.test.tsx").write_text(
-        "it('CombatPage', () => expect(true).toBe(true));\n",
+    (repo / "ui" / "app" / "src" / "pages" / "__tests__" / "DashboardPage.test.tsx").write_text(
+        "it('DashboardPage', () => expect(true).toBe(true));\n",
         encoding="utf-8",
     )
     return repo
@@ -288,19 +288,19 @@ def test_profileless_rust_repo_infers_crate_commands(tmp_path: Path) -> None:
 
 def test_profileless_js_repo_infers_package_commands_and_test_target(tmp_path: Path) -> None:
     repo = make_profileless_js_repo(tmp_path)
-    prompt = "What exact command should I run for ui/app/src/pages/CombatPage.tsx?"
+    prompt = "What exact command should I run for ui/app/src/pages/DashboardPage.tsx?"
     request = resolve_repo_capture_request(prompt, source_roots=[repo])
 
     assert request is not None
     assert request.primary_area is not None
-    assert request.primary_area.name == "pathfinder-ops-ui"
+    assert request.primary_area.name == "ops-control-ui"
 
     result = run_repo_capture(prompt, request)
 
-    assert result.matched_area == "pathfinder-ops-ui"
-    assert result.commands[0].command == "pnpm --dir ui/app test -- ui/app/src/pages/__tests__/CombatPage.test.tsx"
+    assert result.matched_area == "ops-control-ui"
+    assert result.commands[0].command == "pnpm --dir ui/app test -- ui/app/src/pages/__tests__/DashboardPage.test.tsx"
     assert any(check.status == "blocker" and "ui/app/node_modules is missing" in check.detail for check in result.preflight)
-    assert any("CombatPage.tsx" in instruction.summary for instruction in result.instructions)
+    assert any("DashboardPage.tsx" in instruction.summary for instruction in result.instructions)
     assert all("context/compile" not in instruction.summary for instruction in result.instructions)
 
 

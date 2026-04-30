@@ -1,19 +1,19 @@
 # Research Pass Suite
 
-This suite is for judging whether the Research Registry is useful on a real long-memory project rather than on toy prompts.
+This suite is for judging whether the Research Registry is useful on a realistic long-memory project rather than on toy prompts.
 
-The passes are derived from:
+The passes are organized as a generic example corpus built around:
 
-- the `dnd2` screen session history around overnight benchmark runs
-- `continuity-benchmarks`
-- `continuity-core`
-- `choose-game`
+- benchmark execution and release gating
+- long-term memory retrieval mechanics
+- context assembly and typed-memory design
+- public-tool productization constraints
 
 The canonical pass list lives in [`src/research_registry/research_pass_suite.py`](../src/research_registry/research_pass_suite.py).
 
 ## What It Gives You
 
-- 27 grounded research passes instead of invented demo prompts
+- 27 example research passes instead of invented toy prompts
 - four waves that move from benchmark fit to retrieval mechanics to productization
 - expected specialist-domain routing for each prompt
 - a simple way to check whether implicit capture will actually classify these prompts the way you expect

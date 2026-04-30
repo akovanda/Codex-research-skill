@@ -25,13 +25,13 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         pass_id="eval-long-vs-mab-coverage",
         wave=1,
         theme="Benchmark Fit",
-        prompt="Research coverage gaps between the current public long-horizon benchmark suites for continuity systems.",
-        why_it_matters="This is the top-level benchmark framing question behind the overnight compare work in dnd2.",
+        prompt="Research evaluation coverage gaps between the current public long-horizon benchmark suites for multi-session agents.",
+        why_it_matters="This is the top-level benchmark framing question behind the example overnight compare workflow.",
         expected_domain="llm-evals",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: overnight public batch compares LongMemEval and MemoryAgentBench slices",
-            "continuity-benchmarks: public benchmark orchestration and suite docs",
+            "benchmark-lab: overnight public batch compares LongMemEval and MemoryAgentBench slices",
+            "benchmark-lab: public benchmark orchestration and suite docs",
         ],
     ),
     ResearchPassSpec(
@@ -39,12 +39,12 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         wave=1,
         theme="Benchmark Fit",
         prompt="Research benchmark window sampling strategy for candidate comparisons under CPU budget constraints.",
-        why_it_matters="The dnd2 session introduced start-index slicing specifically to make overnight candidate comparisons feasible.",
+        why_it_matters="The example corpus introduces start-index slicing specifically to make overnight candidate comparisons feasible.",
         expected_domain="llm-evals",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: added --start-index controls for LongMemEval and MemoryAgentBench subset runs",
-            "continuity-benchmarks: overnight batch windows 0:50 and 0:25 style slices",
+            "benchmark-lab: added --start-index controls for LongMemEval and MemoryAgentBench subset runs",
+            "benchmark-lab: overnight batch windows 0:50 and 0:25 style slices",
         ],
     ),
     ResearchPassSpec(
@@ -52,38 +52,38 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         wave=1,
         theme="Benchmark Fit",
         prompt="Research judge model calibration risks when the answer model and judge model are the same local model in benchmark runs.",
-        why_it_matters="Current public runs use the same small local model for answer and judge, which creates evaluation credibility risk.",
+        why_it_matters="Example public runs use the same small local model for answer and judge, which creates evaluation credibility risk.",
         expected_domain="llm-evals",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: Qwen/Qwen2.5-0.5B-Instruct used for answer and judge lanes",
-            "continuity-benchmarks: official LongMemEval runner accepts answer-model and judge-model flags",
+            "benchmark-lab: Qwen/Qwen2.5-0.5B-Instruct used for answer and judge lanes",
+            "benchmark-lab: official LongMemEval runner accepts answer-model and judge-model flags",
         ],
     ),
     ResearchPassSpec(
         pass_id="eval-eventqa-vs-fact-subsets",
         wave=1,
         theme="Benchmark Fit",
-        prompt="Research evaluation differences between eventqa_full and factconsolidation_sh_6k subsets for continuity benchmark runs.",
-        why_it_matters="The dnd2 session cut eventqa from the CPU resume path, so this question determines whether that lane is worth its cost.",
+        prompt="Research evaluation differences between eventqa_full and factconsolidation_sh_6k subsets for long-horizon benchmark runs.",
+        why_it_matters="The example corpus cuts eventqa from the CPU resume path, so this question determines whether that lane is worth its cost.",
         expected_domain="llm-evals",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: eventqa_full disabled in CPU-only resume",
-            "continuity-benchmarks: separate fact and eventqa subset runners",
+            "benchmark-lab: eventqa_full disabled in CPU-only resume",
+            "benchmark-lab: separate fact and eventqa subset runners",
         ],
     ),
     ResearchPassSpec(
         pass_id="eval-release-gate-variant-promotion",
         wave=1,
         theme="Benchmark Fit",
-        prompt="Research evaluation gate design for promoting continuity variants from candidate screen to release.",
+        prompt="Research evaluation gate design for promoting long-horizon agent variants from candidate screen to release.",
         why_it_matters="The project already runs candidate screens and release-style gates, but the promotion criteria need to be defensible.",
         expected_domain="llm-evals",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "continuity-benchmarks: release_gate and candidate screen suites",
-            "dnd2: baseline_current, cand80, and cand119 are compared as promotion candidates",
+            "benchmark-lab: release_gate and candidate screen suites",
+            "benchmark-lab: baseline_current, cand80, and cand119 are compared as promotion candidates",
         ],
     ),
     ResearchPassSpec(
@@ -91,12 +91,12 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         wave=1,
         theme="Benchmark Fit",
         prompt="Research evaluation artifact schemas that make benchmark history useful for post-run diagnosis and regression review.",
-        why_it_matters="The dnd2 run uses --record-history everywhere, so the value depends on whether those artifacts support meaningful diagnosis later.",
+        why_it_matters="The example overnight run uses --record-history everywhere, so the value depends on whether those artifacts support meaningful diagnosis later.",
         expected_domain="llm-evals",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: overnight batch adds --record-history to official and subset runs",
-            "continuity-benchmarks: artifacts and reporting pipeline",
+            "benchmark-lab: overnight batch adds --record-history to official and subset runs",
+            "benchmark-lab: artifacts and reporting pipeline",
         ],
     ),
     ResearchPassSpec(
@@ -104,12 +104,12 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         wave=2,
         theme="Retrieval Mechanics",
         prompt="Research retrieval failure modes of rollup query gating in long-term memory systems.",
-        why_it_matters="Rollup gating is directly exposed in continuity-core diagnostics and is central to the cand80 variant naming.",
+        why_it_matters="Rollup gating is directly exposed in the example memory runtime diagnostics and is central to the cand80 variant naming.",
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "continuity-core: rollup_query_gated_enabled diagnostics",
-            "dnd2: cand80_rollup_duration_commute_guard_v1 variant under evaluation",
+            "memory-runtime: rollup_query_gated_enabled diagnostics",
+            "benchmark-lab: cand80_rollup_duration_commute_guard_v1 variant under evaluation",
         ],
     ),
     ResearchPassSpec(
@@ -121,8 +121,8 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: cand119_cand114_ms_anchor_guard_strict_v1 variant under evaluation",
-            "continuity-core: ms_anchor_guard and ms_anchor_guard_strict bonuses",
+            "benchmark-lab: cand119_cand114_ms_anchor_guard_strict_v1 variant under evaluation",
+            "memory-runtime: ms_anchor_guard and ms_anchor_guard_strict bonuses",
         ],
     ),
     ResearchPassSpec(
@@ -134,21 +134,21 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "continuity-core: fact_guard_strict_enabled diagnostics",
-            "continuity-core: retrieval promotions are disabled under strict fact guard",
+            "memory-runtime: fact_guard_strict_enabled diagnostics",
+            "memory-runtime: retrieval promotions are disabled under strict fact guard",
         ],
     ),
     ResearchPassSpec(
         pass_id="memory-episodic-vs-semantic-split",
         wave=2,
         theme="Retrieval Mechanics",
-        prompt="Research episodic versus semantic memory split policies for continuity systems.",
-        why_it_matters="The product spans continuity-core plus story-context style semantic memory, so the boundary between them is fundamental.",
+        prompt="Research episodic versus semantic memory split policies for long-memory systems.",
+        why_it_matters="The example product spans an episodic memory runtime plus story-context style semantic memory, so the boundary between them is fundamental.",
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "choose-game: semantic precision runner separate from continuity-backed fallback",
-            "continuity-core: episodic timeline and summary selection logic",
+            "branch-sandbox: semantic precision runner separate from retrieval-backed fallback",
+            "memory-runtime: episodic timeline and summary selection logic",
         ],
     ),
     ResearchPassSpec(
@@ -156,12 +156,12 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         wave=2,
         theme="Retrieval Mechanics",
         prompt="Research branch-private memory isolation strategies for divergent narrative and coding branches.",
-        why_it_matters="Branch isolation already shows up in choose-game verification and will matter even more in a public coding-oriented memory tool.",
+        why_it_matters="Branch isolation already shows up in the example verification corpus and will matter even more in a public coding-oriented memory tool.",
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "choose-game: full stack verification checks coding branch isolation",
-            "choose-game: freeform and typed-thread branch-private memory fixtures",
+            "branch-sandbox: full stack verification checks coding branch isolation",
+            "branch-sandbox: freeform and typed-thread branch-private memory fixtures",
         ],
     ),
     ResearchPassSpec(
@@ -173,8 +173,8 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "choose-game: continuity persistence and summary generation over long sessions",
-            "continuity-core: low-salience episodic forgetting and compaction logic",
+            "branch-sandbox: session persistence and summary generation over long sessions",
+            "memory-runtime: low-salience episodic forgetting and compaction logic",
         ],
     ),
     ResearchPassSpec(
@@ -182,12 +182,12 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         wave=2,
         theme="Retrieval Mechanics",
         prompt="Research low-salience episodic compaction and archival strategies for long-term memory stores.",
-        why_it_matters="Compaction and forgetting are already implemented in continuity-core and need stronger external grounding before publicizing the system.",
+        why_it_matters="Compaction and forgetting are already implemented in the example memory runtime and need stronger external grounding before publicizing the system.",
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "continuity-core: _compact_summarized_timeline_entries and forgetting profile logic",
-            "choose-game: long-horizon and freeform soak runners",
+            "memory-runtime: _compact_summarized_timeline_entries and forgetting profile logic",
+            "branch-sandbox: long-horizon and freeform soak runners",
         ],
     ),
     ResearchPassSpec(
@@ -195,12 +195,12 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         wave=2,
         theme="Retrieval Mechanics",
         prompt="Research provenance and freshness requirements for public memory retrieval systems.",
-        why_it_matters="The move from DND support to a public tool means the engine now needs auditable memory answers, not just plausible recall.",
+        why_it_matters="The move from a private workflow helper to a public tool means the engine now needs auditable memory answers, not just plausible recall.",
         expected_domain="memory-retrieval",
         expected_initial_outcome="synthesis",
         source_signals=[
-            "llmresearch: research-memory-retrieval specialist already emphasizes provenance and freshness",
-            "continuity-core: public-facing memory product direction from current project context",
+            "registry-example: research-memory-retrieval specialist already emphasizes provenance and freshness",
+            "memory-runtime: public-facing memory product direction from current project context",
         ],
     ),
     ResearchPassSpec(
@@ -208,38 +208,38 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         wave=3,
         theme="Context Assembly",
         prompt="Research context management policies for allocating budget across instructions, commitments, semantic memory, and episodic memory.",
-        why_it_matters="The choose-game stack already tests memory dropping under pressure, which is the same decision surface a public memory tool will need.",
+        why_it_matters="The example stack already tests memory dropping under pressure, which is the same decision surface a public memory tool will need.",
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "choose-game: budget pressure runner drops memory and instruction candidates",
-            "continuity-core: selected hit sets across commitment, fact, summary, and episodic channels",
+            "branch-sandbox: budget pressure runner drops memory and instruction candidates",
+            "memory-runtime: selected hit sets across commitment, fact, summary, and episodic channels",
         ],
     ),
     ResearchPassSpec(
         pass_id="memory-semantic-precision-separation",
         wave=3,
         theme="Context Assembly",
-        prompt="Research semantic memory retrieval precision tests that stay separate from continuity fallback.",
+        prompt="Research semantic memory retrieval precision tests that stay separate from secondary memory fallback.",
         why_it_matters="You already have a semantic precision runner, so the open question is how to keep that signal clean as the generic product grows.",
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "choose-game: semantic precision regression and analyzer",
-            "choose-game: explicit separation between semantic retrieval and continuity fallback",
+            "branch-sandbox: semantic precision regression and analyzer",
+            "branch-sandbox: explicit separation between semantic retrieval and secondary memory fallback",
         ],
     ),
     ResearchPassSpec(
         pass_id="memory-duration-commute-retrieval",
         wave=3,
         theme="Context Assembly",
-        prompt="Research retrieval strategies for duration and commute questions in continuity memory systems.",
+        prompt="Research retrieval strategies for duration and commute questions in long-memory systems.",
         why_it_matters="The cand80 variant directly targets duration and commute behavior, so this deserves focused research rather than intuition.",
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: cand80_rollup_duration_commute_guard_v1",
-            "continuity-core: duration_time_allocation and ss_duration_commute route bonuses",
+            "benchmark-lab: cand80_rollup_duration_commute_guard_v1",
+            "memory-runtime: duration_time_allocation and commute-route bonuses",
         ],
     ),
     ResearchPassSpec(
@@ -247,25 +247,25 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         wave=3,
         theme="Context Assembly",
         prompt="Research retrieval object designs such as source cards, segment heads, and answer windows for long-context memory.",
-        why_it_matters="Continuity-core already mixes episodic candidates with retrieval objects, so this is a concrete architecture decision.",
+        why_it_matters="The example memory runtime already mixes episodic candidates with retrieval objects, so this is a concrete architecture decision.",
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "continuity-core: source cards, segment heads, and answer windows routing",
-            "continuity-benchmarks: public shadow diagnostics over retrieval object counts",
+            "memory-runtime: source cards, segment heads, and answer windows routing",
+            "benchmark-lab: public shadow diagnostics over retrieval object counts",
         ],
     ),
     ResearchPassSpec(
         pass_id="memory-typed-anchor-model",
         wave=3,
         theme="Context Assembly",
-        prompt="Research typed-anchor memory models for rivalry, polity, obligation, and branch-private continuity threads.",
-        why_it_matters="Choose-game already uses typed anchors and open-form threads, which is likely to generalize into a public memory product.",
+        prompt="Research typed-anchor memory models for rivalry, polity, obligation, and branch-private long-memory threads.",
+        why_it_matters="The example branch sandbox already uses typed anchors and open-form threads, which is likely to generalize into a public memory product.",
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "choose-game: freeform fixtures with romance, rivalry, polity, and obligation anchor types",
-            "choose-game: deep recall and freeform soak validation",
+            "branch-sandbox: freeform fixtures with romance, rivalry, polity, and obligation anchor types",
+            "branch-sandbox: deep recall and freeform soak validation",
         ],
     ),
     ResearchPassSpec(
@@ -273,25 +273,25 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         wave=4,
         theme="Productization",
         prompt="Research API and data-model patterns for a public long-term memory service that serves chat, coding, and learning workloads.",
-        why_it_matters="The public-tool transition depends on keeping continuity-core generic while still supporting workload-specific behavior.",
+        why_it_matters="The public-tool transition depends on keeping the memory runtime generic while still supporting workload-specific behavior.",
         expected_domain="memory-retrieval",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "continuity-core: generic memory library positioning",
-            "choose-game: live verification across chat, coding, and learning scopes",
+            "memory-runtime: generic memory library positioning",
+            "branch-sandbox: live verification across chat, coding, and learning scopes",
         ],
     ),
     ResearchPassSpec(
         pass_id="memory-release-validation",
         wave=4,
         theme="Productization",
-        prompt="Research memory regression validation patterns for shipping a public continuity tool without silent recall failures.",
-        why_it_matters="Your current project already has multiple smoke and soak runners, but a public product needs a clearer release-validation theory.",
+        prompt="Research memory regression validation patterns for shipping a public memory tool without silent recall failures.",
+        why_it_matters="The example corpus already has multiple smoke and soak runners, but a public product needs a clearer release-validation theory.",
         expected_domain="memory-retrieval",
         expected_initial_outcome="synthesis",
         source_signals=[
-            "choose-game: smoke, deep recall, freeform, and semantic precision regressions",
-            "continuity-benchmarks: release gate and reporting workflows",
+            "branch-sandbox: smoke, deep recall, freeform, and semantic precision regressions",
+            "benchmark-lab: release gate and reporting workflows",
         ],
     ),
     ResearchPassSpec(
@@ -299,12 +299,12 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         wave=4,
         theme="Performance",
         prompt="Research inference latency tradeoffs between CPU and GPU paths for long benchmark queues.",
-        why_it_matters="The dnd2 overnight run repeatedly hit CPU feasibility constraints, so serving strategy affects the whole research loop.",
+        why_it_matters="The example overnight run repeatedly hit CPU feasibility constraints, so serving strategy affects the whole research loop.",
         expected_domain="inference-optimization",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: CPU-only resume path and eventqa lane removal",
-            "continuity-benchmarks: long overnight batch orchestration",
+            "benchmark-lab: CPU-only resume path and eventqa lane removal",
+            "benchmark-lab: long overnight batch orchestration",
         ],
     ),
     ResearchPassSpec(
@@ -316,21 +316,21 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         expected_domain="inference-optimization",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: --record-history enabled across overnight jobs",
-            "continuity-benchmarks: artifact-heavy run plans",
+            "benchmark-lab: --record-history enabled across overnight jobs",
+            "benchmark-lab: artifact-heavy run plans",
         ],
     ),
     ResearchPassSpec(
         pass_id="inference-topk-context-expansion",
         wave=4,
         theme="Performance",
-        prompt="Research inference latency impact of top-k context expansion and response batching on continuity serving.",
+        prompt="Research inference latency impact of top-k context expansion and response batching in serving pipelines.",
         why_it_matters="The benchmark subset runner fixes top-k context today, but the public tool will need explicit serving tradeoffs.",
         expected_domain="inference-optimization",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: MemoryAgentBench subset runs use --topk-context 8",
-            "continuity-core: richer retrieval object and rerank paths increase serving cost",
+            "benchmark-lab: MemoryAgentBench subset runs use --topk-context 8",
+            "memory-runtime: richer retrieval object and rerank paths increase serving cost",
         ],
     ),
     ResearchPassSpec(
@@ -342,21 +342,21 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         expected_domain="inference-optimization",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: overnight public batch, CPU lane controls, and resume path",
-            "continuity-benchmarks: run_overnight_public_batch.sh",
+            "benchmark-lab: overnight public batch, CPU lane controls, and resume path",
+            "benchmark-lab: run_overnight_public_batch.sh",
         ],
     ),
     ResearchPassSpec(
         pass_id="eval-benchmark-drift-candidate-heuristics",
         wave=4,
         theme="Benchmark Fit",
-        prompt="Research benchmark drift detection when candidate variants change continuity heuristics and compaction rules.",
+        prompt="Research benchmark drift detection when candidate variants change answer-selection heuristics and compaction rules.",
         why_it_matters="As candidate variants evolve, you need a way to distinguish real progress from benchmark-fit drift.",
         expected_domain="llm-evals",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: repeated candidate comparisons across baseline_current, cand80, and cand119",
-            "continuity-core: many interacting retrieval and compaction heuristics",
+            "benchmark-lab: repeated candidate comparisons across baseline_current, cand80, and cand119",
+            "memory-runtime: many interacting retrieval and compaction heuristics",
         ],
     ),
     ResearchPassSpec(
@@ -368,8 +368,8 @@ RESEARCH_PASS_SPECS: tuple[ResearchPassSpec, ...] = (
         expected_domain="llm-evals",
         expected_initial_outcome="gap_fill",
         source_signals=[
-            "dnd2: local judge usage on overnight runs",
-            "llmresearch: llm-evals specialist domain already carries audit-sampling patterns",
+            "benchmark-lab: local judge usage on overnight runs",
+            "registry-example: llm-evals specialist domain already carries audit-sampling patterns",
         ],
     ),
 )
@@ -407,9 +407,9 @@ def render_summary(specs: list[ResearchPassSpec]) -> str:
 
 def render_markdown(specs: list[ResearchPassSpec]) -> str:
     lines = [
-        "# Real Research Pass Suite",
+        "# Example Research Pass Suite",
         "",
-        "This suite is grounded in the `dnd2` screen session plus the current `continuity-benchmarks`, `continuity-core`, and `choose-game` work.",
+        "This suite is a generic example corpus for long-memory benchmark, retrieval, and productization research.",
         "",
     ]
     for wave in sorted({spec.wave for spec in specs}):
@@ -429,7 +429,7 @@ def render_markdown(specs: list[ResearchPassSpec]) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Inspect the real research pass suite derived from current long-memory project work.")
+    parser = argparse.ArgumentParser(description="Inspect the example research pass suite for long-memory project workflows.")
     parser.add_argument(
         "--format",
         choices=["summary", "markdown", "json"],

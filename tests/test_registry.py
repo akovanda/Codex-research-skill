@@ -67,7 +67,7 @@ def make_settings(tmp_path: Path, *, public_base_url: str = "https://registry.ex
 
 def test_question_claim_report_roundtrip_search_and_public_visibility(tmp_path: Path) -> None:
     service = make_service(tmp_path)
-    focus = FocusTuple(domain="memory-retrieval", object="branch-private memory isolation", context="choose-game")
+    focus = FocusTuple(domain="memory-retrieval", object="branch-private memory isolation", context="branch-sandbox")
     question = service.create_question(QuestionCreate(prompt="Research branch-private memory isolation.", focus=focus))
     source = service.create_source(SourceCreate(locator="https://example.com/branch-private", title="Branch isolation note", snippet="branch private isolation", snapshot_present=True))
     excerpt = service.create_excerpt(
