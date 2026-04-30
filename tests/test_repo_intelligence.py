@@ -122,6 +122,8 @@ def make_profileless_rust_repo(tmp_path: Path) -> Path:
     (repo / "codex-rs" / "tui" / "tests").mkdir(parents=True)
     (repo / "AGENTS.md").write_text(
         "# Rust/codex-rs\n"
+        "- When using format! and you can inline variables into {}, always do that.\n"
+        "- Install any commands the repo relies on if they are missing.\n"
         "- Run `cargo test -p codex-tui` for TUI changes.\n"
         "- Run `just fix -p <project>` before finalizing larger Rust changes.\n"
         "- Run `just argument-comment-lint` to keep comment lint clean.\n",
@@ -152,8 +154,20 @@ def make_profileless_js_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "pathfinder-like"
     (repo / "ui" / "app" / "src" / "pages" / "__tests__").mkdir(parents=True)
     (repo / "AGENTS.md").write_text(
-        "# AGENTS.md\n"
-        "- Use the typed UI routes and keep validation scoped.\n"
+        "# Assistant Context Bootstrap\n"
+        "- Use `POST /v1/context/compile` to assemble a compact working context.\n"
+        "- Treat this file as broad human handoff context.\n"
+        "\n"
+        "# Frontend Structure\n"
+        "- Legacy/debug UI remains under `/legacy/*` and should be treated as compatibility tooling.\n"
+        "\n"
+        "# Current Preferred Workflow for Gameplay Features\n"
+        "1. fix or add backend service logic\n"
+        "2. expose it through a typed router if needed\n"
+        "3. wire the new UI route/component to the typed API\n"
+        "\n"
+        "# Current Preferred Workflow for Debugging\n"
+        "- If combat looks wrong, check whether the UI is using stale offers in `CombatPage.tsx`.\n"
         "- Do not assume git status works in every environment.\n",
         encoding="utf-8",
     )
@@ -268,6 +282,8 @@ def test_profileless_rust_repo_infers_crate_commands(tmp_path: Path) -> None:
     assert result.commands[0].command == "cargo test -p codex-tui"
     assert any(command.command == "just fix -p codex-tui" for command in result.commands)
     assert any("AGENTS.md" == instruction.path for instruction in result.instructions)
+    assert any("cargo test -p codex-tui" in instruction.summary for instruction in result.instructions)
+    assert all("Install any commands" not in instruction.summary for instruction in result.instructions)
 
 
 def test_profileless_js_repo_infers_package_commands_and_test_target(tmp_path: Path) -> None:
@@ -284,6 +300,8 @@ def test_profileless_js_repo_infers_package_commands_and_test_target(tmp_path: P
     assert result.matched_area == "pathfinder-ops-ui"
     assert result.commands[0].command == "pnpm --dir ui/app test -- ui/app/src/pages/__tests__/CombatPage.test.tsx"
     assert any(check.status == "blocker" and "ui/app/node_modules is missing" in check.detail for check in result.preflight)
+    assert any("CombatPage.tsx" in instruction.summary for instruction in result.instructions)
+    assert all("context/compile" not in instruction.summary for instruction in result.instructions)
 
 
 def test_implicit_capture_stores_repo_triage_session(tmp_path: Path) -> None:

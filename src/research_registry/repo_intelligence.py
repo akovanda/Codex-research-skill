@@ -117,6 +117,65 @@ CONFIG_NAMES = (
     "docker-compose.yml",
     "compose.yaml",
 )
+GENERIC_INSTRUCTION_HEADINGS = {
+    "assistant context bootstrap",
+    "repo purpose",
+    "working assumptions",
+    "context layers",
+    "services and ports",
+    "where to start reading",
+    "core backend entry points",
+}
+RELEVANCE_STOPWORDS = {
+    "what",
+    "exact",
+    "command",
+    "should",
+    "this",
+    "repo",
+    "review",
+    "reviewer",
+    "reviewers",
+    "file",
+    "failing",
+    "error",
+    "stack",
+    "trace",
+    "change",
+    "likely",
+    "concerns",
+    "prompt",
+    "call",
+    "out",
+    "for",
+    "the",
+    "and",
+    "with",
+    "from",
+    "into",
+    "that",
+    "have",
+    "your",
+    "when",
+    "then",
+    "just",
+    "run",
+    "use",
+    "check",
+    "src",
+    "app",
+    "apps",
+    "lib",
+    "page",
+    "pages",
+    "component",
+    "components",
+    "test",
+    "tests",
+    "spec",
+    "specs",
+    "docs",
+}
 
 
 class RepoProfileRepo(BaseModel):
@@ -269,7 +328,13 @@ def resolve_repo_capture_request(prompt: str, *, source_roots: list[Path] | None
 
 def run_repo_capture(prompt: str, request: RepoCaptureRequest) -> RepoCaptureResult:
     repo_root = Path(request.repo_root)
-    instructions = resolve_instructions(repo_root, request.target_paths, request.mode)
+    instructions = resolve_instructions(
+        repo_root,
+        request.target_paths,
+        request.mode,
+        prompt=prompt,
+        area_name=request.primary_area.name if request.primary_area else None,
+    )
     commands = build_command_recommendations(prompt, repo_root, request, instructions)
     preflight = evaluate_preflight(repo_root, request, commands)
     failure_bucket = classify_failure_bucket(prompt, preflight)
@@ -640,41 +705,121 @@ def collect_git_changed_paths(repo_root: Path) -> list[str]:
     return paths[:12]
 
 
-def resolve_instructions(repo_root: Path, target_paths: list[str], mode: RepoCaptureMode) -> list[RepoInstruction]:
-    candidates: list[Path] = []
+def resolve_instructions(
+    repo_root: Path,
+    target_paths: list[str],
+    mode: RepoCaptureMode,
+    *,
+    prompt: str,
+    area_name: str | None,
+) -> list[RepoInstruction]:
+    candidate_distances = collect_instruction_candidate_distances(repo_root, target_paths)
+    target_context = build_instruction_target_context(prompt, target_paths, area_name)
+    ranked: list[tuple[int, int, RepoInstruction]] = []
+    seen = set()
+    for path, distance in candidate_distances.items():
+        ranked.extend(
+            extract_relevant_instructions(
+                path,
+                repo_root=repo_root,
+                mode=mode,
+                seen=seen,
+                path_distance=distance,
+                target_context=target_context,
+            )
+        )
+    ranked.sort(key=lambda item: (-item[0], item[1], item[2].path, item[2].line_number))
+    return [instruction for _, _, instruction in ranked[:16]]
+
+
+def collect_instruction_candidate_distances(repo_root: Path, target_paths: list[str]) -> dict[Path, int]:
+    distances: dict[Path, int] = {}
     if not target_paths:
         root_agents = repo_root / "AGENTS.md"
         if root_agents.exists():
-            candidates.append(root_agents)
-    for target in target_paths or [""]:
+            distances[root_agents] = 0
+        return distances
+    for target in target_paths:
         current = (repo_root / target).resolve()
         if current.is_file():
             current = current.parent
-        lineage = []
-        for directory in [current, *current.parents]:
+        for distance, directory in enumerate([current, *current.parents]):
             try:
                 directory.relative_to(repo_root)
             except ValueError:
                 continue
-            lineage.append(directory)
+            agents_path = directory / "AGENTS.md"
+            if agents_path.exists():
+                distances[agents_path] = min(distances.get(agents_path, distance), distance)
             if directory == repo_root:
                 break
-        for directory in reversed(lineage):
-            agents_path = directory / "AGENTS.md"
-            if agents_path.exists() and agents_path not in candidates:
-                candidates.append(agents_path)
-    instructions: list[RepoInstruction] = []
-    seen = set()
-    for path in candidates:
-        instructions.extend(extract_relevant_instructions(path, repo_root=repo_root, mode=mode, seen=seen))
-    return instructions[:16]
+    return distances
 
 
-def extract_relevant_instructions(path: Path, *, repo_root: Path, mode: RepoCaptureMode, seen: set[tuple[str, int]]) -> list[RepoInstruction]:
+def build_instruction_target_context(prompt: str, target_paths: list[str], area_name: str | None) -> tuple[set[str], set[str]]:
+    text_terms: set[str] = set()
+    exact_terms: set[str] = set()
+    for token in tokenize_relevance_text(prompt):
+        if token not in RELEVANCE_STOPWORDS:
+            text_terms.add(token)
+    for target in target_paths:
+        normalized = target.lower()
+        exact_terms.add(normalized)
+        basename = Path(target).name.lower()
+        exact_terms.add(basename)
+        stem = Path(target).stem.lower()
+        exact_terms.add(stem)
+        for token in tokenize_relevance_text(target):
+            if token not in RELEVANCE_STOPWORDS:
+                text_terms.add(token)
+        parts = [part.lower() for part in PurePosixPath(target).parts]
+        for index in range(len(parts) - 1):
+            fragment = "/".join(parts[index : index + 2])
+            if len(fragment) >= 6:
+                exact_terms.add(fragment)
+    if area_name:
+        exact_terms.add(area_name.lower())
+        for token in tokenize_relevance_text(area_name):
+            if token not in RELEVANCE_STOPWORDS:
+                text_terms.add(token)
+    return text_terms, {term for term in exact_terms if term}
+
+
+def extract_relevant_instructions(
+    path: Path,
+    *,
+    repo_root: Path,
+    mode: RepoCaptureMode,
+    seen: set[tuple[str, int]],
+    path_distance: int,
+    target_context: tuple[set[str], set[str]],
+) -> list[tuple[int, int, RepoInstruction]]:
     keywords = INSTRUCTION_KEYWORDS[mode]
-    directive_tokens = ("run ", "use ", "check ", "verify ", "install ", "prefer ", "avoid ", "do not", "must ", "never ", "always ", "keep ", "treat ", "mention ", "call out ")
+    directive_tokens = (
+        "run ",
+        "use ",
+        "check ",
+        "verify ",
+        "install ",
+        "prefer ",
+        "avoid ",
+        "do not",
+        "must ",
+        "never ",
+        "always ",
+        "keep ",
+        "treat ",
+        "mention ",
+        "call out ",
+        "fix ",
+        "add ",
+        "wire ",
+        "expose ",
+        "surface ",
+    )
     heading = ""
-    extracted: list[RepoInstruction] = []
+    extracted: list[tuple[int, int, RepoInstruction]] = []
+    text_terms, exact_terms = target_context
     for index, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         stripped = raw_line.strip()
         if not stripped:
@@ -683,13 +828,28 @@ def extract_relevant_instructions(path: Path, *, repo_root: Path, mode: RepoCapt
             heading = stripped.lstrip("# ").strip()
             continue
         lowered = stripped.lower()
-        has_keyword = any(re.search(rf"\b{re.escape(keyword)}\b", lowered) for keyword in keywords)
+        keyword_hits = count_instruction_keyword_hits(lowered, keywords)
+        has_keyword = keyword_hits > 0
         has_guardrail = any(token in lowered for token in ("never", "always", "prefer", "avoid", "do not", "must", "keep "))
         has_directive = any(token in lowered for token in directive_tokens)
         has_command = extract_command_from_instruction(stripped) is not None
         if not has_keyword and not has_guardrail and not has_directive and not has_command:
             continue
-        if not has_guardrail and not has_directive and not has_command:
+        if not has_guardrail and not has_directive and not has_command and keyword_hits < 2:
+            continue
+        heading_lower = heading.lower()
+        line_score = score_instruction_line(
+            heading=heading_lower,
+            line=lowered,
+            path_distance=path_distance,
+            keyword_hits=keyword_hits,
+            has_guardrail=has_guardrail,
+            has_directive=has_directive,
+            has_command=has_command,
+            text_terms=text_terms,
+            exact_terms=exact_terms,
+        )
+        if line_score < 6:
             continue
         key = (str(path), index)
         if key in seen:
@@ -699,13 +859,61 @@ def extract_relevant_instructions(path: Path, *, repo_root: Path, mode: RepoCapt
         if heading:
             summary = f"{heading}: {summary}"
         extracted.append(
-            RepoInstruction(
-                path=path.relative_to(repo_root).as_posix(),
-                line_number=index,
-                summary=summary,
+            (
+                line_score,
+                path_distance,
+                RepoInstruction(
+                    path=path.relative_to(repo_root).as_posix(),
+                    line_number=index,
+                    summary=summary,
+                ),
             )
         )
     return extracted
+
+
+def count_instruction_keyword_hits(text: str, keywords: tuple[str, ...]) -> int:
+    hits = 0
+    for keyword in keywords:
+        if " " in keyword or "-" in keyword or "/" in keyword:
+            if keyword in text:
+                hits += 1
+            continue
+        if re.search(rf"\b{re.escape(keyword)}s?\b", text):
+            hits += 1
+    return hits
+
+
+def score_instruction_line(
+    *,
+    heading: str,
+    line: str,
+    path_distance: int,
+    keyword_hits: int,
+    has_guardrail: bool,
+    has_directive: bool,
+    has_command: bool,
+    text_terms: set[str],
+    exact_terms: set[str],
+) -> int:
+    combined = f"{heading} {line}".strip()
+    token_hits = sum(1 for term in text_terms if term in combined)
+    exact_hits = sum(1 for term in exact_terms if term in combined)
+    score = 0
+    score += min(keyword_hits, 3) * 2
+    score += 5 if has_command else 0
+    score += 3 if has_guardrail else 0
+    score += 2 if has_directive else 0
+    score += min(token_hits, 3) * 2
+    score += min(exact_hits, 2) * 4
+    score += max(0, 4 - min(path_distance, 4))
+    if heading in GENERIC_INSTRUCTION_HEADINGS and not has_command and exact_hits == 0:
+        score -= 4
+    if token_hits == 0 and exact_hits == 0 and not has_command and path_distance >= 2:
+        score -= 2
+    if token_hits <= 1 and exact_hits == 0 and not has_command and path_distance >= 3:
+        score -= 3
+    return score
 
 
 def build_command_recommendations(
@@ -846,14 +1054,13 @@ def extract_command_from_instruction(summary: str) -> str | None:
         tail = stripped.split(":", 1)[1].strip()
         if is_command_like(tail):
             return tail
-    lowered = stripped.lower()
-    if any(token in lowered for token in ("run ", "use ", "execute ", "invoke ", "prefer ")):
-        command_match = re.search(
-            r"((?:cargo|just|pnpm|npm|yarn|bundle|python|pytest|script/spring|make)\s+[A-Za-z0-9_./:<>{}=-]+(?:\s+[A-Za-z0-9_./:<>{}=-]+)*)",
-            stripped,
-        )
-        if command_match:
-            return command_match.group(1).strip().rstrip(".,")
+    command_match = re.search(
+        r"\b(?:run|use|execute|invoke|prefer|check|verify|install)\s+((?:cargo|just|pnpm|npm|yarn|bundle|python|pytest|script/spring|make)\b(?:\s+[A-Za-z0-9_./:<>{}=-]+)*)",
+        stripped,
+        flags=re.IGNORECASE,
+    )
+    if command_match:
+        return command_match.group(1).strip().rstrip(".,")
     return None
 
 
@@ -1534,6 +1741,12 @@ def extract_search_terms(prompt: str) -> list[str]:
         if term not in deduped:
             deduped.append(term)
     return deduped[:8]
+
+
+def tokenize_relevance_text(text: str) -> list[str]:
+    expanded = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    tokens = re.findall(r"[a-z0-9]+", expanded.lower())
+    return [token for token in tokens if len(token) >= 3]
 
 
 def run_command(command: list[str], *, allow_failure: bool = False) -> str:
