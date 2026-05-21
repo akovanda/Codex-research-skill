@@ -7,12 +7,14 @@ VENV_PYTHON := $(VENV)/bin/python
 INSTALL_STAMP := $(VENV)/.editable-installed
 SEED_DEMO ?= 1
 
-.PHONY: help venv install up status down token uninstall purge-local test build preview-check workflow-check grounded-pass-check
+.PHONY: help venv install up status doctor repair down token uninstall purge-local test build preview-check workflow-check grounded-pass-check
 
 help:
 	@printf "Targets:\n"
 	@printf "  make up      Create/update the local env, start the localhost stack, and seed demo data by default.\n"
 	@printf "  make status  Show the current localhost runtime status.\n"
+	@printf "  make doctor  Check Docker, runtime image, Codex MCP config, and skill links.\n"
+	@printf "  make repair  Repair managed Codex MCP config and skill links.\n"
 	@printf "  make down    Stop the localhost runtime.\n"
 	@printf "  make token   Print the managed localhost admin token and API key.\n"
 	@printf "  make uninstall  Stop the localhost runtime and remove the managed Codex integration.\n"
@@ -43,7 +45,7 @@ $(INSTALL_STAMP): $(VENV_PYTHON) pyproject.toml
 install: $(INSTALL_STAMP)
 
 up: install
-	$(VENV_PYTHON) -m research_registry.local_install
+	$(VENV_PYTHON) -m research_registry up --build-local-image --image research-registry-local:latest
 ifeq ($(SEED_DEMO),1)
 	$(VENV_PYTHON) -m research_registry.seed_demo
 	$(VENV_PYTHON) -m research_registry.seed_memory_retrieval
@@ -52,19 +54,25 @@ endif
 	@printf "\nOpen http://127.0.0.1:8010\n"
 
 status: install
-	$(VENV_PYTHON) -m research_registry.local_status
+	$(VENV_PYTHON) -m research_registry status
+
+doctor: install
+	$(VENV_PYTHON) -m research_registry doctor
+
+repair: install
+	$(VENV_PYTHON) -m research_registry repair
 
 down: install
-	$(VENV_PYTHON) -m research_registry.local_stop
+	$(VENV_PYTHON) -m research_registry down
 
 token: install
-	$(VENV_PYTHON) -m research_registry.local_token
+	$(VENV_PYTHON) -m research_registry token
 
 uninstall: install
-	$(VENV_PYTHON) -m research_registry.local_uninstall
+	$(VENV_PYTHON) -m research_registry uninstall
 
 purge-local: install
-	$(VENV_PYTHON) -m research_registry.local_uninstall --purge-data
+	$(VENV_PYTHON) -m research_registry uninstall --purge-data
 
 test: install
 	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q

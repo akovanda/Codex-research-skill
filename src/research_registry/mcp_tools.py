@@ -112,6 +112,97 @@ class McpToolRuntime:
         model = ReportCreate.model_validate(payload)
         return self._create_record("report", model, auth=auth)
 
+    def create_research_bundle(self, payload: dict[str, Any], ctx: Context) -> dict[str, Any]:
+        auth = self._resolve_auth(ctx, require_scope="ingest")
+        question_payload = dict(payload.get("question") or {})
+        if not question_payload:
+            question_payload = {
+                "prompt": payload["prompt"],
+                "focus": payload.get("focus"),
+                "visibility": payload.get("visibility", "private"),
+                "namespace_kind": payload.get("namespace_kind", "user"),
+                "namespace_id": payload.get("namespace_id", "local"),
+            }
+        question = self._create_record("question", QuestionCreate.model_validate(question_payload), auth=auth)
+        question_id = question["id"]
+
+        session_payload = dict(payload.get("session") or {})
+        session_payload.setdefault("question_id", question_id)
+        session_payload.setdefault("prompt", question.get("prompt") or payload.get("prompt"))
+        session_payload.setdefault("model_name", payload.get("model_name", "unspecified"))
+        session_payload.setdefault("model_version", payload.get("model_version", "unspecified"))
+        session_payload.setdefault("mode", payload.get("mode", "live_research"))
+        session_payload.setdefault("source_signals", payload.get("source_signals", []))
+        session_payload.setdefault("visibility", question.get("visibility", "private"))
+        session_payload.setdefault("namespace_kind", question.get("namespace_kind", "user"))
+        session_payload.setdefault("namespace_id", question.get("namespace_id", "local"))
+        session = self._create_record("session", ResearchSessionCreate.model_validate(session_payload), auth=auth)
+        session_id = session["id"]
+
+        sources: list[dict[str, Any]] = []
+        for source_payload in payload.get("sources", []):
+            sources.append(self._create_record("source", SourceCreate.model_validate(source_payload), auth=auth))
+        source_ids = [source["id"] for source in sources]
+
+        excerpts: list[dict[str, Any]] = []
+        for raw_excerpt in payload.get("excerpts", []):
+            excerpt_payload = dict(raw_excerpt)
+            source_index = excerpt_payload.pop("source_index", None)
+            if "source_id" not in excerpt_payload and "source" not in excerpt_payload and source_index is not None:
+                excerpt_payload["source_id"] = source_ids[int(source_index)]
+            elif "source_id" not in excerpt_payload and "source" not in excerpt_payload and len(source_ids) == 1:
+                excerpt_payload["source_id"] = source_ids[0]
+            excerpt_payload.setdefault("question_id", question_id)
+            excerpt_payload.setdefault("session_id", session_id)
+            excerpt_payload.setdefault("namespace_kind", question.get("namespace_kind", "user"))
+            excerpt_payload.setdefault("namespace_id", question.get("namespace_id", "local"))
+            excerpts.append(self._create_record("excerpt", ExcerptCreate.model_validate(excerpt_payload), auth=auth))
+        excerpt_ids = [excerpt["id"] for excerpt in excerpts]
+
+        claims: list[dict[str, Any]] = []
+        for raw_claim in payload.get("claims", []):
+            claim_payload = dict(raw_claim)
+            excerpt_indexes = claim_payload.pop("excerpt_indexes", None)
+            if "excerpt_ids" not in claim_payload and excerpt_indexes is not None:
+                claim_payload["excerpt_ids"] = [excerpt_ids[int(index)] for index in excerpt_indexes]
+            elif "excerpt_ids" not in claim_payload and len(excerpt_ids) == 1:
+                claim_payload["excerpt_ids"] = [excerpt_ids[0]]
+            claim_payload.setdefault("question_id", question_id)
+            claim_payload.setdefault("session_id", session_id)
+            claim_payload.setdefault("namespace_kind", question.get("namespace_kind", "user"))
+            claim_payload.setdefault("namespace_id", question.get("namespace_id", "local"))
+            claims.append(self._create_record("claim", ClaimCreate.model_validate(claim_payload), auth=auth))
+        claim_ids = [claim["id"] for claim in claims]
+
+        report: dict[str, Any] | None = None
+        if payload.get("report") is not None:
+            report_payload = dict(payload["report"])
+            claim_indexes = report_payload.pop("claim_indexes", None)
+            if "claim_ids" not in report_payload and claim_indexes is not None:
+                report_payload["claim_ids"] = [claim_ids[int(index)] for index in claim_indexes]
+            elif "claim_ids" not in report_payload:
+                report_payload["claim_ids"] = claim_ids
+            report_payload.setdefault("question_id", question_id)
+            report_payload.setdefault("session_id", session_id)
+            report_payload.setdefault("namespace_kind", question.get("namespace_kind", "user"))
+            report_payload.setdefault("namespace_id", question.get("namespace_id", "local"))
+            report = self._create_record("report", ReportCreate.model_validate(report_payload), auth=auth)
+
+        return {
+            "question_id": question_id,
+            "session_id": session_id,
+            "source_ids": source_ids,
+            "excerpt_ids": excerpt_ids,
+            "claim_ids": claim_ids,
+            "report_id": report["id"] if report else None,
+            "question": question,
+            "session": session,
+            "sources": sources,
+            "excerpts": excerpts,
+            "claims": claims,
+            "report": report,
+        }
+
     def publish(self, kind: str, record_id: str, *, cascade_linked_sources: bool, ctx: Context) -> dict[str, Any]:
         auth = self._resolve_auth(ctx, require_scope="publish")
         payload = PublishRequest(kind=kind, record_id=record_id, cascade_linked_sources=cascade_linked_sources)
@@ -357,6 +448,11 @@ def create_mcp_server(
     def create_report(payload: dict, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a report with explicit summary markdown from one or more claim ids."""
         return runtime.create_report(payload, ctx)
+
+    @mcp.tool()
+    def create_research_bundle(payload: dict, ctx: Context = None) -> dict:  # type: ignore[assignment]
+        """Create one question, session, sources, excerpts, claims, and an optional report in one call."""
+        return runtime.create_research_bundle(payload, ctx)
 
     @mcp.tool()
     def publish(

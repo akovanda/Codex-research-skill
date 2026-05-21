@@ -194,3 +194,21 @@ def test_package_metadata_matches_preview_contract() -> None:
 
     urls = project.get("urls", {})
     assert not any("github.com/example/research-registry" in value for value in urls.values())
+    assert project["scripts"]["research-registry"] == "research_registry.cli:main"
+    assert project["scripts"]["research-registry-web"] == "research_registry.web:main"
+
+
+def test_packaged_distribution_declares_skill_assets() -> None:
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    data_files = pyproject["tool"]["setuptools"]["data-files"]
+    packaged_files = {file for files in data_files.values() for file in files}
+
+    for path in [
+        "skills/research-capture/SKILL.md",
+        "skills/research-capture/agents/openai.yaml",
+        "skills/research-capture/references/workflow.md",
+        "skills/research-memory-retrieval/SKILL.md",
+        "skills/research-memory-retrieval/agents/openai.yaml",
+        "skills/research-memory-retrieval/references/topic-taxonomy.md",
+    ]:
+        assert path in packaged_files

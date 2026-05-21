@@ -9,7 +9,7 @@ import tomllib
 
 DEFAULT_PORT = 8010
 DEFAULT_PROJECT_NAME = "research-registry-local"
-DEFAULT_IMAGE_TAG = "research-registry-local:latest"
+DEFAULT_IMAGE_TAG = "ghcr.io/akovanda/codex-research-skill:0.1.0"
 DEFAULT_DOCKER_DATABASE_URL = "postgresql://registry:registry@postgres:5432/registry"
 PRIVATE_DIR_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
@@ -68,6 +68,7 @@ def _chmod_if_possible(path: Path, mode: int) -> None:
 def default_managed_local_config(
     *,
     port: int = DEFAULT_PORT,
+    image_tag: str | None = None,
     admin_token: str | None = None,
     session_secret: str | None = None,
     api_key: str | None = None,
@@ -82,7 +83,7 @@ def default_managed_local_config(
         compose_file_path=config_dir / "compose.yaml",
         compose_env_path=config_dir / ".env",
         compose_project_name=DEFAULT_PROJECT_NAME,
-        image_tag=DEFAULT_IMAGE_TAG,
+        image_tag=image_tag or os.getenv("RESEARCH_REGISTRY_IMAGE", DEFAULT_IMAGE_TAG),
         port=port,
         public_base_url=public_base_url,
         backend_url=public_base_url,

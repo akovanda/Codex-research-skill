@@ -511,6 +511,7 @@ async def _run_mcp_roundtrip(base_url: str, api_key: str) -> None:
                 tool_names = {tool.name for tool in tools.tools}
                 assert "search" in tool_names
                 assert "create_question" in tool_names
+                assert "create_research_bundle" in tool_names
 
                 status = await session.call_tool("backend_status")
                 assert status.isError is False
@@ -537,6 +538,57 @@ async def _run_mcp_roundtrip(base_url: str, api_key: str) -> None:
                 assert results.isError is False
                 hits = _tool_json(results)["hits"]
                 assert question_id in {hit["id"] for hit in hits}
+
+                bundle = await session.call_tool(
+                    "create_research_bundle",
+                    {
+                        "payload": {
+                            "prompt": "Research bundled MCP research capture.",
+                            "focus": {"domain": "memory-retrieval", "object": "bundled mcp capture"},
+                            "model_name": "test-model",
+                            "model_version": "test-version",
+                            "sources": [
+                                {
+                                    "locator": "https://example.com/bundled-mcp-capture",
+                                    "title": "Bundled MCP capture note",
+                                    "snippet": "bundled MCP capture keeps low-level registry calls together",
+                                }
+                            ],
+                            "excerpts": [
+                                {
+                                    "source_index": 0,
+                                    "focal_label": "bundled mcp capture",
+                                    "note": "A bundle tool reduces fragile multi-call agent choreography.",
+                                    "selector": SourceSelector(
+                                        exact="bundled MCP capture keeps low-level registry calls together",
+                                        deep_link="https://example.com/bundled-mcp-capture#bundle",
+                                    ).model_dump(mode="json"),
+                                    "quote_text": "bundled MCP capture keeps low-level registry calls together",
+                                }
+                            ],
+                            "claims": [
+                                {
+                                    "title": "Bundle tool reduces choreography",
+                                    "focal_label": "bundled mcp capture",
+                                    "statement": "A single bundle tool reduces fragile multi-call agent choreography.",
+                                    "excerpt_indexes": [0],
+                                }
+                            ],
+                            "report": {
+                                "title": "Bundled MCP capture guidance",
+                                "focal_label": "bundled mcp capture",
+                                "summary_md": "# Guidance\n\nUse the bundle tool when storing a complete research pass.",
+                                "claim_indexes": [0],
+                            },
+                        }
+                    },
+                )
+                assert bundle.isError is False
+                bundle_payload = _tool_json(bundle)
+                assert bundle_payload["report_id"] is not None
+                assert len(bundle_payload["source_ids"]) == 1
+                assert len(bundle_payload["excerpt_ids"]) == 1
+                assert len(bundle_payload["claim_ids"]) == 1
 
 
 def test_live_http_mcp_roundtrip(tmp_path: Path) -> None:

@@ -4,7 +4,7 @@ This is the fastest path for a new user who wants Research Registry working loca
 
 If you want a quick answer to "what does this install change?" or "do I need Docker?", read [FAQ](faq.md) first.
 
-The intended first run is:
+The intended first run for a source checkout is:
 
 1. run `make up`
 2. verify the app, MCP wiring, and API docs with `make status`
@@ -13,15 +13,31 @@ The intended first run is:
 
 ## Prerequisites
 
-- Python 3.12
 - Docker with Compose support
 - Codex on the same machine if you want the managed MCP setup
+- Python 3.12 if you are installing from a source checkout or using `pipx`
+- `uv` or `pipx` if you want a package-manager install
 
 If your host `python3` is older than 3.12, either run `make up` with `PYTHON=python3.12` or precreate `.venv` with a 3.12 interpreter before using `make`.
 
 ## Install the local runtime
 
-From the repo root:
+Package-manager preview path:
+
+```bash
+uvx --from git+https://github.com/akovanda/Codex-research-skill research-registry up
+```
+
+After a PyPI release:
+
+```bash
+pipx install research-registry
+research-registry up
+```
+
+This pulls or uses the release runtime image by default. If you need an internal image mirror or fork, pass `--image` or set `RESEARCH_REGISTRY_IMAGE`.
+
+From a source checkout:
 
 ```bash
 make up
@@ -60,7 +76,7 @@ Manual equivalent:
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
-research-registry-local-install
+research-registry up --build-local-image --image research-registry-local:latest
 research-registry-seed
 research-registry-seed-memory-retrieval
 ```
@@ -70,6 +86,8 @@ research-registry-seed-memory-retrieval
 Run:
 
 ```bash
+research-registry status
+research-registry doctor
 make status
 curl http://127.0.0.1:8010/readyz
 curl http://127.0.0.1:8010/openapi.json
@@ -113,6 +131,7 @@ If you used `make up`, the admin token is stored in:
 You can print the current managed token and API key with:
 
 ```bash
+research-registry token
 make token
 ```
 
@@ -126,17 +145,17 @@ make token
 
 Docker is not running:
 
-- start Docker and rerun `make up`
+- start Docker and rerun `research-registry up` or `make up`
 
 Port `8010` is already in use:
 
 - stop the existing service with `make down`
-- or use the manual installer path with `research-registry-local-install --port 8011`
+- or use `research-registry up --port 8011`
 
 Codex already has a manual `researchRegistry` MCP entry:
 
 - remove or rename the manual block in `~/.codex/config.toml`
-- rerun `make up`
+- rerun `research-registry repair` or `make repair`
 
 Your host `python3` is older than 3.12:
 
@@ -146,18 +165,21 @@ Your host `python3` is older than 3.12:
 You want to stop the local stack:
 
 ```bash
+research-registry down
 make down
 ```
 
 You want to remove the managed local integration:
 
 ```bash
+research-registry uninstall
 make uninstall
 ```
 
 You want to remove the managed runtime plus its local data:
 
 ```bash
+research-registry uninstall --purge-data
 make purge-local
 ```
 

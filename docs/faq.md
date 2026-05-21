@@ -4,7 +4,7 @@
 
 For the supported localhost preview path, yes.
 
-`make up` starts a managed local service plus Postgres in Docker Compose and wires Codex to that shared localhost runtime.
+`research-registry up` starts a managed local service plus Postgres in Docker Compose and wires Codex to that shared localhost runtime. `make up` is the source-checkout contributor wrapper around the same runtime path.
 
 If you only want a repo-local development process, you can still run `research-registry-web` against SQLite, but that is a development path, not the main preview install.
 
@@ -14,17 +14,25 @@ No.
 
 The main product surface is the web app and JSON API. Codex, MCP, and the checked-in skills sit on top of that and are the primary workflow this preview is optimized for.
 
-## What does `make up` change on my machine?
+## What does `research-registry up` change on my machine?
 
 It does five visible things:
 
-- creates or reuses `.venv/`
-- installs the package in editable mode
 - creates managed config under `~/.config/research-registry/`
 - starts the managed localhost runtime on `127.0.0.1:8010`
 - patches `~/.codex/config.toml` and installs the managed skill symlinks if Codex is present
+- pulls or uses the configured runtime image
+- stores local data under `~/.local/share/research-registry/`
 
-If you want to remove the managed integration, run `make uninstall`. If you also want to delete the managed local data and Docker volumes, run `make purge-local`.
+`make up` additionally creates `.venv/`, installs the package in editable mode, builds a local image, and seeds demo content by default.
+
+If you want to repair config drift, run `research-registry repair` or `make repair`. If you want to remove the managed integration, run `research-registry uninstall` or `make uninstall`. If you also want to delete the managed local data and Docker volumes, run `research-registry uninstall --purge-data` or `make purge-local`.
+
+## Do I need Homebrew, pipx, or uv?
+
+No single package manager is required.
+
+The preferred preview package path is `uvx --from git+https://github.com/akovanda/Codex-research-skill research-registry up` because it can run the CLI without a full source checkout. After PyPI release, `pipx install research-registry` becomes the clean persistent install path. Homebrew is a good future convenience wrapper, but the CLI plus published container image has to work first.
 
 ## Does anything get published automatically?
 

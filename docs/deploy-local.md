@@ -12,19 +12,34 @@ Preview support target:
 
 ## Prerequisites
 
-- Python 3.12
 - Docker with Compose support
 - Codex on the same machine if you want the managed MCP wiring
+- `uv`, `pipx`, or Python 3.12 for the CLI
 
 If `python3` on your host is older than 3.12, run with `PYTHON=python3.12` or create `.venv` first with a 3.12 interpreter and then rerun `make up`.
 
 ## Start
 
+Installed CLI preview path:
+
+```bash
+uvx --from git+https://github.com/akovanda/Codex-research-skill research-registry up
+```
+
+After a PyPI release:
+
+```bash
+pipx install research-registry
+research-registry up
+```
+
+Source checkout path:
+
 ```bash
 make up
 ```
 
-`make up` creates `.venv/`, installs the repo in editable mode, starts the managed localhost runtime, and seeds demo content by default.
+`research-registry up` creates managed config, starts the managed localhost runtime, patches Codex config, and installs the skills. `make up` does the same from a source checkout, builds a local image, and seeds demo content by default.
 
 If you are on a host such as Ubuntu 20.04 where `python3` may still resolve to 3.8, you can bootstrap a compatible local env without changing system Python:
 
@@ -54,6 +69,8 @@ This creates:
 Check status:
 
 ```bash
+research-registry status
+research-registry doctor
 make status
 curl http://127.0.0.1:8010/readyz
 curl http://127.0.0.1:8010/openapi.json
@@ -79,25 +96,28 @@ make token
 Stop the local stack:
 
 ```bash
+research-registry down
 make down
 ```
 
 Remove the managed Codex integration but keep local data:
 
 ```bash
+research-registry uninstall
 make uninstall
 ```
 
 Remove the managed runtime, local data, and Docker volumes:
 
 ```bash
+research-registry uninstall --purge-data
 make purge-local
 ```
 
 Restore the previous Codex config from the managed backup instead of only removing the managed block:
 
 ```bash
-./.venv/bin/research-registry-local-uninstall --restore-codex-backup
+research-registry uninstall --restore-codex-backup
 ```
 
 ## Runtime details
@@ -108,6 +128,7 @@ Managed local defaults:
 - HTTP MCP: `http://127.0.0.1:8010/mcp/`
 - storage: Postgres inside Docker Compose
 - auth: admin token plus a shared local API key written into the managed config and Codex MCP block
+- image: `ghcr.io/akovanda/codex-research-skill:0.1.0` unless overridden with `--image` or `RESEARCH_REGISTRY_IMAGE`
 
 The generated runtime files live under `~/.config/research-registry/`:
 
@@ -159,7 +180,7 @@ Seed demo content:
 Run migrations explicitly:
 
 ```bash
-./.venv/bin/research-registry-migrate
+research-registry-migrate
 ```
 
 ## Notes

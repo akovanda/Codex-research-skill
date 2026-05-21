@@ -18,9 +18,11 @@ Release-critical supported paths:
 
 - managed localhost runtime for multiple local Codex instances
 - shared self-hosted Compose deployment for internal teams
+- package-manager CLI installs backed by the published GHCR runtime image
 
 Supported-but-secondary:
 
+- source-checkout contributor bootstrap via `make up`
 - repo-local developer process via `research-registry-web`
 - stdio MCP via `research-registry-mcp`
 
@@ -28,7 +30,6 @@ Example-only or explicitly unsupported in this preview:
 
 - Kubernetes as a production-hardened deployment target
 - direct public-internet exposure without your own network controls
-- PyPI as the primary install path
 - published hosted multi-tenant service
 
 Managed localhost preview support matrix:
@@ -74,7 +75,34 @@ If you are deciding whether this preview is even the right shape for you, read [
 - Codex user who wants implicit capture behavior: [docs/implicit-research-capture.md](docs/implicit-research-capture.md)
 - Repo-heavy user who wants command routing and triage: [docs/repo-aware-capture.md](docs/repo-aware-capture.md)
 
-### Local default
+### Installed CLI
+
+The release-oriented local path is an installed CLI that manages the Docker Compose runtime:
+
+```bash
+uvx --from git+https://github.com/akovanda/Codex-research-skill research-registry up
+```
+
+After a PyPI release, the same path becomes:
+
+```bash
+pipx install research-registry
+research-registry up
+```
+
+This path requires Docker with Compose support. It uses the published `ghcr.io/akovanda/codex-research-skill:0.1.0` runtime image by default. Override it with `--image` or `RESEARCH_REGISTRY_IMAGE` for forks, corporate mirrors, or local test images.
+
+Verify:
+
+```bash
+research-registry status
+research-registry doctor
+curl http://127.0.0.1:8010/readyz
+```
+
+### Source Checkout
+
+If you are contributing from this repository, use:
 
 ```bash
 make up
@@ -90,7 +118,8 @@ curl http://127.0.0.1:8010/openapi.json
 
 What success looks like:
 
-- `make status` prints `configured=true` and `ready=true`
+- `research-registry status` or `make status` prints `configured=true` and `ready=true`
+- `research-registry doctor` or `make doctor` shows the runtime, MCP config, and skill links
 - `GET /readyz` returns `{"status":"ready"}`
 - `GET /openapi.json` returns the Research Registry OpenAPI document
 - `~/.codex/config.toml` contains a managed `researchRegistry` MCP block
@@ -121,7 +150,7 @@ Manual equivalent:
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
-research-registry-local-install
+research-registry up --build-local-image --image research-registry-local:latest
 research-registry-seed
 research-registry-seed-memory-retrieval
 ```
@@ -144,10 +173,13 @@ Local default behavior:
 Status and stop commands:
 
 ```bash
-make status
+research-registry status
+research-registry doctor
+research-registry repair
+research-registry token
+research-registry down
+research-registry uninstall
 make token
-make down
-make uninstall
 ```
 
 To remove the managed localhost install and delete its local config/data directories plus Docker volumes:
@@ -349,7 +381,7 @@ Artifacts:
 
 The web app and API are the primary product surface. MCP and Codex skills sit on top of that:
 
-- HTTP MCP endpoint: `http://127.0.0.1:8010/mcp/` after `make up` or `research-registry-local-install`
+- HTTP MCP endpoint: `http://127.0.0.1:8010/mcp/` after `research-registry up` or `make up`
 - stdio MCP server: `research-registry-mcp`
 - implicit capture skill: [`skills/research-capture`](skills/research-capture/SKILL.md)
 - memory/retrieval skill: [`skills/research-memory-retrieval`](skills/research-memory-retrieval/SKILL.md)

@@ -13,6 +13,7 @@ Use this skill as the default workflow for research intent and repo-aware triage
 
 - Prefer the Research Registry MCP tools when they are available.
 - Expect these tools at minimum: `search`, `backend_status`, `create_question`, `create_session`, `get_source`, `get_excerpt`, `get_claim`, `get_report`, `create_source`, `add_excerpt`, `create_claim`, and `create_report`.
+- Prefer `create_research_bundle` when it is available for a complete new research pass; it reduces schema drift by creating the question, session, sources, excerpts, claims, and report together.
 - Assume backend selection precedence is: explicit override, named profile, org profile, hosted default, then localhost default.
 - Flush pending queue items first when `research-registry-capture-queue` is available.
 

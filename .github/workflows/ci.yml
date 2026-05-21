@@ -58,6 +58,10 @@ jobs:
           /tmp/research-registry-wheel/bin/pip install --upgrade pip
           /tmp/research-registry-wheel/bin/pip install dist/*.whl
           /tmp/research-registry-wheel/bin/python -c "import importlib.metadata; print(importlib.metadata.version('research-registry'))"
+          /tmp/research-registry-wheel/bin/python -m research_registry --help
+          CODEX_HOME=/tmp/rr-codex-wheel XDG_CONFIG_HOME=/tmp/rr-config-wheel XDG_DATA_HOME=/tmp/rr-data-wheel /tmp/research-registry-wheel/bin/python -m research_registry up --skip-start --skip-pull --skip-codex-config
+          test -e /tmp/rr-codex-wheel/skills/research-capture/SKILL.md
+          test -e /tmp/rr-codex-wheel/skills/research-memory-retrieval/SKILL.md
           /tmp/research-registry-wheel/bin/python -m research_registry.local_install --help
           /tmp/research-registry-wheel/bin/python -m research_registry.local_status
       - run: |
@@ -65,6 +69,10 @@ jobs:
           /tmp/research-registry-sdist/bin/pip install --upgrade pip
           /tmp/research-registry-sdist/bin/pip install dist/*.tar.gz
           /tmp/research-registry-sdist/bin/python -c "import importlib.metadata; print(importlib.metadata.version('research-registry'))"
+          /tmp/research-registry-sdist/bin/python -m research_registry --help
+          CODEX_HOME=/tmp/rr-codex-sdist XDG_CONFIG_HOME=/tmp/rr-config-sdist XDG_DATA_HOME=/tmp/rr-data-sdist /tmp/research-registry-sdist/bin/python -m research_registry up --skip-start --skip-pull --skip-codex-config
+          test -e /tmp/rr-codex-sdist/skills/research-capture/SKILL.md
+          test -e /tmp/rr-codex-sdist/skills/research-memory-retrieval/SKILL.md
           /tmp/research-registry-sdist/bin/python -m research_registry.local_install --help
           /tmp/research-registry-sdist/bin/python -m research_registry.local_status
       - run: docker build -t research-registry:test .

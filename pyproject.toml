@@ -49,7 +49,8 @@ Changelog = "https://github.com/akovanda/Codex-research-skill/blob/master/CHANGE
 Documentation = "https://github.com/akovanda/Codex-research-skill#readme"
 
 [project.scripts]
-research-registry-web = "research_registry.__main__:main"
+research-registry = "research_registry.cli:main"
+research-registry-web = "research_registry.web:main"
 research-registry-mcp = "research_registry.mcp_server:main"
 research-registry-seed = "research_registry.seed_demo:main"
 research-registry-seed-memory-retrieval = "research_registry.seed_memory_retrieval:main"
@@ -70,6 +71,32 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 research_registry = ["templates/*.html", "static/*.css", "migrations/*.sql"]
+
+[tool.setuptools.data-files]
+"share/research-registry/skills/research-capture" = [
+  "skills/research-capture/SKILL.md",
+]
+"share/research-registry/skills/research-capture/agents" = [
+  "skills/research-capture/agents/openai.yaml",
+]
+"share/research-registry/skills/research-capture/references" = [
+  "skills/research-capture/references/queue-fallback.md",
+  "skills/research-capture/references/repo-aware.md",
+  "skills/research-capture/references/routing.md",
+  "skills/research-capture/references/workflow.md",
+]
+"share/research-registry/skills/research-memory-retrieval" = [
+  "skills/research-memory-retrieval/SKILL.md",
+]
+"share/research-registry/skills/research-memory-retrieval/agents" = [
+  "skills/research-memory-retrieval/agents/openai.yaml",
+]
+"share/research-registry/skills/research-memory-retrieval/references" = [
+  "skills/research-memory-retrieval/references/deposit-rubric.md",
+  "skills/research-memory-retrieval/references/summary-contract.md",
+  "skills/research-memory-retrieval/references/topic-taxonomy.md",
+  "skills/research-memory-retrieval/references/workflow.md",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

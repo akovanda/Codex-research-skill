@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import socket
 import subprocess
+import sysconfig
 import time
 
 import httpx
@@ -61,8 +62,26 @@ class LocalUninstallResult:
     warnings: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class LocalDoctorCheck:
+    name: str
+    ok: bool
+    detail: str
+
+
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def source_checkout_root() -> Path | None:
+    root = repo_root()
+    if (root / "Dockerfile").exists() and (root / "skills").exists():
+        return root
+    return None
+
+
+def packaged_assets_root() -> Path:
+    return Path(sysconfig.get_path("data")).resolve() / "share" / "research-registry"
 
 
 def codex_home() -> Path:
@@ -73,10 +92,17 @@ def codex_config_path() -> Path:
     return codex_home() / "config.toml"
 
 
-def build_local_config(*, port: int | None = None, existing: ManagedLocalConfig | None = None) -> ManagedLocalConfig:
+def build_local_config(
+    *,
+    port: int | None = None,
+    image_tag: str | None = None,
+    existing: ManagedLocalConfig | None = None,
+) -> ManagedLocalConfig:
     selected_port = port or (existing.port if existing else DEFAULT_PORT)
+    selected_image_tag = image_tag or os.getenv("RESEARCH_REGISTRY_IMAGE") or (existing.image_tag if existing else None)
     config = default_managed_local_config(
         port=selected_port,
+        image_tag=selected_image_tag,
         admin_token=existing.admin_token if existing else None,
         session_secret=existing.session_secret if existing else None,
         api_key=existing.api_key if existing else None,
@@ -257,7 +283,16 @@ def remove_managed_codex_config() -> bool:
 
 
 def managed_skill_sources() -> dict[str, Path]:
-    root = repo_root() / "skills"
+    checkout = source_checkout_root()
+    root = checkout / "skills" if checkout else packaged_assets_root() / "skills"
+    required = [
+        root / "research-capture" / "SKILL.md",
+        root / "research-memory-retrieval" / "SKILL.md",
+    ]
+    if not all(path.exists() for path in required):
+        raise RuntimeError(
+            "managed skill assets were not found; reinstall the package or run from a source checkout"
+        )
     return {
         "research-capture": root / "research-capture",
         "research-memory-retrieval": root / "research-memory-retrieval",
@@ -386,7 +421,30 @@ def ensure_port_available(config: ManagedLocalConfig, *, existing: ManagedLocalC
 
 
 def build_local_image(config: ManagedLocalConfig) -> None:
-    run_checked(["docker", "build", "-t", config.image_tag, "."], cwd=repo_root())
+    checkout = source_checkout_root()
+    if checkout is None:
+        raise RuntimeError("local image builds require a source checkout with Dockerfile and skills/")
+    run_checked(["docker", "build", "-t", config.image_tag, "."], cwd=checkout)
+
+
+def docker_image_exists(image_tag: str) -> bool:
+    try:
+        run_checked(["docker", "image", "inspect", image_tag])
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
+    return True
+
+
+def pull_local_image(config: ManagedLocalConfig) -> None:
+    run_checked(["docker", "pull", config.image_tag])
+
+
+def ensure_runtime_image(config: ManagedLocalConfig, *, build_image: bool = False, pull_image: bool = True) -> None:
+    if build_image:
+        build_local_image(config)
+        return
+    if pull_image and not docker_image_exists(config.image_tag):
+        pull_local_image(config)
 
 
 def start_local_stack(config: ManagedLocalConfig) -> None:
@@ -411,26 +469,45 @@ def docker_status_text(config: ManagedLocalConfig) -> str | None:
 def install_local_runtime(
     *,
     port: int | None = None,
-    build_image: bool = True,
+    image_tag: str | None = None,
+    build_image: bool = False,
+    pull_image: bool = True,
     start_stack: bool = True,
     configure_codex: bool = True,
     install_skills: bool = True,
 ) -> ManagedLocalConfig:
     existing = load_managed_local_config()
-    config = build_local_config(port=port, existing=existing)
-    ensure_port_available(config, existing=existing)
+    config = build_local_config(port=port, image_tag=image_tag, existing=existing)
+    if start_stack:
+        ensure_port_available(config, existing=existing)
 
     write_local_runtime_files(config)
     write_managed_local_config(config)
 
-    if build_image:
-        build_local_image(config)
+    if start_stack:
+        ensure_runtime_image(config, build_image=build_image, pull_image=pull_image)
     if start_stack:
         start_local_stack(config)
         wait_for_ready(config.public_base_url)
         config = ensure_local_api_key(config)
         write_managed_local_config(config)
 
+    if configure_codex and config.api_key:
+        ensure_codex_mcp_config(config)
+    if install_skills:
+        ensure_skill_links()
+    return config
+
+
+def repair_local_runtime(*, configure_codex: bool = True, install_skills: bool = True) -> ManagedLocalConfig:
+    config = load_managed_local_config()
+    if config is None:
+        raise RuntimeError("managed local config not found; run research-registry up first")
+
+    write_local_runtime_files(config)
+    if config.api_key is None and probe_ready(config.public_base_url):
+        config = ensure_local_api_key(config)
+        write_managed_local_config(config)
     if configure_codex and config.api_key:
         ensure_codex_mcp_config(config)
     if install_skills:
@@ -465,6 +542,81 @@ def local_runtime_status() -> LocalRuntimeStatus:
         compose_file_path=config.compose_file_path,
         docker_status=docker_status_text(config),
     )
+
+
+def _check_command(name: str, cmd: list[str]) -> LocalDoctorCheck:
+    try:
+        result = run_checked(cmd)
+    except FileNotFoundError:
+        return LocalDoctorCheck(name=name, ok=False, detail=f"{cmd[0]} was not found")
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        return LocalDoctorCheck(name=name, ok=False, detail=detail or f"{cmd[0]} failed")
+    output = (result.stdout or result.stderr or "").strip().splitlines()
+    return LocalDoctorCheck(name=name, ok=True, detail=output[0] if output else "ok")
+
+
+def diagnose_local_runtime() -> list[LocalDoctorCheck]:
+    checks: list[LocalDoctorCheck] = [
+        _check_command("docker", ["docker", "--version"]),
+        _check_command("docker_compose", ["docker", "compose", "version"]),
+    ]
+    config = load_managed_local_config()
+    if config is None:
+        checks.append(LocalDoctorCheck("managed_config", False, "managed local config not found"))
+        try:
+            managed_skill_sources()
+        except RuntimeError as exc:
+            checks.append(LocalDoctorCheck("skill_assets", False, str(exc)))
+        else:
+            checks.append(LocalDoctorCheck("skill_assets", True, "skill assets available"))
+        return checks
+
+    status = local_runtime_status()
+    checks.extend(
+        [
+            LocalDoctorCheck("managed_config", True, str(config.config_path)),
+            LocalDoctorCheck("ready", status.ready, config.public_base_url),
+            LocalDoctorCheck("api_key", status.api_key_configured, "managed API key configured" if status.api_key_configured else "managed API key missing"),
+            LocalDoctorCheck(
+                "codex_mcp",
+                status.codex_mcp_managed,
+                "managed Codex MCP block present" if status.codex_mcp_managed else f"managed Codex MCP block missing in {status.codex_config_path}",
+            ),
+            LocalDoctorCheck(
+                "port",
+                status.ready or port_is_free(config.port),
+                f"127.0.0.1:{config.port} is ready or available" if status.ready or port_is_free(config.port) else f"127.0.0.1:{config.port} is occupied but registry is not ready",
+            ),
+        ]
+    )
+
+    try:
+        skill_sources = managed_skill_sources()
+    except RuntimeError as exc:
+        checks.append(LocalDoctorCheck("skill_assets", False, str(exc)))
+    else:
+        checks.append(LocalDoctorCheck("skill_assets", True, "skill assets available"))
+        skills_dir = codex_home() / "skills"
+        missing = [name for name in skill_sources if not (skills_dir / name).exists()]
+        checks.append(
+            LocalDoctorCheck(
+                "codex_skills",
+                not missing,
+                "managed skills installed" if not missing else f"missing managed skills: {', '.join(missing)}",
+            )
+        )
+
+    if checks[0].ok:
+        image_available = docker_image_exists(config.image_tag)
+        checks.append(
+            LocalDoctorCheck(
+                "runtime_image",
+                image_available,
+                f"{config.image_tag} available locally" if image_available else f"{config.image_tag} not present locally",
+            )
+        )
+    return checks
 
 
 def stop_local_runtime() -> ManagedLocalConfig:
@@ -553,6 +705,14 @@ def format_status(status: LocalRuntimeStatus) -> str:
     if status.docker_status:
         lines.append("docker_ps=")
         lines.append(status.docker_status)
+    return "\n".join(lines)
+
+
+def format_doctor(checks: list[LocalDoctorCheck]) -> str:
+    all_ok = all(check.ok for check in checks)
+    lines = [f"ok={str(all_ok).lower()}"]
+    for check in checks:
+        lines.append(f"{check.name}={str(check.ok).lower()} {check.detail}")
     return "\n".join(lines)
 
 

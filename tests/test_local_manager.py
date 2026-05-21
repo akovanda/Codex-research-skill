@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import os
 from pathlib import Path
+import socket
 import stat
 
 import research_registry.local_manager as local_manager
@@ -12,7 +13,10 @@ from research_registry.local_manager import (
     build_local_config,
     ensure_codex_mcp_config,
     ensure_skill_links,
+    format_doctor,
+    install_local_runtime,
     local_runtime_tokens,
+    managed_skill_sources,
     remove_managed_codex_block,
     remove_managed_skill_links,
     render_codex_mcp_block,
@@ -33,15 +37,21 @@ def _assert_mode(path: Path, expected: int) -> None:
 
 
 def test_render_compose_files_include_localhost_port_and_image() -> None:
-    config = build_local_config(port=8017)
+    config = build_local_config(port=8017, image_tag="research-registry-local:test")
 
     compose_yaml = render_compose_yaml(config)
     compose_env = render_compose_env(config)
 
-    assert config.image_tag in compose_yaml
+    assert "research-registry-local:test" in compose_yaml
     assert '127.0.0.1:8017:8000' in compose_yaml
     assert "RESEARCH_REGISTRY_PORT=8000" in compose_env
     assert "RESEARCH_REGISTRY_PUBLIC_BASE_URL=http://127.0.0.1:8017" in compose_env
+
+
+def test_build_local_config_uses_image_override() -> None:
+    config = build_local_config(port=8017, image_tag="registry.example/research:test")
+
+    assert config.image_tag == "registry.example/research:test"
 
 
 def test_upsert_managed_codex_config_appends_and_replaces_block() -> None:
@@ -84,6 +94,24 @@ def test_write_local_runtime_files_sets_private_permissions(tmp_path: Path, monk
     _assert_mode(config.compose_env_path, PRIVATE_FILE_MODE)
 
 
+def test_install_skip_start_does_not_require_port_to_be_free(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_REGISTRY_MANAGED_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("RESEARCH_REGISTRY_MANAGED_DATA_DIR", str(tmp_path / "data"))
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = int(sock.getsockname()[1])
+        config = install_local_runtime(
+            port=port,
+            start_stack=False,
+            configure_codex=False,
+            install_skills=False,
+        )
+
+    assert config.port == port
+    assert config.compose_file_path.exists()
+
+
 def test_ensure_codex_mcp_config_writes_backup_and_private_permissions(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
 
@@ -99,6 +127,52 @@ def test_ensure_codex_mcp_config_writes_backup_and_private_permissions(tmp_path:
     assert "model = \"gpt-5.4\"" in backup_path.read_text(encoding="utf-8")
     _assert_mode(updated_path, PRIVATE_FILE_MODE)
     _assert_mode(backup_path, PRIVATE_FILE_MODE)
+
+
+def test_packaged_skill_sources_are_used_without_checkout(tmp_path: Path, monkeypatch) -> None:
+    packaged_root = tmp_path / "share" / "research-registry"
+    for name in ("research-capture", "research-memory-retrieval"):
+        skill_dir = packaged_root / "skills" / name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(f"# {name}\n", encoding="utf-8")
+
+    monkeypatch.setattr(local_manager, "source_checkout_root", lambda: None)
+    monkeypatch.setattr(local_manager, "packaged_assets_root", lambda: packaged_root)
+
+    sources = managed_skill_sources()
+
+    assert sources["research-capture"] == packaged_root / "skills" / "research-capture"
+    assert sources["research-memory-retrieval"] == packaged_root / "skills" / "research-memory-retrieval"
+
+
+def test_ensure_skill_links_can_install_packaged_skills(tmp_path: Path, monkeypatch) -> None:
+    packaged_root = tmp_path / "share" / "research-registry"
+    for name in ("research-capture", "research-memory-retrieval"):
+        skill_dir = packaged_root / "skills" / name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(f"# {name}\n", encoding="utf-8")
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    monkeypatch.setattr(local_manager, "source_checkout_root", lambda: None)
+    monkeypatch.setattr(local_manager, "packaged_assets_root", lambda: packaged_root)
+
+    installed = ensure_skill_links()
+
+    assert len(installed) == 2
+    assert (tmp_path / "codex" / "skills" / "research-capture").resolve() == packaged_root / "skills" / "research-capture"
+    assert (tmp_path / "codex" / "skills" / "research-memory-retrieval").resolve() == packaged_root / "skills" / "research-memory-retrieval"
+
+
+def test_format_doctor_summarizes_failed_checks() -> None:
+    output = format_doctor(
+        [
+            local_manager.LocalDoctorCheck("docker", True, "Docker version test"),
+            local_manager.LocalDoctorCheck("codex_mcp", False, "managed block missing"),
+        ]
+    )
+
+    assert output.splitlines()[0] == "ok=false"
+    assert "codex_mcp=false managed block missing" in output
 
 
 def test_uninstall_removes_empty_managed_codex_config_file(tmp_path: Path, monkeypatch) -> None:
