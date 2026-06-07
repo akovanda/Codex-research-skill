@@ -17,6 +17,7 @@ from research_registry.local_research import (
     LocalGuidanceDraft,
     LocalResearchResult,
 )
+from research_registry.mcp_tools import create_mcp_server
 from research_registry.models import (
     ApiKeyCreate,
     AuthContext,
@@ -250,6 +251,90 @@ def test_create_question_accepts_legacy_subject_and_string_focus(tmp_path: Path)
     assert payload["prompt"] == "Star Wars ship template expansion and layout-feel guidance for ScalaGalaxies"
     assert payload["focus"]["label"] == "catalog metadata, origin worlds, hull role coverage, and interior topology heuristics for ship templates"
     assert payload["visibility"] == "private"
+
+
+def test_agent_shaped_create_payloads_normalize() -> None:
+    question = QuestionCreate.model_validate(
+        {
+            "text": "Research Spyglass artifact cleanup failures.",
+            "focus_label": "Spyglass cleanup",
+        }
+    )
+    assert question.prompt == "Research Spyglass artifact cleanup failures."
+    assert question.focus and question.focus.label == "Spyglass cleanup"
+
+    session = ResearchSessionCreate.model_validate(
+        {
+            "question_id": "q_123",
+            "title": "Spyglass cleanup investigation",
+            "mode": "implicit",
+        }
+    )
+    assert session.prompt == "Spyglass cleanup investigation"
+    assert session.model_name == "unspecified"
+    assert session.model_version == "unspecified"
+    assert session.mode == "live_research"
+
+    source = SourceCreate.model_validate({"url": "https://example.com/build.log", "label": "Build log"})
+    assert source.locator == "https://example.com/build.log"
+    assert source.title == "Build log"
+
+    excerpt = ExcerptCreate.model_validate(
+        {
+            "question_id": "q_123",
+            "locator": "https://example.com/build.log#L10",
+            "title": "Build log excerpt",
+            "summary": "The cleanup job failed while publishing artifacts.",
+            "selector": "https://example.com/build.log#L10",
+            "text": "artifact publish failed",
+        }
+    )
+    assert excerpt.focal_label == "Build log excerpt"
+    assert excerpt.note == "The cleanup job failed while publishing artifacts."
+    assert excerpt.quote_text == "artifact publish failed"
+    assert excerpt.selector.deep_link == "https://example.com/build.log#L10"
+    assert excerpt.source and excerpt.source.locator == "https://example.com/build.log#L10"
+
+    claim = ClaimCreate.model_validate(
+        {
+            "question_id": "q_123",
+            "summary": "Artifact publishing failed because the cleanup output shape was not accepted.",
+            "subject": "Spyglass cleanup",
+            "evidence_excerpt_ids": "ex_123",
+        }
+    )
+    assert claim.title == "Artifact publishing failed because the cleanup output shape was not accepted."
+    assert claim.statement == "Artifact publishing failed because the cleanup output shape was not accepted."
+    assert claim.excerpt_ids == ["ex_123"]
+
+    report = ReportCreate.model_validate(
+        {
+            "question_id": "q_123",
+            "title": "Spyglass cleanup report",
+            "summary_markdown": "# Guidance\n\nUse accepted bundle field names.",
+            "focus_label": "Spyglass cleanup",
+            "finding_id": "clm_123",
+        }
+    )
+    assert report.summary_md == "# Guidance\n\nUse accepted bundle field names."
+    assert report.focal_label == "Spyglass cleanup"
+    assert report.claim_ids == ["clm_123"]
+
+
+def test_mcp_write_tools_expose_typed_payload_schema() -> None:
+    mcp = create_mcp_server(object())  # type: ignore[arg-type]
+
+    question_schema = mcp._tool_manager._tools["create_question"].parameters
+    question_payload = question_schema["properties"]["payload"]
+    assert question_payload == {"$ref": "#/$defs/QuestionCreate"}
+    assert "prompt" in question_schema["$defs"]["QuestionCreate"]["properties"]
+
+    report_schema = mcp._tool_manager._tools["create_report"].parameters
+    report_payload = report_schema["properties"]["payload"]
+    assert report_payload == {"$ref": "#/$defs/ReportCreate"}
+    report_model = report_schema["$defs"]["ReportCreate"]
+    assert "summary_md" in report_model["properties"]
+    assert {"question_id", "title", "focal_label", "summary_md", "claim_ids"}.issubset(set(report_model["required"]))
 
 
 def test_empty_pages_include_onboarding_guidance(tmp_path: Path) -> None:

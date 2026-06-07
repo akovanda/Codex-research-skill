@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
@@ -28,6 +28,29 @@ ConflictState = Literal["none", "conflicted"]
 def slugify(text: str) -> str:
     collapsed = re.sub(r"[^a-z0-9]+", "-", text.strip().lower())
     return collapsed.strip("-") or "research"
+
+
+def first_payload_value(payload: dict[str, Any], names: tuple[str, ...]) -> Any:
+    for name in names:
+        value = payload.get(name)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def copy_payload_alias(payload: dict[str, Any], field: str, aliases: tuple[str, ...]) -> None:
+    if payload.get(field) is not None and payload.get(field) != "":
+        return
+    value = first_payload_value(payload, aliases)
+    if value is not None:
+        payload[field] = value
+
+
+def short_title(text: str, *, max_chars: int = 96) -> str:
+    cleaned = " ".join(text.strip().split())
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[: max_chars - 1].rstrip() + "..."
 
 
 class SourceSelector(BaseModel):
@@ -101,7 +124,7 @@ class TopicRecord(TopicCreate):
 class QuestionCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    prompt: str = Field(validation_alias=AliasChoices("prompt", "question", "subject"))
+    prompt: str = Field(validation_alias=AliasChoices("prompt", "question", "subject", "text", "title"))
     focus: FocusTuple | None = None
     topic_id: str | None = None
     parent_question_id: str | None = None
@@ -125,6 +148,10 @@ class QuestionCreate(BaseModel):
         focus = payload.get("focus")
         if isinstance(focus, str):
             payload["focus"] = {"label": focus}
+        if not payload.get("focus") and not payload.get("topic_id"):
+            focus_label = first_payload_value(payload, ("focus_label", "focal_label", "label"))
+            if focus_label is not None:
+                payload["focus"] = {"label": str(focus_label)}
         return payload
 
     @model_validator(mode="after")
@@ -157,9 +184,9 @@ class QuestionRecord(QuestionCreate):
 class ResearchSessionCreate(BaseModel):
     question_id: str
     prompt: str | None = None
-    model_name: str
-    model_version: str
-    mode: SessionMode
+    model_name: str = "unspecified"
+    model_version: str = "unspecified"
+    mode: SessionMode = "live_research"
     ttl_days: int = Field(default=30, ge=1, le=3650)
     refresh_of_session_id: str | None = None
     source_signals: list[str] = Field(default_factory=list)
@@ -169,6 +196,39 @@ class ResearchSessionCreate(BaseModel):
     namespace_kind: NamespaceKind = "user"
     namespace_id: str = "local"
     dedupe_key: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_payload(cls, value):
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        copy_payload_alias(payload, "prompt", ("question", "subject", "text", "title", "summary"))
+        mode = payload.get("mode")
+        if isinstance(mode, str):
+            normalized = mode.strip().lower().replace("-", "_").replace(" ", "_")
+            mode_aliases = {
+                "implicit": "live_research",
+                "research": "live_research",
+                "manual_research": "live_research",
+                "research_update": "live_research",
+                "research_guidance": "live_research",
+                "capture": "live_research",
+                "analysis": "synthesis",
+                "answer": "synthesis",
+                "summary": "synthesis",
+                "triage": "repo_triage",
+                "code_triage": "repo_triage",
+                "review": "repo_review",
+                "code_review": "repo_review",
+            }
+            if normalized.startswith("repo_triage"):
+                payload["mode"] = "repo_triage"
+            elif normalized.startswith("repo_review"):
+                payload["mode"] = "repo_review"
+            else:
+                payload["mode"] = mode_aliases.get(normalized, normalized)
+        return payload
 
 
 class ResearchSessionRecord(ResearchSessionCreate):
@@ -197,7 +257,7 @@ class ResearchSessionRecord(ResearchSessionCreate):
 class SourceCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    locator: str = Field(validation_alias=AliasChoices("locator", "canonical_url"))
+    locator: str = Field(validation_alias=AliasChoices("locator", "canonical_url", "url", "uri", "source_key", "path"))
     title: str
     source_type: str = "webpage"
     site_name: str | None = None
@@ -223,6 +283,16 @@ class SourceCreate(BaseModel):
     def canonical_url(self) -> str:
         return self.locator
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_payload(cls, value):
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        copy_payload_alias(payload, "title", ("label", "name", "source_key", "locator", "canonical_url", "url", "uri", "path"))
+        copy_payload_alias(payload, "source_type", ("kind", "type"))
+        return payload
+
 
 class SourceRecord(SourceCreate):
     id: str
@@ -242,7 +312,7 @@ class ExcerptCreate(BaseModel):
     question_id: str
     session_id: str | None = None
     topic_id: str | None = None
-    focal_label: str = Field(validation_alias=AliasChoices("focal_label", "subject"))
+    focal_label: str = Field(validation_alias=AliasChoices("focal_label", "subject", "focus_label", "label", "title"))
     note: str
     selector: SourceSelector
     quote_text: str
@@ -259,6 +329,39 @@ class ExcerptCreate(BaseModel):
     namespace_kind: NamespaceKind = "user"
     namespace_id: str = "local"
     dedupe_key: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_payload(cls, value):
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        copy_payload_alias(payload, "focal_label", ("subject", "focus_label", "label", "title"))
+        copy_payload_alias(payload, "note", ("summary", "description", "title", "label", "text", "excerpt", "excerpt_text"))
+        copy_payload_alias(payload, "quote_text", ("quote", "quote_text", "excerpt", "excerpt_text", "text", "summary"))
+
+        selector = payload.get("selector")
+        if isinstance(selector, str):
+            payload["selector"] = {"deep_link": selector}
+        elif selector is None:
+            deep_link = first_payload_value(payload, ("deep_link", "locator", "location", "url", "source_key", "path"))
+            exact = first_payload_value(payload, ("quote_text", "quote", "excerpt", "excerpt_text", "text"))
+            if deep_link is not None or exact is not None:
+                payload["selector"] = {
+                    key: value
+                    for key, value in {
+                        "deep_link": str(deep_link) if deep_link is not None else None,
+                        "exact": str(exact) if exact is not None else None,
+                    }.items()
+                    if value is not None
+                }
+
+        if not payload.get("source_id") and not payload.get("source"):
+            locator = first_payload_value(payload, ("locator", "url", "source_key", "path"))
+            if locator is not None:
+                title = first_payload_value(payload, ("source_title", "site_name", "title", "label")) or locator
+                payload["source"] = {"locator": str(locator), "title": str(title)}
+        return payload
 
     @model_validator(mode="after")
     def validate_source_reference(self) -> "ExcerptCreate":
@@ -292,9 +395,9 @@ class ClaimCreate(BaseModel):
     session_id: str | None = None
     topic_id: str | None = None
     title: str
-    focal_label: str = Field(validation_alias=AliasChoices("focal_label", "subject"))
-    statement: str = Field(validation_alias=AliasChoices("statement", "claim"))
-    excerpt_ids: list[str] = Field(min_length=1, validation_alias=AliasChoices("excerpt_ids", "annotation_ids"))
+    focal_label: str = Field(validation_alias=AliasChoices("focal_label", "subject", "focus_label", "label"))
+    statement: str = Field(validation_alias=AliasChoices("statement", "claim", "claim_text", "text", "summary"))
+    excerpt_ids: list[str] = Field(min_length=1, validation_alias=AliasChoices("excerpt_ids", "annotation_ids", "evidence_excerpt_ids", "evidence_ids"))
     status: ClaimStatus = "supported"
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
     review_state: ReviewState = "unreviewed"
@@ -308,6 +411,26 @@ class ClaimCreate(BaseModel):
     namespace_kind: NamespaceKind = "user"
     namespace_id: str = "local"
     dedupe_key: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_payload(cls, value):
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        copy_payload_alias(payload, "statement", ("claim", "claim_text", "text", "summary"))
+        copy_payload_alias(payload, "focal_label", ("subject", "focus_label", "label", "title"))
+        copy_payload_alias(payload, "excerpt_ids", ("annotation_ids", "evidence_excerpt_ids", "evidence_ids"))
+        excerpt_id = payload.get("excerpt_id") or payload.get("annotation_id")
+        if "excerpt_ids" not in payload and excerpt_id:
+            payload["excerpt_ids"] = [excerpt_id]
+        if isinstance(payload.get("excerpt_ids"), str):
+            payload["excerpt_ids"] = [payload["excerpt_ids"]]
+        if not payload.get("title"):
+            statement = payload.get("statement")
+            if isinstance(statement, str) and statement.strip():
+                payload["title"] = short_title(statement)
+        return payload
 
 
 class ClaimRecord(ClaimCreate):
@@ -342,8 +465,8 @@ class ReportCreate(BaseModel):
     question_id: str
     session_id: str | None = None
     title: str
-    focal_label: str = Field(validation_alias=AliasChoices("focal_label", "subject"))
-    summary_md: str
+    focal_label: str = Field(validation_alias=AliasChoices("focal_label", "subject", "focus_label", "label"))
+    summary_md: str = Field(validation_alias=AliasChoices("summary_md", "summary_markdown", "summary", "text"))
     report_kind: ReportKind = "guidance"
     refresh_of_report_id: str | None = None
     guidance: GuidancePayload = Field(default_factory=GuidancePayload, validation_alias=AliasChoices("guidance", "guidance_json"))
@@ -359,6 +482,26 @@ class ReportCreate(BaseModel):
     namespace_kind: NamespaceKind = "user"
     namespace_id: str = "local"
     dedupe_key: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_payload(cls, value):
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        copy_payload_alias(payload, "summary_md", ("summary_markdown", "summary", "text"))
+        copy_payload_alias(payload, "focal_label", ("subject", "focus_label", "label", "title"))
+        claim_id = payload.get("claim_id") or payload.get("finding_id")
+        if "claim_ids" not in payload and "finding_ids" not in payload and claim_id:
+            payload["claim_ids"] = [claim_id]
+        for key in ("claim_ids", "finding_ids"):
+            if isinstance(payload.get(key), str):
+                payload[key] = [payload[key]]
+        if not payload.get("title"):
+            summary = payload.get("summary_md")
+            if isinstance(summary, str) and summary.strip():
+                payload["title"] = short_title(summary.lstrip("# "))
+        return payload
 
 
 class ReportRecord(ReportCreate):

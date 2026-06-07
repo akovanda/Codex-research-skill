@@ -375,12 +375,12 @@ def create_mcp_server(
         return runtime.backend_status(ctx)
 
     @mcp.tool()
-    def create_question(payload: dict, ctx: Context = None) -> dict:  # type: ignore[assignment]
+    def create_question(payload: QuestionCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create or reuse a research question and its focus label."""
         return runtime.create_question(payload, ctx)
 
     @mcp.tool()
-    def create_session(payload: dict, ctx: Context = None) -> dict:  # type: ignore[assignment]
+    def create_session(payload: ResearchSessionCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a research session for a question."""
         return runtime.create_session(payload, ctx)
 
@@ -420,32 +420,32 @@ def create_mcp_server(
         return runtime.get_report(report_id, include_private=include_private, ctx=ctx)
 
     @mcp.tool()
-    def create_source(payload: dict, ctx: Context = None) -> dict:  # type: ignore[assignment]
+    def create_source(payload: SourceCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create or reuse a source record."""
         return runtime.create_source(payload, ctx)
 
     @mcp.tool()
-    def add_excerpt(payload: dict, ctx: Context = None) -> dict:  # type: ignore[assignment]
+    def add_excerpt(payload: ExcerptCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a source-backed evidence excerpt."""
         return runtime.add_excerpt(payload, ctx)
 
     @mcp.tool()
-    def add_annotation(payload: dict, ctx: Context = None) -> dict:  # type: ignore[assignment]
+    def add_annotation(payload: ExcerptCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Compatibility alias for creating an evidence excerpt."""
         return runtime.add_excerpt(payload, ctx)
 
     @mcp.tool()
-    def create_claim(payload: dict, ctx: Context = None) -> dict:  # type: ignore[assignment]
+    def create_claim(payload: ClaimCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a claim from one or more excerpt ids."""
         return runtime.create_claim(payload, ctx)
 
     @mcp.tool()
-    def create_finding(payload: dict, ctx: Context = None) -> dict:  # type: ignore[assignment]
+    def create_finding(payload: ClaimCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Compatibility alias for creating a claim from excerpt ids."""
         return runtime.create_claim(payload, ctx)
 
     @mcp.tool()
-    def create_report(payload: dict, ctx: Context = None) -> dict:  # type: ignore[assignment]
+    def create_report(payload: ReportCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a report with explicit summary markdown from one or more claim ids."""
         return runtime.create_report(payload, ctx)
 

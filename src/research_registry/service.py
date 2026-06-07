@@ -82,6 +82,10 @@ def first_non_heading_line(markdown: str) -> str:
     return markdown.strip().splitlines()[0] if markdown.strip() else ""
 
 
+def escape_like_token(token: str) -> str:
+    return token.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def default_trust_tier_for_source_type(source_type: str) -> TrustTier:
     return {
         "paper": "medium",
@@ -2011,6 +2015,40 @@ class RegistryService:
             public_index_state=question.public_index_state,
         )
 
+    def _search_hit_for_question_row(
+        self,
+        row: Any,
+        *,
+        score: float,
+        latest_session_row: Any | None,
+        latest_report_id: str | None,
+    ) -> SearchHit:
+        freshness_state, expires_at, is_stale = self._session_freshness_from_row(latest_session_row)
+        focus = FocusTuple.model_validate_json(row["focus_json"])
+        return SearchHit(
+            kind="question",
+            id=row["id"],
+            title=row["prompt"],
+            summary=focus.label or row["prompt"],
+            subject=focus.label or "question",
+            visibility=row["visibility"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            score=score,
+            url=f"/questions/{row['id']}",
+            human_reviewed=False,
+            review_state="unreviewed",
+            trust_tier="medium",
+            conflict_state="none",
+            freshness_state=freshness_state,
+            expires_at=expires_at,
+            is_stale=is_stale,
+            refresh_due_at=expires_at,
+            namespace_kind=row["namespace_kind"],
+            namespace_id=row["namespace_id"],
+            public_namespace_slug=row["public_namespace_slug"],
+            public_index_state=row["public_index_state"],
+        )
+
     def _search_hit_for_claim(self, claim: ClaimRecord, *, score: float) -> SearchHit:
         return SearchHit(
             kind="claim",
@@ -2036,6 +2074,32 @@ class RegistryService:
             public_index_state=claim.public_index_state,
         )
 
+    def _search_hit_for_claim_row(self, row: Any, *, score: float, freshness: tuple[str | None, datetime | None, bool]) -> SearchHit:
+        freshness_state, expires_at, is_stale = freshness
+        return SearchHit(
+            kind="claim",
+            id=row["id"],
+            title=row["title"],
+            summary=row["statement"],
+            subject=row["focal_label"],
+            visibility=row["visibility"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            score=score,
+            url=f"/claims/{row['id']}",
+            human_reviewed=bool(row["human_reviewed"]),
+            review_state=row["review_state"],
+            trust_tier=row["trust_tier"],
+            conflict_state=row["conflict_state"],
+            freshness_state=freshness_state,
+            expires_at=expires_at,
+            is_stale=is_stale,
+            refresh_due_at=self._decode_dt(row["refresh_due_at"]),
+            namespace_kind=row["namespace_kind"],
+            namespace_id=row["namespace_id"],
+            public_namespace_slug=row["public_namespace_slug"],
+            public_index_state=row["public_index_state"],
+        )
+
     def _search_hit_for_report(self, report: ReportRecord, *, score: float) -> SearchHit:
         return SearchHit(
             kind="report",
@@ -2059,6 +2123,32 @@ class RegistryService:
             namespace_id=report.namespace_id,
             public_namespace_slug=report.public_namespace_slug,
             public_index_state=report.public_index_state,
+        )
+
+    def _search_hit_for_report_row(self, row: Any, *, score: float, freshness: tuple[str | None, datetime | None, bool]) -> SearchHit:
+        freshness_state, expires_at, is_stale = freshness
+        return SearchHit(
+            kind="report",
+            id=row["id"],
+            title=row["title"],
+            summary=first_non_heading_line(row["summary_md"]),
+            subject=row["focal_label"],
+            visibility=row["visibility"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            score=score,
+            url=f"/reports/{row['id']}",
+            human_reviewed=bool(row["human_reviewed"]),
+            review_state=row["review_state"],
+            trust_tier=row["trust_tier"],
+            conflict_state=row["conflict_state"],
+            freshness_state=freshness_state,
+            expires_at=expires_at,
+            is_stale=is_stale,
+            refresh_due_at=self._decode_dt(row["refresh_due_at"]),
+            namespace_kind=row["namespace_kind"],
+            namespace_id=row["namespace_id"],
+            public_namespace_slug=row["public_namespace_slug"],
+            public_index_state=row["public_index_state"],
         )
 
     def _search_hit_for_excerpt(self, excerpt: ExcerptRecord, *, score: float) -> SearchHit:
@@ -2088,6 +2178,115 @@ class RegistryService:
             public_index_state=excerpt.public_index_state,
         )
 
+    def _search_hit_for_excerpt_row(self, row: Any, *, score: float, freshness: tuple[str | None, datetime | None, bool]) -> SearchHit:
+        freshness_state, expires_at, is_stale = freshness
+        return SearchHit(
+            kind="excerpt",
+            id=row["id"],
+            title=row["focal_label"],
+            summary=row["note"],
+            subject=row["focal_label"],
+            visibility=row["visibility"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            score=score,
+            url=f"/excerpts/{row['id']}",
+            source_title=row["source_title"],
+            human_reviewed=bool(row["human_reviewed"]),
+            review_state=row["review_state"],
+            trust_tier=row["trust_tier"],
+            conflict_state=row["conflict_state"],
+            freshness_state=freshness_state,
+            expires_at=expires_at,
+            is_stale=is_stale,
+            refresh_due_at=self._decode_dt(row["refresh_due_at"]),
+            namespace_kind=row["namespace_kind"],
+            namespace_id=row["namespace_id"],
+            public_namespace_slug=row["public_namespace_slug"],
+            public_index_state=row["public_index_state"],
+        )
+
+    def _search_tokens(self, normalized: str) -> list[str]:
+        return [token for token in normalized.split() if token]
+
+    def _search_candidate_filter(self, columns: list[str], tokens: list[str]) -> tuple[str, tuple[str, ...]]:
+        if not tokens:
+            return "", ()
+        clauses: list[str] = []
+        params: list[str] = []
+        for token in tokens:
+            pattern = f"%{escape_like_token(token)}%"
+            for column in columns:
+                clauses.append(f"LOWER(COALESCE({column}, '')) LIKE ? ESCAPE '\\'")
+                params.append(pattern)
+        return f"({' OR '.join(clauses)})", tuple(params)
+
+    def _session_freshness_map(self, session_ids: Any) -> dict[str, tuple[str | None, datetime | None, bool]]:
+        ids = sorted({session_id for session_id in session_ids if session_id})
+        if not ids:
+            return {}
+        placeholders = ", ".join("?" for _ in ids)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"SELECT id, expires_at, freshness_state FROM research_sessions WHERE id IN ({placeholders})",
+                tuple(ids),
+            ).fetchall()
+        return {row["id"]: self._session_freshness_from_row(row) for row in rows}
+
+    def _claim_excerpt_counts(self, claim_ids: Any) -> dict[str, int]:
+        ids = sorted({claim_id for claim_id in claim_ids if claim_id})
+        if not ids:
+            return {}
+        placeholders = ", ".join("?" for _ in ids)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"SELECT claim_id, COUNT(*) AS count FROM claim_excerpts WHERE claim_id IN ({placeholders}) GROUP BY claim_id",
+                tuple(ids),
+            ).fetchall()
+        return {row["claim_id"]: int(row["count"]) for row in rows}
+
+    def _report_claim_counts(self, report_ids: Any) -> dict[str, int]:
+        ids = sorted({report_id for report_id in report_ids if report_id})
+        if not ids:
+            return {}
+        placeholders = ", ".join("?" for _ in ids)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"SELECT report_id, COUNT(*) AS count FROM report_claims WHERE report_id IN ({placeholders}) GROUP BY report_id",
+                tuple(ids),
+            ).fetchall()
+        return {row["report_id"]: int(row["count"]) for row in rows}
+
+    def _latest_question_search_context(self, question_ids: list[str]) -> tuple[dict[str, Any], dict[str, str]]:
+        if not question_ids:
+            return {}, {}
+        placeholders = ", ".join("?" for _ in question_ids)
+        latest_sessions: dict[str, Any] = {}
+        latest_reports: dict[str, str] = {}
+        with self.connect() as conn:
+            session_rows = conn.execute(
+                f"""
+                SELECT id, question_id, expires_at, freshness_state, created_at
+                FROM research_sessions
+                WHERE question_id IN ({placeholders})
+                ORDER BY question_id ASC, created_at DESC
+                """,
+                tuple(question_ids),
+            ).fetchall()
+            report_rows = conn.execute(
+                f"""
+                SELECT id, question_id, created_at
+                FROM reports
+                WHERE question_id IN ({placeholders})
+                ORDER BY question_id ASC, created_at DESC
+                """,
+                tuple(question_ids),
+            ).fetchall()
+        for row in session_rows:
+            latest_sessions.setdefault(row["question_id"], row)
+        for row in report_rows:
+            latest_reports.setdefault(row["question_id"], row["id"])
+        return latest_sessions, latest_reports
+
     def _search_questions(
         self,
         normalized: str,
@@ -2097,22 +2296,57 @@ class RegistryService:
         public_index_only: bool = False,
         namespace_slug: str | None = None,
     ) -> list[SearchHit]:
+        tokens = self._search_tokens(normalized)
+        where_sql, params = self._search_candidate_filter(["prompt", "normalized_prompt", "focus_json"], tokens)
+        sql = "SELECT * FROM questions"
+        if where_sql:
+            sql += f" WHERE {where_sql}"
+        sql += " ORDER BY created_at DESC"
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        rows = [
+            row
+            for row in rows
+            if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        ]
+        rows.sort(
+            key=lambda row: (
+                row["follow_up_status"] in {"open", "ready"},
+                row["status"] == "open",
+                row["priority_score"],
+                row["created_at"],
+            ),
+            reverse=True,
+        )
+        rows = rows[:100]
+        latest_sessions, latest_reports = self._latest_question_search_context([row["id"] for row in rows])
         hits: list[SearchHit] = []
-        for question in self._list_questions(include_private=include_private, limit=100, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug):
-            haystack = " ".join([question.prompt, question.focus.label or "", *question.focus.parts()]).lower()
+        for row in rows:
+            focus = FocusTuple.model_validate_json(row["focus_json"])
+            latest_session_row = latest_sessions.get(row["id"])
+            latest_session_id = latest_session_row["id"] if latest_session_row else None
+            _, _, is_stale = self._session_freshness_from_row(latest_session_row)
+            haystack = " ".join([row["prompt"], focus.label or "", *focus.parts()]).lower()
             score = self._search_score(
                 normalized,
                 haystack,
                 source_type="question",
                 human_reviewed=False,
-                created_at=question.created_at,
-                provenance_fields=[question.topic_id, question.latest_report_id, question.latest_session_id],
+                created_at=datetime.fromisoformat(row["created_at"]),
+                provenance_fields=[row["topic_id"], latest_reports.get(row["id"]), latest_session_id],
                 trust_tier="medium",
-                is_stale=question.latest_session_is_stale,
+                is_stale=is_stale,
             )
             if score <= 0:
                 continue
-            hits.append(self._search_hit_for_question(question, score=score))
+            hits.append(
+                self._search_hit_for_question_row(
+                    row,
+                    score=score,
+                    latest_session_row=latest_session_row,
+                    latest_report_id=latest_reports.get(row["id"]),
+                )
+            )
         return hits
 
     def _search_claims(
@@ -2124,24 +2358,40 @@ class RegistryService:
         public_index_only: bool = False,
         namespace_slug: str | None = None,
     ) -> list[SearchHit]:
+        tokens = self._search_tokens(normalized)
+        where_sql, params = self._search_candidate_filter(["title", "focal_label", "statement"], tokens)
+        sql = "SELECT * FROM claims"
+        if where_sql:
+            sql += f" WHERE {where_sql}"
+        sql += " ORDER BY created_at DESC"
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        rows = [
+            row
+            for row in rows
+            if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        ][:250]
+        freshness_by_session = self._session_freshness_map(row["session_id"] for row in rows)
+        excerpt_counts = self._claim_excerpt_counts(row["id"] for row in rows)
         hits: list[SearchHit] = []
-        for claim in self._list_claims(include_private=include_private, limit=100, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug):
-            haystack = " ".join([claim.title, claim.focal_label, claim.statement]).lower()
+        for row in rows:
+            freshness = freshness_by_session.get(row["session_id"], (None, None, False))
+            haystack = " ".join([row["title"], row["focal_label"], row["statement"]]).lower()
             score = self._search_score(
                 normalized,
                 haystack,
                 source_type="claim",
-                human_reviewed=claim.human_reviewed,
-                created_at=claim.created_at,
-                provenance_fields=[claim.session_id, *claim.excerpt_ids],
-                review_state=claim.review_state,
-                trust_tier=claim.trust_tier,
-                conflict_state=claim.conflict_state,
-                is_stale=claim.is_stale,
+                human_reviewed=bool(row["human_reviewed"]),
+                created_at=datetime.fromisoformat(row["created_at"]),
+                provenance_fields=[row["session_id"], *(["excerpt"] * excerpt_counts.get(row["id"], 0))],
+                review_state=row["review_state"],
+                trust_tier=row["trust_tier"],
+                conflict_state=row["conflict_state"],
+                is_stale=freshness[2],
             )
             if score <= 0:
                 continue
-            hits.append(self._search_hit_for_claim(claim, score=score))
+            hits.append(self._search_hit_for_claim_row(row, score=score, freshness=freshness))
         return hits
 
     def _search_reports(
@@ -2153,24 +2403,40 @@ class RegistryService:
         public_index_only: bool = False,
         namespace_slug: str | None = None,
     ) -> list[SearchHit]:
+        tokens = self._search_tokens(normalized)
+        where_sql, params = self._search_candidate_filter(["title", "focal_label", "summary_md"], tokens)
+        sql = "SELECT * FROM reports"
+        if where_sql:
+            sql += f" WHERE {where_sql}"
+        sql += " ORDER BY created_at DESC"
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        rows = [
+            row
+            for row in rows
+            if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        ][:250]
+        freshness_by_session = self._session_freshness_map(row["session_id"] for row in rows)
+        claim_counts = self._report_claim_counts(row["id"] for row in rows)
         hits: list[SearchHit] = []
-        for report in self._list_reports(include_private=include_private, limit=100, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug):
-            haystack = " ".join([report.title, report.focal_label, report.summary_md]).lower()
+        for row in rows:
+            freshness = freshness_by_session.get(row["session_id"], (None, None, False))
+            haystack = " ".join([row["title"], row["focal_label"], row["summary_md"]]).lower()
             score = self._search_score(
                 normalized,
                 haystack,
                 source_type="report",
-                human_reviewed=report.human_reviewed,
-                created_at=report.created_at,
-                provenance_fields=[report.session_id, *report.claim_ids, *report.source_ids],
-                review_state=report.review_state,
-                trust_tier=report.trust_tier,
-                conflict_state=report.conflict_state,
-                is_stale=report.is_stale,
+                human_reviewed=bool(row["human_reviewed"]),
+                created_at=datetime.fromisoformat(row["created_at"]),
+                provenance_fields=[row["session_id"], *(["claim"] * claim_counts.get(row["id"], 0))],
+                review_state=row["review_state"],
+                trust_tier=row["trust_tier"],
+                conflict_state=row["conflict_state"],
+                is_stale=freshness[2],
             )
             if score <= 0:
                 continue
-            hits.append(self._search_hit_for_report(report, score=score))
+            hits.append(self._search_hit_for_report_row(row, score=score, freshness=freshness))
         return hits
 
     def _search_sources(
@@ -2182,46 +2448,51 @@ class RegistryService:
         public_index_only: bool = False,
         namespace_slug: str | None = None,
     ) -> list[SearchHit]:
+        tokens = self._search_tokens(normalized)
+        where_sql, params = self._search_candidate_filter(["title", "locator", "source_type", "snippet", "site_name", "author"], tokens)
+        sql = "SELECT * FROM sources"
+        if where_sql:
+            sql += f" WHERE {where_sql}"
+        sql += " ORDER BY created_at DESC"
         with self.connect() as conn:
-            rows = conn.execute("SELECT * FROM sources ORDER BY created_at DESC").fetchall()
+            rows = conn.execute(sql, params).fetchall()
         hits: list[SearchHit] = []
         for row in rows:
             if not self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug):
                 continue
-            source = self._source_from_row(row)
-            haystack = " ".join([source.title, source.locator, source.source_type, source.snippet or "", source.site_name or "", source.author or ""]).lower()
+            haystack = " ".join([row["title"], row["locator"], row["source_type"], row["snippet"] or "", row["site_name"] or "", row["author"] or ""]).lower()
             score = self._search_score(
                 normalized,
                 haystack,
-                source_type=source.source_type,
+                source_type=row["source_type"],
                 human_reviewed=False,
-                created_at=source.created_at,
-                provenance_fields=[source.content_sha256, source.snapshot_url],
-                review_state=source.review_state,
-                trust_tier=source.trust_tier,
-                conflict_state=source.conflict_state,
+                created_at=datetime.fromisoformat(row["created_at"]),
+                provenance_fields=[row["content_sha256"], row["snapshot_url"]],
+                review_state=row["review_state"],
+                trust_tier=row["trust_tier"],
+                conflict_state=row["conflict_state"],
             )
             if score <= 0:
                 continue
             hits.append(
                 SearchHit(
                     kind="source",
-                    id=source.id,
-                    title=source.title,
-                    summary=source.snippet or source.locator,
-                    subject=source.source_type,
-                    visibility=source.visibility,
-                    created_at=source.created_at,
+                    id=row["id"],
+                    title=row["title"],
+                    summary=row["snippet"] or row["locator"],
+                    subject=row["source_type"],
+                    visibility=row["visibility"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
                     score=score,
-                    url=f"/sources/{source.id}",
-                    review_state=source.review_state,
-                    trust_tier=source.trust_tier,
-                    conflict_state=source.conflict_state,
-                    refresh_due_at=source.refresh_due_at,
-                    namespace_kind=source.namespace_kind,
-                    namespace_id=source.namespace_id,
-                    public_namespace_slug=source.public_namespace_slug,
-                    public_index_state=source.public_index_state,
+                    url=f"/sources/{row['id']}",
+                    review_state=row["review_state"],
+                    trust_tier=row["trust_tier"],
+                    conflict_state=row["conflict_state"],
+                    refresh_due_at=self._decode_dt(row["refresh_due_at"]),
+                    namespace_kind=row["namespace_kind"],
+                    namespace_id=row["namespace_id"],
+                    public_namespace_slug=row["public_namespace_slug"],
+                    public_index_state=row["public_index_state"],
                 )
             )
         return hits
@@ -2235,30 +2506,47 @@ class RegistryService:
         public_index_only: bool = False,
         namespace_slug: str | None = None,
     ) -> list[SearchHit]:
+        tokens = self._search_tokens(normalized)
+        where_sql, params = self._search_candidate_filter(
+            ["e.focal_label", "e.note", "e.quote_text", "e.tags_json", "s.title"],
+            tokens,
+        )
+        sql = """
+            SELECT e.*, s.title AS source_title, s.source_type AS source_type
+            FROM excerpts e
+            JOIN sources s ON s.id = e.source_id
+        """
+        if where_sql:
+            sql += f" WHERE {where_sql}"
+        sql += " ORDER BY e.created_at DESC"
         with self.connect() as conn:
-            rows = conn.execute("SELECT * FROM excerpts ORDER BY created_at DESC").fetchall()
+            rows = conn.execute(sql, params).fetchall()
+        rows = [
+            row
+            for row in rows
+            if self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
+        ][:500]
+        freshness_by_session = self._session_freshness_map(row["session_id"] for row in rows)
         hits: list[SearchHit] = []
         for row in rows:
-            if not self._can_access_row(row, include_private=include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug):
-                continue
-            excerpt = self._excerpt_from_row(row)
-            source = self.get_source(excerpt.source_id, include_private=True)
-            haystack = " ".join([excerpt.focal_label, excerpt.note, excerpt.quote_text, " ".join(excerpt.tags), source.title]).lower()
+            freshness = freshness_by_session.get(row["session_id"], (None, None, False))
+            tags = " ".join(json.loads(row["tags_json"]))
+            haystack = " ".join([row["focal_label"], row["note"], row["quote_text"], tags, row["source_title"]]).lower()
             score = self._search_score(
                 normalized,
                 haystack,
-                source_type=source.source_type,
-                human_reviewed=excerpt.human_reviewed,
-                created_at=excerpt.created_at,
-                provenance_fields=[excerpt.source_id, excerpt.session_id, excerpt.model_name],
-                review_state=excerpt.review_state,
-                trust_tier=excerpt.trust_tier,
-                conflict_state=excerpt.conflict_state,
-                is_stale=excerpt.is_stale,
+                source_type=row["source_type"],
+                human_reviewed=bool(row["human_reviewed"]),
+                created_at=datetime.fromisoformat(row["created_at"]),
+                provenance_fields=[row["source_id"], row["session_id"], row["model_name"]],
+                review_state=row["review_state"],
+                trust_tier=row["trust_tier"],
+                conflict_state=row["conflict_state"],
+                is_stale=freshness[2],
             )
             if score <= 0:
                 continue
-            hits.append(self._search_hit_for_excerpt(excerpt, score=score))
+            hits.append(self._search_hit_for_excerpt_row(row, score=score, freshness=freshness))
         return hits
 
     def _resolve_source(self, payload: ExcerptCreate, auth: AuthContext | None = None) -> SourceRecord:
