@@ -1,0 +1,5 @@
+{
+  "description": "Scope v2 idempotency records by namespace kind and identifier",
+  "migration_id": "0005_v2_idempotency_namespace",
+  "transactional": true
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import re
@@ -444,19 +445,25 @@ class DepositRepository:
         self.conn = conn
 
     def get_idempotency(
-        self, namespace_id: str, operation: str, key: str
+        self,
+        namespace_kind: str,
+        namespace_id: str,
+        operation: str,
+        key: str,
     ) -> Any | None:
         return self.conn.execute(
             """
             SELECT * FROM idempotency_keys
-            WHERE namespace_id = ? AND operation = ? AND "key" = ?
+            WHERE namespace_kind = ? AND namespace_id = ?
+              AND operation = ? AND "key" = ?
             """,
-            (namespace_id, operation, key),
+            (namespace_kind, namespace_id, operation, key),
         ).fetchone()
 
     def reserve_idempotency(
         self,
         *,
+        namespace_kind: str,
         namespace_id: str,
         operation: str,
         key: str,
@@ -467,12 +474,14 @@ class DepositRepository:
         self.conn.execute(
             """
             INSERT INTO idempotency_keys (
-                namespace_id, operation, "key", request_sha256,
+                namespace_kind, namespace_id, operation, "key", request_sha256,
                 response_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(namespace_id, operation, "key") DO NOTHING
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(namespace_kind, namespace_id, operation, "key")
+            DO NOTHING
             """,
             (
+                namespace_kind,
                 namespace_id,
                 operation,
                 key,
@@ -485,6 +494,7 @@ class DepositRepository:
     def complete_idempotency(
         self,
         *,
+        namespace_kind: str,
         namespace_id: str,
         operation: str,
         key: str,
@@ -495,11 +505,13 @@ class DepositRepository:
             """
             UPDATE idempotency_keys
             SET response_json = ?
-            WHERE namespace_id = ? AND operation = ? AND "key" = ?
+            WHERE namespace_kind = ? AND namespace_id = ?
+              AND operation = ? AND "key" = ?
               AND response_json = ?
             """,
             (
                 response_json,
+                namespace_kind,
                 namespace_id,
                 operation,
                 key,
@@ -562,10 +574,12 @@ class DepositRepository:
             INSERT INTO questions (
                 id, topic_id, prompt, normalized_prompt, focus_json, status,
                 follow_up_status, priority_score, visibility, author_type,
-                namespace_kind, namespace_id, public_namespace_slug,
+                namespace_kind, namespace_id, actor_user_id, actor_org_id,
+                api_key_id, public_namespace_slug,
                 public_index_state, dedupe_key, human_reviewed, created_at
             ) VALUES (
-                ?, ?, ?, ?, ?, 'open', 'open', 0, ?, ?, ?, ?, ?, ?, ?, 0, ?
+                ?, ?, ?, ?, ?, 'open', 'open', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, 0, ?
             )
             """,
             (
@@ -578,6 +592,9 @@ class DepositRepository:
                 values["author_type"],
                 values["namespace_kind"],
                 values["namespace_id"],
+                values.get("actor_user_id"),
+                values.get("actor_org_id"),
+                values.get("api_key_id"),
                 values["namespace_id"],
                 values["public_index_state"],
                 values["dedupe_key"],
@@ -591,12 +608,13 @@ class DepositRepository:
             INSERT INTO research_sessions (
                 id, question_id, prompt, model_name, model_version, mode,
                 status, source_signals_json, notes, visibility, author_type,
-                namespace_kind, namespace_id, public_namespace_slug,
+                namespace_kind, namespace_id, actor_user_id, actor_org_id,
+                api_key_id, public_namespace_slug,
                 public_index_state, dedupe_key, ttl_days, expires_at,
                 freshness_state, created_at, started_at, finished_at
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                30, ?, 'fresh', ?, ?, ?
+                ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, 30, ?, 'fresh', ?, ?, ?
             )
             """,
             (
@@ -612,6 +630,9 @@ class DepositRepository:
                 values["author_type"],
                 values["namespace_kind"],
                 values["namespace_id"],
+                values.get("actor_user_id"),
+                values.get("actor_org_id"),
+                values.get("api_key_id"),
                 values["namespace_id"],
                 values["public_index_state"],
                 values["dedupe_key"],
@@ -653,11 +674,12 @@ class DepositRepository:
                 accessed_at, author, content_sha256, snapshot_required,
                 snapshot_present, last_verified_at, review_state, trust_tier,
                 conflict_state, visibility, namespace_kind, namespace_id,
+                actor_user_id, actor_org_id, api_key_id,
                 public_namespace_slug, public_index_state, dedupe_key,
                 created_at
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'unreviewed', ?, 'none',
-                ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -676,6 +698,9 @@ class DepositRepository:
                 values["visibility"],
                 values["namespace_kind"],
                 values["namespace_id"],
+                values.get("actor_user_id"),
+                values.get("actor_org_id"),
+                values.get("api_key_id"),
                 values["namespace_id"],
                 values["public_index_state"],
                 values["dedupe_key"],
@@ -726,11 +751,12 @@ class DepositRepository:
                 note, selector_json, quote_text, confidence, tags_json,
                 review_state, trust_tier, conflict_state, visibility,
                 author_type, model_name, model_version, namespace_kind,
-                namespace_id, public_namespace_slug, public_index_state,
+                namespace_id, actor_user_id, actor_org_id, api_key_id,
+                public_namespace_slug, public_index_state,
                 dedupe_key, human_reviewed, created_at
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 'none', ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -752,6 +778,9 @@ class DepositRepository:
                 values["model_version"],
                 values["namespace_kind"],
                 values["namespace_id"],
+                values.get("actor_user_id"),
+                values.get("actor_org_id"),
+                values.get("api_key_id"),
                 values["namespace_id"],
                 values["public_index_state"],
                 values["dedupe_key"],
@@ -816,6 +845,11 @@ class DepositRepository:
         namespace_kind: str,
         namespace_id: str,
     ) -> Any | None:
+        if self.conn.target.kind == "postgres":
+            self.conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                (f"{namespace_kind}:{namespace_id}:{canonical_key}",),
+            )
         suffix = " FOR UPDATE" if self.conn.target.kind == "postgres" else ""
         return self.conn.execute(
             """
@@ -836,12 +870,13 @@ class DepositRepository:
                 statement, status, confidence, review_state, trust_tier,
                 conflict_state, visibility, author_type, model_name,
                 model_version, namespace_kind, namespace_id,
+                actor_user_id, actor_org_id, api_key_id,
                 public_namespace_slug, public_index_state, dedupe_key,
                 human_reviewed, created_at, canonical_key, scope_json,
                 updated_at
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unreviewed', 'medium', 'none', ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?
             )
             """,
             (
@@ -860,6 +895,9 @@ class DepositRepository:
                 values["model_version"],
                 values["namespace_kind"],
                 values["namespace_id"],
+                values.get("actor_user_id"),
+                values.get("actor_org_id"),
+                values.get("api_key_id"),
                 values["namespace_id"],
                 values["public_index_state"],
                 values["dedupe_key"],
@@ -971,11 +1009,12 @@ class DepositRepository:
                 report_kind, guidance_json, review_state, trust_tier,
                 conflict_state, visibility, author_type, model_name,
                 model_version, namespace_kind, namespace_id,
+                actor_user_id, actor_org_id, api_key_id,
                 public_namespace_slug, public_index_state, dedupe_key,
                 human_reviewed, created_at
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, 'unreviewed', 'medium', 'none', ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, 0, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?
             )
             """,
             (
@@ -993,6 +1032,9 @@ class DepositRepository:
                 values["model_version"],
                 values["namespace_kind"],
                 values["namespace_id"],
+                values.get("actor_user_id"),
+                values.get("actor_org_id"),
+                values.get("api_key_id"),
                 values["namespace_id"],
                 values["public_index_state"],
                 values["dedupe_key"],
@@ -1012,6 +1054,25 @@ class DepositRepository:
             (question_id,),
         )
 
+    def insert_deposit_audit(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO audit_log (
+                id, action, kind, record_id, api_key_id, actor_user_id,
+                actor_org_id, details_json, created_at
+            ) VALUES (?, 'research_deposit', 'deposit', ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                values["id"],
+                values["record_id"],
+                values.get("api_key_id"),
+                values.get("actor_user_id"),
+                values.get("actor_org_id"),
+                values["details_json"],
+                values["created_at"],
+            ),
+        )
+
 
 class ReviewRefreshRepository:
     """Portable SQL for append-only review decisions and refresh work."""
@@ -1020,19 +1081,25 @@ class ReviewRefreshRepository:
         self.conn = conn
 
     def get_idempotency(
-        self, namespace_id: str, operation: str, key: str
+        self,
+        namespace_kind: str,
+        namespace_id: str,
+        operation: str,
+        key: str,
     ) -> Any | None:
         return self.conn.execute(
             """
             SELECT * FROM idempotency_keys
-            WHERE namespace_id = ? AND operation = ? AND "key" = ?
+            WHERE namespace_kind = ? AND namespace_id = ?
+              AND operation = ? AND "key" = ?
             """,
-            (namespace_id, operation, key),
+            (namespace_kind, namespace_id, operation, key),
         ).fetchone()
 
     def reserve_idempotency(
         self,
         *,
+        namespace_kind: str,
         namespace_id: str,
         operation: str,
         key: str,
@@ -1043,12 +1110,14 @@ class ReviewRefreshRepository:
         self.conn.execute(
             """
             INSERT INTO idempotency_keys (
-                namespace_id, operation, "key", request_sha256,
+                namespace_kind, namespace_id, operation, "key", request_sha256,
                 response_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(namespace_id, operation, "key") DO NOTHING
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(namespace_kind, namespace_id, operation, "key")
+            DO NOTHING
             """,
             (
+                namespace_kind,
                 namespace_id,
                 operation,
                 key,
@@ -1061,6 +1130,7 @@ class ReviewRefreshRepository:
     def complete_idempotency(
         self,
         *,
+        namespace_kind: str,
         namespace_id: str,
         operation: str,
         key: str,
@@ -1071,11 +1141,13 @@ class ReviewRefreshRepository:
             """
             UPDATE idempotency_keys
             SET response_json = ?
-            WHERE namespace_id = ? AND operation = ? AND "key" = ?
+            WHERE namespace_kind = ? AND namespace_id = ?
+              AND operation = ? AND "key" = ?
               AND response_json = ?
             """,
             (
                 response_json,
+                namespace_kind,
                 namespace_id,
                 operation,
                 key,
@@ -1088,6 +1160,7 @@ class ReviewRefreshRepository:
     def release_idempotency(
         self,
         *,
+        namespace_kind: str,
         namespace_id: str,
         operation: str,
         key: str,
@@ -1096,10 +1169,17 @@ class ReviewRefreshRepository:
         self.conn.execute(
             """
             DELETE FROM idempotency_keys
-            WHERE namespace_id = ? AND operation = ? AND "key" = ?
+            WHERE namespace_kind = ? AND namespace_id = ?
+              AND operation = ? AND "key" = ?
               AND response_json = ?
             """,
-            (namespace_id, operation, key, reservation_json),
+            (
+                namespace_kind,
+                namespace_id,
+                operation,
+                key,
+                reservation_json,
+            ),
         )
 
     def get_claim_for_revision(
@@ -1311,6 +1391,18 @@ class ReviewRefreshRepository:
             LIMIT 1
             """,
             (claim_id,),
+        ).fetchone()
+        return row is not None
+
+    def claim_revision_has_refuting_evidence(self, revision_id: str) -> bool:
+        row = self.conn.execute(
+            """
+            SELECT 1 AS present
+            FROM claim_evidence
+            WHERE claim_revision_id = ? AND relationship = 'refutes'
+            LIMIT 1
+            """,
+            (revision_id,),
         ).fetchone()
         return row is not None
 
@@ -2059,8 +2151,11 @@ class SourceVersionRepository:
 
 
 class V2BackfillRepository:
-    def __init__(self, conn: DbConnection):
+    def __init__(self, conn: DbConnection, *, now_text: str | None = None):
         self.conn = conn
+        self.now_text = now_text or datetime.now(timezone.utc).replace(
+            microsecond=0
+        ).isoformat()
 
     def initialize_progress(
         self, phases: Iterable[str], *, updated_at: str
@@ -2190,6 +2285,64 @@ class V2BackfillRepository:
         if phase == "report_state":
             return self._process_report_state(row)
         raise ValueError(f"unsupported v2 backfill phase: {phase}")
+
+    def project_legacy_write(self, kind: str, record_id: str) -> None:
+        """Idempotently dual-project one retained v1 mutation into v2."""
+        if kind == "source":
+            row = self.conn.execute(
+                "SELECT * FROM sources WHERE id = ?", (record_id,)
+            ).fetchone()
+            if row is not None:
+                self._process_source(row)
+            return
+        if kind == "excerpt":
+            row = self.conn.execute(
+                """
+                SELECT e.*, rs.freshness_state AS session_freshness_state
+                FROM excerpts e
+                LEFT JOIN research_sessions rs ON rs.id = e.session_id
+                WHERE e.id = ?
+                """,
+                (record_id,),
+            ).fetchone()
+            if row is not None:
+                self._process_evidence(row)
+            return
+        if kind == "claim":
+            row = self.conn.execute(
+                """
+                SELECT c.*, rs.freshness_state AS session_freshness_state
+                FROM claims c
+                LEFT JOIN research_sessions rs ON rs.id = c.session_id
+                WHERE c.id = ?
+                """,
+                (record_id,),
+            ).fetchone()
+            if row is None:
+                return
+            self._process_claim(row)
+            links = self.conn.execute(
+                """
+                SELECT ce.*, c.created_at AS claim_created_at
+                FROM claim_excerpts ce
+                JOIN claims c ON c.id = ce.claim_id
+                WHERE ce.claim_id = ?
+                ORDER BY ce.excerpt_id
+                """,
+                (record_id,),
+            ).fetchall()
+            for link in links:
+                self._process_claim_evidence(link)
+            self._process_claim_pointer(row)
+            return
+        if kind == "report":
+            row = self.conn.execute(
+                "SELECT * FROM reports WHERE id = ?", (record_id,)
+            ).fetchone()
+            if row is not None:
+                self._process_report_state(row)
+            return
+        raise ValueError(f"unsupported retained v1 write kind: {kind}")
 
     def update_progress(
         self,
@@ -2651,7 +2804,10 @@ class V2BackfillRepository:
 
         refresh_due_at = row["refresh_due_at"]
         freshness_state = _optional_row_value(row, "session_freshness_state")
-        if refresh_due_at or freshness_state in {"needs_refresh", "stale"}:
+        if (
+            refresh_due_at is not None
+            and refresh_due_at <= self.now_text
+        ) or freshness_state in {"needs_refresh", "stale"}:
             self._insert_refresh(
                 refresh_entity_kind,
                 refresh_entity_id,

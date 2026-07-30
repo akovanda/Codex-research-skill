@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime
 import json
+import os
 from pathlib import Path
+import tempfile
+from typing import Iterator
 from typing import Literal
 from uuid import uuid4
 
@@ -192,11 +196,18 @@ class CaptureQueue:
         self.queue_path.parent.mkdir(parents=True, exist_ok=True)
 
     def enqueue(self, bundle: QueueEnvelope) -> None:
-        with self.queue_path.open("a", encoding="utf-8") as handle:
-            handle.write(bundle.model_dump_json(exclude_none=True))
-            handle.write("\n")
+        with self._lock():
+            with self.queue_path.open("a", encoding="utf-8") as handle:
+                handle.write(bundle.model_dump_json(exclude_none=True))
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
 
     def list_pending(self) -> list[QueueEnvelope]:
+        with self._lock():
+            return self._list_pending_unlocked()
+
+    def _list_pending_unlocked(self) -> list[QueueEnvelope]:
         if not self.queue_path.exists():
             return []
         bundles: list[QueueEnvelope] = []
@@ -212,39 +223,87 @@ class CaptureQueue:
         return bundles
 
     def flush(self, backend: RegistryBackend) -> QueueFlushResult:
-        pending = self.list_pending()
-        remaining: list[QueueEnvelope] = []
-        result = QueueFlushResult()
-        status = backend.backend_status()
-        for bundle in pending:
-            if not self._matches_backend(bundle, status):
-                remaining.append(bundle)
-                continue
-            try:
-                if isinstance(bundle, QueuedV2Deposit):
-                    replay_result = self._replay_v2(bundle)
-                else:
-                    replay_result = self._replay_bundle(backend, bundle)
-                result.flushed_queue_ids.append(bundle.queue_id)
-                if replay_result["report_id"] is not None:
-                    result.stored_report_ids.append(replay_result["report_id"])
-            except Exception as exc:
-                bundle.retry_count += 1
-                bundle.last_error = str(exc)
-                bundle.last_attempted_at = utc_now()
-                remaining.append(bundle)
-                result.failed_queue_ids.append(bundle.queue_id)
-        self._write_all(remaining)
-        return result
+        with self._lock():
+            pending = self._list_pending_unlocked()
+            remaining: list[QueueEnvelope] = []
+            result = QueueFlushResult()
+            status = backend.backend_status()
+            for bundle in pending:
+                if not self._matches_backend(bundle, status):
+                    remaining.append(bundle)
+                    continue
+                try:
+                    if isinstance(bundle, QueuedV2Deposit):
+                        replay_result = self._replay_v2(bundle)
+                    else:
+                        replay_result = self._replay_bundle(backend, bundle)
+                    result.flushed_queue_ids.append(bundle.queue_id)
+                    if replay_result["report_id"] is not None:
+                        result.stored_report_ids.append(replay_result["report_id"])
+                except Exception as exc:
+                    bundle.retry_count += 1
+                    bundle.last_error = str(exc)
+                    bundle.last_attempted_at = utc_now()
+                    remaining.append(bundle)
+                    result.failed_queue_ids.append(bundle.queue_id)
+            self._write_all_unlocked(remaining)
+            return result
 
     def _write_all(self, bundles: list[QueueEnvelope]) -> None:
-        if not bundles:
-            self.queue_path.write_text("", encoding="utf-8")
-            return
-        with self.queue_path.open("w", encoding="utf-8") as handle:
-            for bundle in bundles:
-                handle.write(bundle.model_dump_json(exclude_none=True))
-                handle.write("\n")
+        with self._lock():
+            self._write_all_unlocked(bundles)
+
+    def _write_all_unlocked(self, bundles: list[QueueEnvelope]) -> None:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{self.queue_path.name}.",
+            suffix=".tmp",
+            dir=self.queue_path.parent,
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                for bundle in bundles:
+                    handle.write(bundle.model_dump_json(exclude_none=True))
+                    handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            if os.name != "nt":
+                temporary.chmod(0o600)
+            os.replace(temporary, self.queue_path)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+
+    @contextmanager
+    def _lock(self) -> Iterator[None]:
+        lock_path = self.queue_path.with_name(self.queue_path.name + ".lock")
+        with lock_path.open("a+b") as lock_file:
+            if os.name == "nt":  # pragma: no cover - Windows-only path
+                import msvcrt
+
+                lock_file.seek(0, os.SEEK_END)
+                if lock_file.tell() == 0:
+                    lock_file.write(b"\0")
+                    lock_file.flush()
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+                try:
+                    yield
+                finally:
+                    lock_file.seek(0)
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                return
+            lock_path.chmod(0o600)
+            try:
+                import fcntl
+            except ImportError:  # pragma: no cover
+                yield
+            else:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     def _matches_backend(self, bundle: QueueEnvelope, status: BackendStatus) -> bool:
         if bundle.backend_url and status.url and bundle.backend_url.rstrip("/") != status.url.rstrip("/"):

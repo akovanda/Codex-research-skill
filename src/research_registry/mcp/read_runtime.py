@@ -111,6 +111,7 @@ class ReadMcpRuntime:
                 "cursor-pagination",
                 "bounded-hydration",
                 "deep-research-read-only",
+                "v2-deposit",
                 "review-events",
                 "refresh-inspect-enqueue",
             ],

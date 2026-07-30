@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from research_registry.application.deposit import ResearchDepositService
@@ -178,3 +179,25 @@ def test_v2_queue_envelope_replays_through_atomic_deposit_idempotently(
         assert conn.execute(
             "SELECT COUNT(*) FROM idempotency_keys"
         ).fetchone()[0] == 1
+
+
+def test_concurrent_queue_writers_do_not_lose_jsonl_entries(
+    tmp_path: Path,
+) -> None:
+    service = make_service(tmp_path)
+    queue_path = tmp_path / "pending.jsonl"
+    base = make_bundle(service)
+
+    def enqueue(index: int) -> None:
+        CaptureQueue(queue_path).enqueue(
+            base.model_copy(update={"queue_id": f"queue_concurrent_{index}"})
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(enqueue, range(40)))
+
+    pending = CaptureQueue(queue_path).list_pending()
+    assert len(pending) == 40
+    assert {item.queue_id for item in pending} == {
+        f"queue_concurrent_{index}" for index in range(40)
+    }

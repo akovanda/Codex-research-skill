@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
+import json
 import os
 from pathlib import Path
+from threading import Barrier
 from uuid import uuid4
 
 import pytest
@@ -226,6 +229,101 @@ def test_complete_deposit_is_atomic_private_and_idempotent(
     assert _counts(registry)["claim_revisions"] == 1
 
 
+def test_concurrent_identical_deposits_commit_once_and_replay(
+    tmp_path: Path,
+) -> None:
+    registry, _, deposits = _service(tmp_path)
+    barrier = Barrier(2)
+
+    def commit() -> str:
+        barrier.wait()
+        result = deposits.deposit(_bundle(key="concurrent-identical"))
+        return "replay" if result.idempotent_replay else "commit"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(lambda _: commit(), range(2)))
+
+    assert sorted(outcomes) == ["commit", "replay"]
+    assert _counts(registry)["claims"] == 1
+    assert _counts(registry)["claim_revisions"] == 1
+
+
+def test_concurrent_same_key_different_body_has_deterministic_conflict(
+    tmp_path: Path,
+) -> None:
+    registry, _, deposits = _service(tmp_path)
+    barrier = Barrier(2)
+    requests = [
+        _bundle(key="concurrent-conflict", title="First body"),
+        _bundle(key="concurrent-conflict", title="Second body"),
+    ]
+
+    def commit(request: dict) -> str:
+        barrier.wait()
+        try:
+            deposits.deposit(request)
+        except IdempotencyConflict:
+            return "conflict"
+        return "commit"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(commit, requests))
+
+    assert sorted(outcomes) == ["commit", "conflict"]
+    assert _counts(registry)["claims"] == 1
+
+
+def test_idempotency_isolated_by_namespace_kind_with_same_identifier(
+    tmp_path: Path,
+) -> None:
+    registry, _, deposits = _service(tmp_path)
+    user = _bundle(key="same-idempotency-key")
+    user["namespace"] = {"kind": "user", "id": "shared-id"}
+    organization = deepcopy(user)
+    organization["namespace"] = {"kind": "org", "id": "shared-id"}
+
+    user_result = deposits.deposit(user)
+    org_result = deposits.deposit(organization)
+
+    assert user_result.committed and org_result.committed
+    assert user_result.records.claim_ids != org_result.records.claim_ids
+    with registry.connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT namespace_kind FROM idempotency_keys
+            WHERE namespace_id = ? AND "key" = ?
+            ORDER BY namespace_kind
+            """,
+            ("shared-id", "same-idempotency-key"),
+        ).fetchall()
+    assert [row["namespace_kind"] for row in rows] == ["org", "user"]
+
+
+def test_concurrent_distinct_keys_share_one_canonical_claim_identity(
+    tmp_path: Path,
+) -> None:
+    registry, _, deposits = _service(tmp_path)
+    barrier = Barrier(2)
+
+    def commit(key: str) -> None:
+        barrier.wait()
+        deposits.deposit(_bundle(key=key))
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        list(executor.map(commit, ("canonical-one", "canonical-two")))
+
+    with registry.connect() as conn:
+        claims = conn.execute(
+            "SELECT COUNT(*) AS count FROM claims "
+            "WHERE canonical_key = 'atomic-deposit-claim'"
+        ).fetchone()["count"]
+        revisions = conn.execute(
+            "SELECT COUNT(*) AS count FROM claim_revisions"
+        ).fetchone()["count"]
+    assert claims == 1
+    assert revisions == 2
+
+
 def test_validate_only_runs_full_validation_without_persistent_state(
     tmp_path: Path,
 ) -> None:
@@ -253,6 +351,26 @@ def test_validate_only_runs_full_validation_without_persistent_state(
     committed["validate_only"] = False
     result = deposits.deposit(committed)
     assert result.committed is True
+
+
+def test_evidence_only_text_is_hash_verified_then_discarded(
+    tmp_path: Path,
+) -> None:
+    registry, blobs, deposits = _service(tmp_path)
+    request = _bundle(key="evidence-only-discard")
+    request["sources"][0]["version"]["snapshot"]["policy"] = "evidence_only"
+
+    result = deposits.deposit(request)
+
+    with registry.connect() as conn:
+        version = conn.execute(
+            "SELECT content_object_id, metadata_json FROM source_versions "
+            "WHERE id = ?",
+            (result.records.source_version_ids["source"],),
+        ).fetchone()
+    assert json.loads(version["metadata_json"])["snapshot_policy"] == "evidence_only"
+    assert version["content_object_id"] is None
+    assert blobs.inspect([]).stored_objects == 0
 
 
 def test_revising_claim_reuses_source_version_and_updates_v1_mirror(

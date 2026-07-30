@@ -17,6 +17,13 @@ upgrade, resumable v2 backfill, row preservation, restore verification, and
 rollback to the pre-upgrade schema. It requires zero data loss and zero
 unresolved migration errors.
 
+The unreleased `0005_v2_idempotency_namespace` migration adds
+`namespace_kind` to the idempotency primary key. Existing v2-alpha rows did not
+record that dimension and are deterministically backfilled as `user`
+namespaces. Operators using pre-release organization deposits should inspect
+those rows before upgrading; released v1 tables are neither renamed nor
+deleted.
+
 Wheel and sdist fresh installation, clean XDG paths, focused plugin installation,
 and local STDIO status/search are covered by:
 

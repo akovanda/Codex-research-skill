@@ -22,6 +22,30 @@ from .ingestion.blobs import (
 
 
 BACKUP_MANIFEST_VERSION = 1
+V2_AUTHORITATIVE_TABLES = (
+    "claim_evidence",
+    "claim_revisions",
+    "content_objects",
+    "evidence_spans",
+    "idempotency_keys",
+    "migration_backfill_errors",
+    "migration_backfill_progress",
+    "migration_backfill_warnings",
+    "refresh_queue",
+    "review_events",
+    "source_versions",
+)
+AUTHORITATIVE_BACKUP_TABLES = tuple(
+    sorted(set(V1_TABLES) | {"schema_meta"} | set(V2_AUTHORITATIVE_TABLES))
+)
+REBUILDABLE_SEARCH_TABLES = (
+    "search_documents",
+    "search_documents_fts",
+    "search_documents_fts_config",
+    "search_documents_fts_data",
+    "search_documents_fts_docsize",
+    "search_documents_fts_idx",
+)
 
 
 class BackupVerificationError(RuntimeError):
@@ -139,6 +163,10 @@ def backup_sqlite(
             ],
             "inventory": {
                 "tables": backup_inventory,
+                "policy": {
+                    "authoritative_tables": list(AUTHORITATIVE_BACKUP_TABLES),
+                    "rebuildable_tables": list(REBUILDABLE_SEARCH_TABLES),
+                },
             },
             "configuration": configuration,
             "blob_inventory": blob_manifest,
@@ -268,7 +296,7 @@ def restore_sqlite_backup(
 
 
 def sqlite_database_inventory(raw: sqlite3.Connection) -> dict[str, dict[str, Any]]:
-    """Return content-free row counts and deterministic hashes for v1 tables."""
+    """Return content-free hashes for all authoritative durable tables."""
     raw.row_factory = sqlite3.Row
     present = {
         row["name"]
@@ -277,7 +305,7 @@ def sqlite_database_inventory(raw: sqlite3.Connection) -> dict[str, dict[str, An
         ).fetchall()
     }
     inventory: dict[str, dict[str, Any]] = {}
-    for table in V1_TABLES:
+    for table in AUTHORITATIVE_BACKUP_TABLES:
         if table not in present:
             continue
         row_hashes = sorted(
@@ -703,8 +731,19 @@ def _validate_manifest_shape(manifest: Any) -> None:
     if not isinstance(inventory, dict) or not isinstance(inventory.get("tables"), dict):
         raise BackupVerificationError("backup manifest inventory is invalid")
     tables = inventory["tables"]
-    if any(table not in V1_TABLES for table in tables):
+    if any(table not in AUTHORITATIVE_BACKUP_TABLES for table in tables):
         raise BackupVerificationError("backup manifest includes an unknown table")
+    policy = inventory.get("policy")
+    if (
+        not isinstance(policy, dict)
+        or policy.get("authoritative_tables")
+        != list(AUTHORITATIVE_BACKUP_TABLES)
+        or policy.get("rebuildable_tables")
+        != list(REBUILDABLE_SEARCH_TABLES)
+    ):
+        raise BackupVerificationError(
+            "backup manifest inventory policy is invalid"
+        )
     for table_inventory in tables.values():
         if (
             not isinstance(table_inventory, dict)

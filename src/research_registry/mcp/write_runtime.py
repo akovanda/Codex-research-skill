@@ -4,6 +4,7 @@ from typing import Any
 
 from mcp.server.fastmcp import Context
 
+from ..application.deposit import DepositError, ResearchDepositService
 from ..application.refresh import (
     CapturePolicy,
     ResearchRefreshService,
@@ -14,7 +15,10 @@ from ..application.review import ResearchReviewService
 from ..backend_client import RegistryBackend
 from ..config import Settings
 from ..contracts.v2 import (
+    NamespaceSelector,
     RefreshEntity,
+    ResearchDepositRequest,
+    ResearchDepositResult,
     ResearchRefreshRequest,
     ResearchRefreshResult,
     ResearchReviewRequest,
@@ -22,6 +26,7 @@ from ..contracts.v2 import (
     ReviewEntity,
     ReviewNewRevision,
 )
+from ..db import DatabaseTarget, resolve_database_target
 from ..models import AuthContext
 from ..ingestion.blobs import FilesystemBlobStore
 from ..ingestion.fetch_policy import FetchPolicy
@@ -78,6 +83,7 @@ class WriteMcpRuntime:
             if self.service is not None
             else None
         )
+        self.deposits = self._configured_deposit()
         configured_capture = capture_coordinator or self._configured_capture()
         self.refreshes = (
             ResearchRefreshService(
@@ -87,6 +93,70 @@ class WriteMcpRuntime:
             if self.service is not None
             else None
         )
+
+    def _configured_deposit(self) -> ResearchDepositService | None:
+        if self.service is None:
+            return None
+        target = (
+            self.service.database
+            if isinstance(self.service.database, DatabaseTarget)
+            else resolve_database_target(self.service.database)
+        )
+        if self.settings is not None:
+            blob_root = self.settings.data_dir / "blobs"
+            snapshot_policy = self.settings.capture_snapshot_policy
+        elif target.sqlite_path is not None:
+            blob_root = target.sqlite_path.parent / "blobs"
+            snapshot_policy = "full_content"
+        else:
+            raise RuntimeError(
+                "DATABASE_INTEGRITY_ERROR: PostgreSQL deposit requires "
+                "configured blob storage."
+            )
+        return ResearchDepositService(
+            self.service.database,
+            FilesystemBlobStore(blob_root),
+            max_snapshot_policy=snapshot_policy,
+        )
+
+    def research_deposit(
+        self,
+        request: ResearchDepositRequest | dict[str, Any],
+        *,
+        ctx: Context | None,
+    ) -> ResearchDepositResult:
+        auth = self._resolve_scope(ctx, "ingest", "deposit")
+        service = self._require_deposits()
+        command = (
+            request
+            if isinstance(request, ResearchDepositRequest)
+            else ResearchDepositRequest.model_validate(request)
+        )
+        if command.namespace is None:
+            command = command.model_copy(
+                update={
+                    "namespace": NamespaceSelector(
+                        kind=auth.namespace_kind,
+                        id=auth.namespace_id,
+                    )
+                }
+            )
+        elif (
+            command.namespace.kind != auth.namespace_kind
+            or command.namespace.id != auth.namespace_id
+        ):
+            raise PermissionError(
+                "NAMESPACE_ACCESS_DENIED: The deposit namespace must match "
+                "the authenticated namespace."
+            )
+        try:
+            return service.deposit(command, auth=auth)
+        except DepositError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(
+                "DEPOSIT_FAILED: The deposit could not be committed."
+            ) from exc
 
     def _configured_capture(self) -> SourceCaptureCoordinator | None:
         if (
@@ -205,6 +275,14 @@ class WriteMcpRuntime:
         )
 
     def _resolve_admin(self, ctx: Context | None) -> AuthContext:
+        return self._resolve_scope(ctx, "admin", "review")
+
+    def _resolve_scope(
+        self,
+        ctx: Context | None,
+        scope: str,
+        operation: str,
+    ) -> AuthContext:
         service = self.service
         if service is None:
             raise RuntimeError(
@@ -220,11 +298,12 @@ class WriteMcpRuntime:
             auth = _local_stdio_auth()
         if auth is None:
             raise PermissionError(
-                "AUTH_REQUIRED: Authentication is required for review writes."
+                f"AUTH_REQUIRED: Authentication is required for {operation} writes."
             )
-        if not auth.has_scope("admin"):
+        if not auth.has_scope(scope):  # type: ignore[arg-type]
             raise PermissionError(
-                "INSUFFICIENT_SCOPE: The admin scope is required for review writes."
+                f"INSUFFICIENT_SCOPE: The {scope} scope is required for "
+                f"{operation} writes."
             )
         return auth
 
@@ -263,6 +342,13 @@ class WriteMcpRuntime:
                 "DATABASE_INTEGRITY_ERROR: V2 review requires a local registry service."
             )
         return self.reviews
+
+    def _require_deposits(self) -> ResearchDepositService:
+        if self.deposits is None:
+            raise RuntimeError(
+                "DATABASE_INTEGRITY_ERROR: V2 deposit requires a local registry service."
+            )
+        return self.deposits
 
     def _require_refreshes(self) -> ResearchRefreshService:
         if self.refreshes is None:

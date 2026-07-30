@@ -13,8 +13,18 @@ from .contracts.v2 import (
     ConflictState,
     FreshnessState,
     GetInclude,
+    DepositClaim,
+    DepositEvidence,
+    DepositInquiry,
+    DepositReport,
+    DepositRun,
+    DepositSource,
+    JsonObject50,
+    NamespaceSelector,
     RefreshEntity,
     ResearchRefreshResult,
+    ResearchDepositRequest,
+    ResearchDepositResult,
     ResearchReviewResult,
     ResearchSearchResponse,
     ResearchStatusResponse,
@@ -50,6 +60,12 @@ _REFRESH_QUEUE_WRITE = ToolAnnotations(
     destructiveHint=False,
     idempotentHint=True,
     openWorldHint=True,
+)
+_DEPOSIT_WRITE = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
 )
 
 
@@ -497,6 +513,42 @@ def create_mcp_server(
         )
 
     close_tool_input_schema(mcp, "research_get")
+
+    @mcp.tool(annotations=_DEPOSIT_WRITE, structured_output=True)
+    def research_deposit(
+        idempotency_key: Annotated[
+            str, StringConstraints(min_length=1, max_length=200)
+        ],
+        run: DepositRun,
+        sources: Annotated[list[DepositSource], Field(max_length=50)],
+        evidence: Annotated[list[DepositEvidence], Field(max_length=200)],
+        claims: Annotated[list[DepositClaim], Field(max_length=100)],
+        validate_only: bool = False,
+        visibility: Literal["private", "shared", "public"] = "private",
+        namespace: NamespaceSelector | None = None,
+        inquiry: DepositInquiry | None = None,
+        report: DepositReport | None = None,
+        metadata: JsonObject50 = {},
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ResearchDepositResult:
+        """Validate or atomically preserve one evidence-backed v2 bundle."""
+        request = ResearchDepositRequest(
+            protocol="research-deposit/v2",
+            idempotency_key=idempotency_key,
+            validate_only=validate_only,
+            visibility=visibility,
+            namespace=namespace,
+            inquiry=inquiry,
+            run=run,
+            sources=list(sources),
+            evidence=list(evidence),
+            claims=list(claims),
+            report=report,
+            metadata=dict(metadata),
+        )
+        return write_runtime.research_deposit(request, ctx=ctx)
+
+    close_tool_input_schema(mcp, "research_deposit")
 
     @mcp.tool(annotations=_REVIEW_WRITE, structured_output=True)
     def research_review(

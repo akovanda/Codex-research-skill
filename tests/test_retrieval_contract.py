@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha256
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from research_registry.persistence.read_adapter import (
 )
 from research_registry.retrieval.evaluation import run_retrieval_evaluation
 from research_registry.retrieval.projection import SearchIndexService
+from research_registry.retrieval.projection import rebuild_search_documents
 from research_registry.service import RegistryService
 
 
@@ -171,6 +173,64 @@ def _search(
         ),
         access=ReadAccess(include_private=True, local_trusted=True),
     )
+
+
+def test_source_freshness_uses_controlled_due_time_and_affects_ranking(
+    tmp_path: Path,
+) -> None:
+    registry, _ = _registry(tmp_path)
+    now = datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)
+    rows = (
+        ("src_due_before", "2026-07-30T11:59:59+00:00"),
+        ("src_due_exact", "2026-07-30T12:00:00+00:00"),
+        ("src_due_after", "2026-07-30T12:00:01+00:00"),
+        ("src_due_unknown", None),
+    )
+    with registry.connect() as conn:
+        for source_id, due_at in rows:
+            conn.execute(
+                """
+                INSERT INTO sources (
+                    id, locator, title, source_type, visibility,
+                    refresh_due_at, created_at
+                ) VALUES (?, ?, 'Freshness ranking marker', 'note',
+                          'private', ?, '2026-07-30T00:00:00+00:00')
+                """,
+                (source_id, f"note:{source_id}", due_at),
+            )
+        rebuild_search_documents(conn, now=now)
+        projected = conn.execute(
+            "SELECT id, freshness FROM search_documents "
+            "WHERE kind = 'source' ORDER BY id"
+        ).fetchall()
+
+    assert {row["id"]: row["freshness"] for row in projected} == {
+        "src_due_after": "fresh",
+        "src_due_before": "needs_refresh",
+        "src_due_exact": "needs_refresh",
+        "src_due_unknown": "unknown",
+    }
+    direct = CurrentRetrievalAdapter(
+        registry.database,
+        clock=lambda: now,
+    )
+    due_record = direct.get_record(
+        "src_due_exact",
+        access=ReadAccess(include_private=True, local_trusted=True),
+    )
+    future_record = direct.get_record(
+        "src_due_after",
+        access=ReadAccess(include_private=True, local_trusted=True),
+    )
+    assert due_record is not None and due_record.freshness == "needs_refresh"
+    assert future_record is not None and future_record.freshness == "fresh"
+    response = _search(
+        registry,
+        "Freshness ranking marker",
+        kinds=["source"],
+    )
+    scores = {item.id: item.score for item in response.hits}
+    assert scores["src_due_after"] > scores["src_due_before"]
 
 
 def test_sqlite_projection_fts_exact_lookup_and_explained_ranking(

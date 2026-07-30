@@ -21,6 +21,7 @@ from .ingestion.blobs import FilesystemBlobStore
 from .legacy_feature import require_legacy_heuristics
 from .migration_runner import MigrationRunner
 from .retrieval.projection import rebuild_search_documents
+from .persistence.repositories import V2BackfillRepository
 from .models import (
     ApiKeyCreate,
     ApiKeyRecord,
@@ -438,6 +439,8 @@ class RegistryService:
                 ),
             )
             row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+            if self._v2_dual_write_ready(conn):
+                V2BackfillRepository(conn).project_legacy_write("source", source_id)
             rebuild_search_documents(conn)
         return self._source_from_row(row)
 
@@ -509,6 +512,9 @@ class RegistryService:
                 ),
             )
             row = conn.execute("SELECT * FROM excerpts WHERE id = ?", (excerpt_id,)).fetchone()
+            if self._v2_dual_write_ready(conn):
+                V2BackfillRepository(conn).project_legacy_write("excerpt", excerpt_id)
+            rebuild_search_documents(conn)
         return self._excerpt_from_row(row)
 
     def get_excerpt(
@@ -588,6 +594,8 @@ class RegistryService:
                     (claim_id, excerpt_id, None, 1.0),
                 )
             row = conn.execute("SELECT * FROM claims WHERE id = ?", (claim_id,)).fetchone()
+            if self._v2_dual_write_ready(conn):
+                V2BackfillRepository(conn).project_legacy_write("claim", claim_id)
             rebuild_search_documents(conn)
         return self._claim_from_row(row)
 
@@ -661,6 +669,8 @@ class RegistryService:
                     (report_id, claim_id),
                 )
             row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
+            if self._v2_dual_write_ready(conn):
+                V2BackfillRepository(conn).project_legacy_write("report", report_id)
             rebuild_search_documents(conn)
         self.set_question_status(question.id, "answered")
         return self._report_from_row(row)
@@ -1961,6 +1971,25 @@ class RegistryService:
             """
         ).fetchall()
         return {row["name"] for row in rows}
+
+    def _v2_dual_write_ready(self, conn: DbConnection) -> bool:
+        tables = self._list_tables(conn)
+        if not {
+            "source_versions",
+            "migration_backfill_progress",
+        } <= tables:
+            return False
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM migration_backfill_progress
+            WHERE status <> 'completed'
+            """
+        ).fetchone()
+        completed = conn.execute(
+            "SELECT COUNT(*) AS count FROM migration_backfill_progress"
+        ).fetchone()
+        return int(completed["count"]) > 0 and int(row["count"]) == 0
 
     def _column_exists(self, conn: DbConnection, table: str, column: str) -> bool:
         if self.database.kind == "sqlite":

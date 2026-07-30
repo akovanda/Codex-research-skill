@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from ..db import DatabaseTarget, connect_database, resolve_database_target
 from ..retrieval.lexical import create_lexical_adapter
@@ -63,11 +64,19 @@ class ReadRecord:
 class CurrentRetrievalAdapter:
     """V2 read adapter with dialect-owned FTS and portable hydration."""
 
-    def __init__(self, database: str | Path | DatabaseTarget):
+    def __init__(
+        self,
+        database: str | Path | DatabaseTarget,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ):
         self.database = (
             database
             if isinstance(database, DatabaseTarget)
             else resolve_database_target(database)
+        )
+        self.clock = clock or (
+            lambda: datetime.now(timezone.utc).replace(microsecond=0)
         )
         self.lexical = create_lexical_adapter(self.database)
 
@@ -160,7 +169,12 @@ class CurrentRetrievalAdapter:
                 )
                 rows = conn.execute(
                     self._candidate_sql(kind, clause),
-                    (*parameters, max_per_kind),
+                    (
+                        (self.clock().astimezone(timezone.utc).isoformat(),)
+                        if kind == "source"
+                        else ()
+                    )
+                    + (*parameters, max_per_kind),
                 ).fetchall()
                 candidates.extend(
                     self._candidate_from_row(kind, row) for row in rows
@@ -184,7 +198,15 @@ class CurrentRetrievalAdapter:
                 clause, parameters = self._access_clause(alias, access)
                 row = conn.execute(
                     self._record_sql(kind, clause),
-                    (record_id, *parameters),
+                    (
+                        (
+                            self.clock().astimezone(timezone.utc).isoformat(),
+                            record_id,
+                            *parameters,
+                        )
+                        if kind == "source"
+                        else (record_id, *parameters)
+                    ),
                 ).fetchone()
                 if row is not None:
                     return self._record_from_row(kind, row)
@@ -469,17 +491,19 @@ class CurrentRetrievalAdapter:
         self,
         key: str,
         *,
+        namespace_kind: str,
         namespace_id: str,
     ) -> dict[str, Any] | None:
         with connect_database(self.database) as conn:
             row = conn.execute(
                 """
                 SELECT response_json FROM idempotency_keys
-                WHERE namespace_id = ?
+                WHERE namespace_kind = ?
+                  AND namespace_id = ?
                   AND operation = 'research_deposit_v2'
                   AND "key" = ?
                 """,
-                (namespace_id, key),
+                (namespace_kind, namespace_id, key),
             ).fetchone()
         if row is None:
             return None
@@ -682,7 +706,10 @@ class CurrentRetrievalAdapter:
                 SELECT s.id, s.title, COALESCE(s.snippet, s.locator) AS summary,
                     (s.title || ' ' || s.locator || ' ' ||
                      COALESCE(s.snippet, '')) AS search_text,
-                    s.review_state, s.conflict_state, 'unknown' AS freshness,
+                    s.review_state, s.conflict_state,
+                    CASE WHEN s.refresh_due_at IS NULL THEN 'unknown'
+                         WHEN s.refresh_due_at <= ? THEN 'needs_refresh'
+                         ELSE 'fresh' END AS freshness,
                     (SELECT COUNT(*) FROM evidence_spans e
                      JOIN source_versions sv ON sv.id = e.source_version_id
                      WHERE sv.source_id = s.id) AS evidence_count,
@@ -946,7 +973,9 @@ class CurrentRetrievalAdapter:
             "source": f"""
                 SELECT s.*, s.title AS read_title,
                     COALESCE(s.snippet, s.locator) AS read_text,
-                    'unknown' AS freshness
+                    CASE WHEN s.refresh_due_at IS NULL THEN 'unknown'
+                         WHEN s.refresh_due_at <= ? THEN 'needs_refresh'
+                         ELSE 'fresh' END AS freshness
                 FROM sources s
                 WHERE s.id = ? AND {access_clause}
             """,

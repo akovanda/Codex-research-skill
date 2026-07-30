@@ -18,6 +18,8 @@ from research_registry.local_research import (
     LocalResearchResult,
 )
 from research_registry.mcp_tools import create_mcp_server
+from research_registry.application.migrate_v2 import run_v2_backfill
+from research_registry.persistence.read_adapter import CurrentRetrievalAdapter, ReadAccess
 from research_registry.models import (
     ApiKeyCreate,
     AuthContext,
@@ -253,6 +255,86 @@ def test_create_question_accepts_legacy_subject_and_string_focus(tmp_path: Path)
     assert payload["visibility"] == "private"
 
 
+def test_retained_v1_http_writes_are_immediately_projected_into_v2(
+    tmp_path: Path,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    client = TestClient(app)
+    service = app.state.service
+    assert run_v2_backfill(service.database.label).status == "completed"
+    issued = service.issue_api_key(
+        ApiKeyCreate(label="compat-writer", actor_user_id="compat-user")
+    )
+    headers = {"x-api-key": issued.token}
+
+    question = client.post(
+        "/api/questions",
+        headers=headers,
+        json=QuestionCreate(
+            prompt="Does retained v1 HTTP dual-write?",
+            focus=FocusTuple(domain="compatibility", object="v1 dual write"),
+        ).model_dump(mode="json"),
+    ).json()
+    source = client.post(
+        "/api/sources",
+        headers=headers,
+        json=SourceCreate(
+            locator="note:v1-v2-compat",
+            title="V1 compatibility source",
+            content_sha256="a" * 64,
+        ).model_dump(mode="json"),
+    ).json()
+    excerpt = client.post(
+        "/api/excerpts",
+        headers=headers,
+        json=ExcerptCreate(
+            source_id=source["id"],
+            question_id=question["id"],
+            focal_label="v1 dual write",
+            note="Immediate projection evidence.",
+            selector=SourceSelector(exact="immediate projection"),
+            quote_text="immediate projection",
+        ).model_dump(mode="json"),
+    ).json()
+    claim = client.post(
+        "/api/claims",
+        headers=headers,
+        json=ClaimCreate(
+            question_id=question["id"],
+            title="V1 writes project immediately",
+            focal_label="v1 dual write",
+            statement="The retained v1 path creates a v2 revision and evidence link.",
+            excerpt_ids=[excerpt["id"]],
+        ).model_dump(mode="json"),
+    ).json()
+    report = client.post(
+        "/api/reports",
+        headers=headers,
+        json=ReportCreate(
+            question_id=question["id"],
+            title="Compatibility report",
+            focal_label="v1 dual write",
+            summary_md="The retained write path is projected.",
+            claim_ids=[claim["id"]],
+        ).model_dump(mode="json"),
+    )
+    assert report.status_code == 200
+
+    adapter = CurrentRetrievalAdapter(service.database)
+    access = ReadAccess(
+        include_private=True,
+        namespace_kind="user",
+        namespace_id="compat-user",
+    )
+    hydrated = adapter.get_record(claim["id"], access=access)
+    assert hydrated is not None
+    revision = adapter.get_current_revision(claim["id"])
+    assert revision is not None
+    evidence = adapter.list_evidence(hydrated, access=access)
+    assert len(evidence) == 1
+    assert evidence[0]["quote_text"] == "immediate projection"
+
+
 def test_agent_shaped_create_payloads_normalize() -> None:
     question = QuestionCreate.model_validate(
         {
@@ -372,7 +454,8 @@ def test_openapi_docs_are_exposed_with_package_version(tmp_path: Path) -> None:
     assert openapi.status_code == 200
     body = openapi.json()
     assert body["info"]["title"] == "Research Registry"
-    assert body["info"]["version"] == __version__
+    assert body["info"]["version"] == "0.1.0"
+    assert __version__ == "0.2.0a1"
 
 
 def test_search_ranks_fresh_reports_above_stale_reports(tmp_path: Path) -> None:

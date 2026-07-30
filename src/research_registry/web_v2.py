@@ -568,9 +568,14 @@ class V2WebViewService:
         self,
         key: str,
         *,
+        namespace_kind: str = "user",
         namespace_id: str,
     ) -> DepositReceiptView:
-        raw = self.retrieval.get_deposit_receipt(key, namespace_id=namespace_id)
+        raw = self.retrieval.get_deposit_receipt(
+            key,
+            namespace_kind=namespace_kind,
+            namespace_id=namespace_id,
+        )
         if raw is None:
             raise ValueError("RECORD_NOT_FOUND: The deposit receipt was not found.")
         receipt = ResearchDepositResult.model_validate(raw)

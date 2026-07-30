@@ -11,7 +11,6 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__
 from .config import Settings, load_settings
 from .application.review import (
     ExpectedRevisionMismatch,
@@ -102,7 +101,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             async with deep_research_mcp.session_manager.run():
                 yield
 
-    app = FastAPI(title="Research Registry", version=__version__, lifespan=lifespan)
+    # The retained v1 OpenAPI document is a compatibility contract independent
+    # of the package/plugin release version.
+    app = FastAPI(title="Research Registry", version="0.1.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.service = service
     app.state.mcp = mcp
@@ -605,6 +606,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             receipt = app.state.web_v2.deposit_receipt(
                 receipt_key,
+                namespace_kind=auth.namespace_kind,
                 namespace_id=auth.namespace_id,
             )
         except ValueError as exc:

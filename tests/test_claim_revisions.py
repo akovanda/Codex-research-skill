@@ -245,6 +245,24 @@ def test_supersede_requires_a_replacement_and_closes_terminal_transitions(
             }
         )
 
+    with pytest.raises(InvalidClaimTransition, match="only valid for supersede"):
+        reviews.review(
+            {
+                "protocol": "research-review/v2",
+                "idempotency_key": "contest-with-replacement",
+                "entity": {"kind": "claim_revision", "id": ids["revision"]},
+                "action": "contest",
+                "expected_revision_id": ids["revision"],
+                "expected_state": "unreviewed",
+                "new_revision": {
+                    "title": "Unrelated replacement",
+                    "statement": "This must not inherit old evidence.",
+                    "status": "contested",
+                    "confidence": 0.5,
+                },
+            }
+        )
+
     result = reviews.review(
         {
             "protocol": "research-review/v2",
@@ -272,9 +290,51 @@ def test_supersede_requires_a_replacement_and_closes_terminal_transitions(
             "SELECT status, statement FROM claim_revisions WHERE id = ?",
             (ids["revision"],),
         ).fetchone()
+        inherited = conn.execute(
+            "SELECT COUNT(*) AS count FROM claim_evidence "
+            "WHERE claim_revision_id = ?",
+            (result.current_revision_id,),
+        ).fetchone()["count"]
     assert event["action"] == "supersede"
+    assert json.loads(event["metadata_json"])["evidence_mode"] == "none"
+    assert inherited == 0
     assert old["status"] == "supported"
     assert old["statement"] == STATEMENT
+
+
+def test_supersede_evidence_inheritance_is_explicit_and_audited(
+    tmp_path: Path,
+) -> None:
+    registry, ids = seed_review_registry(tmp_path, key="supersede-inherit")
+    result = ResearchReviewService(registry.database).review(
+        {
+            "protocol": "research-review/v2",
+            "idempotency_key": "supersede-explicit-inherit",
+            "entity": {"kind": "claim_revision", "id": ids["revision"]},
+            "action": "supersede",
+            "expected_revision_id": ids["revision"],
+            "expected_state": "unreviewed",
+            "new_revision": {
+                "title": "Clarified wording",
+                "statement": STATEMENT,
+                "status": "supported",
+                "confidence": 0.8,
+                "evidence_mode": "inherit",
+            },
+        }
+    )
+    with registry.connect() as conn:
+        links = conn.execute(
+            "SELECT relationship FROM claim_evidence "
+            "WHERE claim_revision_id = ?",
+            (result.current_revision_id,),
+        ).fetchall()
+        event = conn.execute(
+            "SELECT metadata_json FROM review_events WHERE id = ?",
+            (result.event_id,),
+        ).fetchone()
+    assert [row["relationship"] for row in links] == ["supports"]
+    assert json.loads(event["metadata_json"])["evidence_mode"] == "inherit"
 
 
 def test_refuting_evidence_derives_contested_state_without_statement_mutation(

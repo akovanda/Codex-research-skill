@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -48,9 +49,14 @@ class SearchIndexService:
             else resolve_database_target(database)
         )
 
-    def rebuild(self, *, verify: bool = True) -> SearchIndexRebuildResult:
+    def rebuild(
+        self,
+        *,
+        verify: bool = True,
+        now: datetime | None = None,
+    ) -> SearchIndexRebuildResult:
         with connect_database(self.database) as conn:
-            documents = rebuild_search_documents(conn)
+            documents = rebuild_search_documents(conn, now=now)
             verified = _verify_index(conn) if verify else False
         return _rebuild_result(
             self.database.kind,
@@ -71,8 +77,16 @@ def normalize_doi(value: str | None) -> str | None:
     return normalized if _DOI.fullmatch(normalized) else None
 
 
-def rebuild_search_documents(conn: DbConnection) -> list[SearchDocument]:
-    documents = list(_project_documents(conn))
+def rebuild_search_documents(
+    conn: DbConnection,
+    *,
+    now: datetime | None = None,
+) -> list[SearchDocument]:
+    current = now or datetime.now(timezone.utc).replace(microsecond=0)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    now_text = current.astimezone(timezone.utc).isoformat()
+    documents = list(_project_documents(conn, now_text=now_text))
     conn.execute("DELETE FROM search_documents")
     upsert_search_documents(conn, documents)
     return documents
@@ -110,10 +124,14 @@ def delete_search_documents(conn: DbConnection, document_ids: Iterable[str]) -> 
     )
 
 
-def _project_documents(conn: DbConnection) -> Iterable[SearchDocument]:
+def _project_documents(
+    conn: DbConnection,
+    *,
+    now_text: str,
+) -> Iterable[SearchDocument]:
     for row in conn.execute(_QUESTION_SQL).fetchall():
         yield _document(row)
-    for row in conn.execute(_SOURCE_SQL).fetchall():
+    for row in conn.execute(_SOURCE_SQL, (now_text,)).fetchall():
         yield _document(row, doi=normalize_doi(row["locator"]))
     for row in conn.execute(_SOURCE_VERSION_SQL).fetchall():
         yield _document(row, doi=normalize_doi(row["locator"]))
@@ -234,8 +252,9 @@ SELECT
     s.locator, NULL AS doi, NULL AS repository, NULL AS path,
     NULL AS canonical_key, NULL AS topic_slug, NULL AS quote_hash,
     s.dedupe_key, s.review_state, s.trust_tier, s.conflict_state,
-    CASE WHEN s.refresh_due_at IS NOT NULL
-         THEN 'needs_refresh' ELSE 'unknown' END AS freshness,
+    CASE WHEN s.refresh_due_at IS NULL THEN 'unknown'
+         WHEN s.refresh_due_at <= ? THEN 'needs_refresh'
+         ELSE 'fresh' END AS freshness,
     NULL AS status,
     (SELECT COUNT(*) FROM evidence_spans e
      JOIN source_versions sv ON sv.id = e.source_version_id

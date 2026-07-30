@@ -335,5 +335,84 @@
     "error_type": "value_error",
     "field": "message",
     "message_contains": "stack trace"
+  },
+  {
+    "name": "deposit rejects metadata-only snapshot text",
+    "model": "deposit",
+    "payload": {
+      "protocol": "research-deposit/v2",
+      "idempotency_key": "metadata-text",
+      "run": {"client_ref": "run1", "mode": "manual", "provenance": {}},
+      "sources": [{
+        "client_ref": "src1",
+        "identity": {"locator": "note:metadata", "title": "Metadata", "source_type": "note"},
+        "version": {
+          "version_kind": "note",
+          "retrieved_at": "2026-07-30T00:00:00Z",
+          "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "canonical_locator": "note:metadata",
+          "snapshot": {"policy": "metadata_only", "text": "forbidden"}
+        }
+      }],
+      "evidence": [],
+      "claims": []
+    },
+    "error_type": "value_error",
+    "field": "snapshot",
+    "message_contains": "must not include text"
+  },
+  {
+    "name": "deposit requires retained snapshot text",
+    "model": "deposit",
+    "payload": {
+      "protocol": "research-deposit/v2",
+      "idempotency_key": "missing-retained-text",
+      "run": {"client_ref": "run1", "mode": "manual", "provenance": {}},
+      "sources": [{
+        "client_ref": "src1",
+        "identity": {"locator": "note:retained", "title": "Retained", "source_type": "note"},
+        "version": {
+          "version_kind": "note",
+          "retrieved_at": "2026-07-30T00:00:00Z",
+          "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "canonical_locator": "note:retained",
+          "snapshot": {"policy": "extracted_text"}
+        }
+      }],
+      "evidence": [],
+      "claims": []
+    },
+    "error_type": "value_error",
+    "field": "snapshot",
+    "message_contains": "require text"
+  },
+  {
+    "name": "deposit rejects secret-bearing HTTP locators",
+    "model": "deposit",
+    "payload": {
+      "protocol": "research-deposit/v2",
+      "idempotency_key": "secret-locator",
+      "run": {"client_ref": "run1", "mode": "manual", "provenance": {}},
+      "sources": [{
+        "client_ref": "src1",
+        "identity": {
+          "locator": "https://user:secret@example.test/path?token=secret",
+          "title": "Secret URL",
+          "source_type": "webpage"
+        },
+        "version": {
+          "version_kind": "web",
+          "retrieved_at": "2026-07-30T00:00:00Z",
+          "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "canonical_locator": "https://example.test/path",
+          "snapshot": {"policy": "metadata_only"}
+        }
+      }],
+      "evidence": [],
+      "claims": []
+    },
+    "error_type": "value_error",
+    "field": "locator",
+    "message_contains": "userinfo"
   }
 ]

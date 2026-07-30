@@ -637,7 +637,10 @@ class ResearchRefreshService:
             repository = uow.review_refresh
             if command.idempotency_key is not None:
                 existing = repository.get_idempotency(
-                    namespace_id, _OPERATION, command.idempotency_key
+                    namespace_kind,
+                    namespace_id,
+                    _OPERATION,
+                    command.idempotency_key,
                 )
                 if existing is not None:
                     return self._replay(existing, request_hash)
@@ -650,6 +653,7 @@ class ResearchRefreshService:
             )
             if command.idempotency_key is not None:
                 repository.reserve_idempotency(
+                    namespace_kind=namespace_kind,
                     namespace_id=namespace_id,
                     operation=_OPERATION,
                     key=command.idempotency_key,
@@ -658,7 +662,10 @@ class ResearchRefreshService:
                     created_at=now_text,
                 )
                 reserved = repository.get_idempotency(
-                    namespace_id, _OPERATION, command.idempotency_key
+                    namespace_kind,
+                    namespace_id,
+                    _OPERATION,
+                    command.idempotency_key,
                 )
                 assert reserved is not None
                 if reserved["request_sha256"] != request_hash:
@@ -684,6 +691,7 @@ class ResearchRefreshService:
             )
             if command.idempotency_key is not None:
                 repository.complete_idempotency(
+                    namespace_kind=namespace_kind,
                     namespace_id=namespace_id,
                     operation=_OPERATION,
                     key=command.idempotency_key,
@@ -714,6 +722,7 @@ class ResearchRefreshService:
             assert uow.review_refresh is not None
             repository = uow.review_refresh
             existing = repository.get_idempotency(
+                namespace_kind,
                 namespace_id,
                 _OPERATION,
                 command.idempotency_key,
@@ -721,6 +730,7 @@ class ResearchRefreshService:
             if existing is not None:
                 return self._replay(existing, request_hash)
             repository.reserve_idempotency(
+                namespace_kind=namespace_kind,
                 namespace_id=namespace_id,
                 operation=_OPERATION,
                 key=command.idempotency_key,
@@ -729,6 +739,7 @@ class ResearchRefreshService:
                 created_at=now,
             )
             stored = repository.get_idempotency(
+                namespace_kind,
                 namespace_id,
                 _OPERATION,
                 command.idempotency_key,
@@ -752,6 +763,7 @@ class ResearchRefreshService:
             with UnitOfWork(self.database, immediate_write=True) as uow:
                 assert uow.review_refresh is not None
                 uow.review_refresh.release_idempotency(
+                    namespace_kind=namespace_kind,
                     namespace_id=namespace_id,
                     operation=_OPERATION,
                     key=command.idempotency_key,
@@ -763,6 +775,7 @@ class ResearchRefreshService:
             assert uow.review_refresh is not None
             repository = uow.review_refresh
             stored = repository.get_idempotency(
+                namespace_kind,
                 namespace_id,
                 _OPERATION,
                 command.idempotency_key,
@@ -778,6 +791,7 @@ class ResearchRefreshService:
                 uow.commit()
                 return replay
             repository.complete_idempotency(
+                namespace_kind=namespace_kind,
                 namespace_id=namespace_id,
                 operation=_OPERATION,
                 key=command.idempotency_key,

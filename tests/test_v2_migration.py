@@ -15,6 +15,7 @@ from research_registry.application.migrate_v2 import (
     run_v2_backfill,
 )
 from research_registry.cli import build_parser, main as cli_main
+from research_registry.migration_runner import MigrationRunner
 from research_registry.persistence.repositories import V2ReadRepository
 from research_registry.service import RegistryService
 from tests.fixtures.v1 import populate_v1_fixture, weaken_sqlite_v1_fixture
@@ -111,6 +112,37 @@ def test_v2_schema_is_additive_and_dialect_bundle_is_applied(tmp_path: Path) -> 
     } <= claim_columns
     assert applied is not None
     assert len(applied["checksum_sha256"]) == 64
+
+
+def test_idempotency_namespace_migration_backfills_alpha_rows_as_user(
+    tmp_path: Path,
+) -> None:
+    service = RegistryService(tmp_path / "idempotency-upgrade.sqlite3")
+    runner = MigrationRunner(service)
+    with service.connect() as conn:
+        runner.migrate(conn, target="0004_v2_search")
+        conn.execute(
+            """
+            INSERT INTO idempotency_keys (
+                namespace_id, operation, "key", request_sha256,
+                response_json, created_at
+            ) VALUES ('same-id', 'research_deposit_v2', 'alpha-key', ?,
+                      '{}', '2026-07-30T00:00:00+00:00')
+            """,
+            ("a" * 64,),
+        )
+        conn.commit()
+        runner.migrate(conn)
+        row = conn.execute(
+            "SELECT namespace_kind, namespace_id FROM idempotency_keys"
+        ).fetchone()
+        columns = conn.execute("PRAGMA table_info(idempotency_keys)").fetchall()
+    assert dict(row) == {"namespace_kind": "user", "namespace_id": "same-id"}
+    assert [
+        column["name"]
+        for column in sorted(columns, key=lambda item: item["pk"])
+        if column["pk"]
+    ] == ["namespace_kind", "namespace_id", "operation", "key"]
 
 
 def test_backfill_requires_explicit_schema_migration(tmp_path: Path) -> None:

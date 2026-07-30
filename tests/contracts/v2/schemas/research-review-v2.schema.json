@@ -37,6 +37,15 @@
           "title": "Confidence",
           "type": "number"
         },
+        "evidence_mode": {
+          "default": "none",
+          "enum": [
+            "none",
+            "inherit"
+          ],
+          "title": "Evidence Mode",
+          "type": "string"
+        },
         "statement": {
           "maxLength": 50000,
           "minLength": 1,

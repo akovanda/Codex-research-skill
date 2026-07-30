@@ -452,6 +452,7 @@ def test_initialize_adopts_existing_legacy_schema(tmp_path: Path) -> None:
         "0003_v2_evidence",
         "0003_v2_evidence_invariants",
         "0004_v2_search",
+        "0005_v2_idempotency_namespace",
     ]
     assert schema_meta["version"] == 4
 

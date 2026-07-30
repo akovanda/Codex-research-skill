@@ -1,0 +1,2 @@
+-- Existing v2-alpha idempotency rows predate namespace-kind isolation.
+-- They are deterministically assigned to the personal user namespace.

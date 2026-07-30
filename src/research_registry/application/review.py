@@ -122,18 +122,20 @@ class ClaimRevisionService:
                         **self._metadata(row["metadata_json"]),
                         "review_action": action,
                         "reviewed_revision_id": row["current_revision_id"],
+                        "evidence_mode": self._evidence_mode(action, replacement),
                     }
                 ),
             }
         )
-        repository.copy_claim_evidence(
-            from_revision_id=row["current_revision_id"],
-            to_revision_id=revision_id,
-        )
+        if self._evidence_mode(action, replacement) == "inherit":
+            repository.copy_claim_evidence(
+                from_revision_id=row["current_revision_id"],
+                to_revision_id=revision_id,
+            )
         conflict = (
             "conflicted"
             if change.status == "contested"
-            or repository.current_claim_has_refuting_evidence(row["claim_id"])
+            or repository.claim_revision_has_refuting_evidence(revision_id)
             else "none"
         )
         repository.update_claim_current(
@@ -149,6 +151,14 @@ class ClaimRevisionService:
             updated_at=now_text,
         )
         return revision_id, change.review_state, conflict
+
+    @staticmethod
+    def _evidence_mode(action: str, replacement: Any | None) -> str:
+        if action in {"contest", "reject"}:
+            return "inherit"
+        if replacement is not None:
+            return replacement.evidence_mode
+        return "none"
 
     @staticmethod
     def _metadata(value: str | None) -> dict[str, Any]:
@@ -207,6 +217,11 @@ class ResearchReviewService:
                 "INVALID_CLAIM_TRANSITION: new_revision is only valid "
                 "for claim revisions."
             )
+        if command.new_revision is not None and command.action != "supersede":
+            raise InvalidClaimTransition(
+                "INVALID_CLAIM_TRANSITION: new_revision is only valid "
+                "for supersede."
+            )
         if command.action in {"request_refresh", "dismiss_refresh"} and (
             command.new_revision is not None
         ):
@@ -230,12 +245,16 @@ class ResearchReviewService:
             assert uow.connection is not None
             repository = uow.review_refresh
             existing = repository.get_idempotency(
-                namespace_id, _OPERATION, command.idempotency_key
+                namespace_kind,
+                namespace_id,
+                _OPERATION,
+                command.idempotency_key,
             )
             if existing is not None:
                 return self._replay(existing, request_hash)
 
             repository.reserve_idempotency(
+                namespace_kind=namespace_kind,
                 namespace_id=namespace_id,
                 operation=_OPERATION,
                 key=command.idempotency_key,
@@ -244,7 +263,10 @@ class ResearchReviewService:
                 created_at=now_text,
             )
             reserved = repository.get_idempotency(
-                namespace_id, _OPERATION, command.idempotency_key
+                namespace_kind,
+                namespace_id,
+                _OPERATION,
+                command.idempotency_key,
             )
             assert reserved is not None
             if reserved["request_sha256"] != request_hash:
@@ -287,6 +309,7 @@ class ResearchReviewService:
                 )
 
             repository.complete_idempotency(
+                namespace_kind=namespace_kind,
                 namespace_id=namespace_id,
                 operation=_OPERATION,
                 key=command.idempotency_key,
@@ -407,6 +430,15 @@ class ResearchReviewService:
                     {
                         "previous_revision_id": row["current_revision_id"],
                         "refresh_item_ids": refresh_ids,
+                        "evidence_mode": (
+                            command.new_revision.evidence_mode
+                            if command.new_revision is not None
+                            else (
+                                "inherit"
+                                if command.action in {"contest", "reject"}
+                                else "none"
+                            )
+                        ),
                     }
                 ),
             }

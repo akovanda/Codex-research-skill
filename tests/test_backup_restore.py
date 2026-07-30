@@ -8,18 +8,23 @@ import sqlite3
 import pytest
 
 from research_registry.backup import (
+    AUTHORITATIVE_BACKUP_TABLES,
+    REBUILDABLE_SEARCH_TABLES,
     BackupVerificationError,
     backup_sqlite,
     plan_postgres_backup,
     restore_sqlite_backup,
     verify_sqlite_backup,
+    sqlite_database_inventory,
 )
+from research_registry.application.deposit import ResearchDepositService
 from research_registry.application.source_versions import SourceVersionService
 from research_registry.data_audit import audit_database
 from research_registry.domain.sources import SourceVersionSpec
 from research_registry.ingestion.blobs import FilesystemBlobStore
 from research_registry.service import RegistryService
 from tests.fixtures.v1 import populate_v1_fixture
+from tests.test_v2_deposit import _bundle
 
 
 def test_sqlite_backup_restores_and_verifies_manifest(tmp_path: Path) -> None:
@@ -175,3 +180,104 @@ def test_sqlite_backup_inventories_referenced_blobs_without_content(
     ]
     assert verified["blob_references"] == 1
     assert "private-backup-blob-body-sentinel" not in rendered
+
+
+def test_v2_authoritative_bundle_round_trips_with_explicit_search_policy(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.sqlite3"
+    backup = tmp_path / "backup.sqlite3"
+    restored = tmp_path / "restored.sqlite3"
+    manifest = tmp_path / "backup.manifest.json"
+    blob_root = tmp_path / "blobs"
+    service = RegistryService(source)
+    service.initialize()
+    ResearchDepositService(
+        service.database,
+        FilesystemBlobStore(blob_root),
+    ).deposit(_bundle(key="backup-v2-bundle"))
+
+    created = backup_sqlite(
+        source,
+        backup,
+        manifest_path=manifest,
+        blob_root=blob_root,
+    )
+    restore_sqlite_backup(
+        backup,
+        restored,
+        manifest_path=manifest,
+        verify=True,
+        blob_root=blob_root,
+    )
+
+    with sqlite3.connect(source) as source_conn, sqlite3.connect(restored) as restored_conn:
+        assert sqlite_database_inventory(source_conn) == sqlite_database_inventory(
+            restored_conn
+        )
+    assert created["inventory"]["policy"] == {
+        "authoritative_tables": list(AUTHORITATIVE_BACKUP_TABLES),
+        "rebuildable_tables": list(REBUILDABLE_SEARCH_TABLES),
+    }
+    assert "search_documents" not in created["inventory"]["tables"]
+    assert "claim_revisions" in created["inventory"]["tables"]
+    assert "idempotency_keys" in created["inventory"]["tables"]
+
+
+def test_v2_only_semantic_tampering_changes_authoritative_inventory(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.sqlite3"
+    copied = tmp_path / "copied.sqlite3"
+    blobs = FilesystemBlobStore(tmp_path / "blobs")
+    service = RegistryService(source)
+    service.initialize()
+    ResearchDepositService(service.database, blobs).deposit(
+        _bundle(key="semantic-v2-tamper")
+    )
+    with sqlite3.connect(source) as source_conn:
+        source_conn.backup(sqlite3.connect(copied))
+    with sqlite3.connect(copied) as conn:
+        conn.execute(
+            "UPDATE idempotency_keys SET response_json = ?",
+            ('{"tampered":true}',),
+        )
+    with sqlite3.connect(source) as source_conn, sqlite3.connect(copied) as copied_conn:
+        source_inventory = sqlite_database_inventory(source_conn)
+        copied_inventory = sqlite_database_inventory(copied_conn)
+    assert source_inventory["idempotency_keys"]["row_count"] == 1
+    assert copied_inventory["idempotency_keys"]["row_count"] == 1
+    assert source_inventory != copied_inventory
+
+
+def test_backup_verification_rejects_altered_referenced_blob(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.sqlite3"
+    backup = tmp_path / "backup.sqlite3"
+    manifest = tmp_path / "backup.manifest.json"
+    blob_root = tmp_path / "blobs"
+    service = RegistryService(source)
+    service.initialize()
+    receipt = ResearchDepositService(
+        service.database,
+        FilesystemBlobStore(blob_root),
+    ).deposit(_bundle(key="altered-blob"))
+    backup_sqlite(
+        source,
+        backup,
+        manifest_path=manifest,
+        blob_root=blob_root,
+    )
+    with service.connect() as conn:
+        row = conn.execute(
+            "SELECT co.storage_key FROM content_objects co "
+            "JOIN source_versions sv ON sv.content_object_id = co.id "
+            "WHERE sv.id = ?",
+            (receipt.records.source_version_ids["source"],),
+        ).fetchone()
+    blob_path = blob_root / row["storage_key"]
+    blob_path.write_bytes(b"altered")
+
+    with pytest.raises(BackupVerificationError, match="blob integrity"):
+        verify_sqlite_backup(backup, manifest, blob_root=blob_root)

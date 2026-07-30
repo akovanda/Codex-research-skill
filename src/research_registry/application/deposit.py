@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 from pathlib import Path
+import sqlite3
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -25,6 +26,7 @@ from ..ingestion.blobs import (
     StagedBlob,
 )
 from ..models import slugify
+from ..models import AuthContext
 from ..persistence.repositories import canonical_json
 from ..persistence.unit_of_work import UnitOfWork
 from ..retrieval.projection import rebuild_search_documents
@@ -100,7 +102,10 @@ class ResearchDepositService:
         )
 
     def deposit(
-        self, request: ResearchDepositRequest | dict[str, Any]
+        self,
+        request: ResearchDepositRequest | dict[str, Any],
+        *,
+        auth: AuthContext | None = None,
     ) -> ResearchDepositResult:
         bundle = (
             request
@@ -112,18 +117,51 @@ class ResearchDepositService:
         request_hash = sha256(request_json.encode("utf-8")).hexdigest()
         namespace_kind = bundle.namespace.kind if bundle.namespace else "user"
         namespace_id = bundle.namespace.id if bundle.namespace else "local"
+        if auth is not None and (
+            namespace_kind != auth.namespace_kind
+            or namespace_id != auth.namespace_id
+        ):
+            raise DepositError(
+                "NAMESPACE_ACCESS_DENIED: The deposit namespace must match "
+                "the authenticated namespace."
+            )
+        actor = {
+            "actor_user_id": auth.actor_user_id if auth else None,
+            "actor_org_id": auth.actor_org_id if auth else None,
+            "api_key_id": auth.api_key_id if auth else None,
+        }
         self._validate_bundle_shape(bundle)
 
         staged = self._stage_snapshots(bundle)
         try:
             self._fault("after_staged_blobs")
-            return self._deposit_transaction(
-                bundle,
-                request_hash=request_hash,
-                namespace_kind=namespace_kind,
-                namespace_id=namespace_id,
-                staged=staged,
-            )
+            try:
+                return self._deposit_transaction(
+                    bundle,
+                    request_hash=request_hash,
+                    namespace_kind=namespace_kind,
+                    namespace_id=namespace_id,
+                    actor=actor,
+                    staged=staged,
+                )
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower():
+                    raise
+                raise DepositError(
+                    "CONCURRENT_WRITE_CONFLICT: The deposit write boundary is busy."
+                ) from exc
+            except sqlite3.IntegrityError as exc:
+                raise DepositError(
+                    "CONCURRENT_WRITE_CONFLICT: A concurrent deposit changed "
+                    "the target records."
+                ) from exc
+            except Exception as exc:
+                if exc.__class__.__module__.startswith("psycopg"):
+                    raise DepositError(
+                        "CONCURRENT_WRITE_CONFLICT: A concurrent deposit changed "
+                        "the target records."
+                    ) from exc
+                raise
         finally:
             for item in staged.values():
                 if item is not None:
@@ -136,6 +174,7 @@ class ResearchDepositService:
         request_hash: str,
         namespace_kind: str,
         namespace_id: str,
+        actor: dict[str, str | None],
         staged: dict[str, StagedBlob | None],
     ) -> ResearchDepositResult:
         finalized: list[FinalizedBlob] = []
@@ -146,6 +185,7 @@ class ResearchDepositService:
                 request_hash=request_hash,
                 namespace_kind=namespace_kind,
                 namespace_id=namespace_id,
+                actor=actor,
                 staged=staged,
                 finalized=finalized,
                 commit_started=commit_started,
@@ -166,6 +206,7 @@ class ResearchDepositService:
         request_hash: str,
         namespace_kind: str,
         namespace_id: str,
+        actor: dict[str, str | None],
         staged: dict[str, StagedBlob | None],
         finalized: list[FinalizedBlob],
         commit_started: list[bool],
@@ -173,14 +214,17 @@ class ResearchDepositService:
         now = self.clock()
         now_text = now.isoformat()
         reservation = canonical_json({"reservation": uuid4().hex})
-        with UnitOfWork(self.database) as uow:
+        with UnitOfWork(self.database, immediate_write=True) as uow:
             assert uow.deposit is not None
             assert uow.source_versions is not None
             repository = uow.deposit
 
             self._fault("before_idempotency")
             existing_key = repository.get_idempotency(
-                namespace_id, _OPERATION, bundle.idempotency_key
+                namespace_kind,
+                namespace_id,
+                _OPERATION,
+                bundle.idempotency_key,
             )
             if existing_key is not None:
                 return self._existing_idempotency_result(
@@ -190,6 +234,7 @@ class ResearchDepositService:
                 )
             if not bundle.validate_only:
                 repository.reserve_idempotency(
+                    namespace_kind=namespace_kind,
                     namespace_id=namespace_id,
                     operation=_OPERATION,
                     key=bundle.idempotency_key,
@@ -198,7 +243,10 @@ class ResearchDepositService:
                     created_at=now_text,
                 )
                 reserved = repository.get_idempotency(
-                    namespace_id, _OPERATION, bundle.idempotency_key
+                    namespace_kind,
+                    namespace_id,
+                    _OPERATION,
+                    bundle.idempotency_key,
                 )
                 assert reserved is not None
                 if reserved["response_json"] != reservation:
@@ -227,6 +275,7 @@ class ResearchDepositService:
                 bundle,
                 namespace_kind=namespace_kind,
                 namespace_id=namespace_id,
+                actor=actor,
                 now=now,
             )
 
@@ -237,6 +286,7 @@ class ResearchDepositService:
                     source,
                     namespace_kind=namespace_kind,
                     namespace_id=namespace_id,
+                    actor=actor,
                     visibility=bundle.visibility,
                     now_text=now_text,
                 )
@@ -308,6 +358,7 @@ class ResearchDepositService:
                         "model_version": bundle.run.provenance.model_version,
                         "namespace_kind": namespace_kind,
                         "namespace_id": namespace_id,
+                        **actor,
                         "public_index_state": self._index_state(bundle.visibility),
                         "dedupe_key": (
                             f"v2:{namespace_kind}:{namespace_id}:"
@@ -367,6 +418,7 @@ class ResearchDepositService:
                             focal_label=focal_label,
                             namespace_kind=namespace_kind,
                             namespace_id=namespace_id,
+                            actor=actor,
                             now_text=now_text,
                         )
                     )
@@ -448,6 +500,7 @@ class ResearchDepositService:
                         "model_version": bundle.run.provenance.model_version,
                         "namespace_kind": namespace_kind,
                         "namespace_id": namespace_id,
+                        **actor,
                         "public_index_state": self._index_state(bundle.visibility),
                         "dedupe_key": (
                             f"v2:{namespace_kind}:{namespace_id}:"
@@ -520,6 +573,25 @@ class ResearchDepositService:
                 claim_revision_ids=revision_ids,
                 report_id=report_id,
             )
+            if not bundle.validate_only:
+                repository.insert_deposit_audit(
+                    {
+                        "id": self._new_id("audit"),
+                        "record_id": bundle.idempotency_key,
+                        **actor,
+                        "details_json": canonical_json(
+                            {
+                                "namespace_kind": namespace_kind,
+                                "namespace_id": namespace_id,
+                                "request_sha256": request_hash,
+                                "claim_revision_ids": sorted(
+                                    revision_ids.values()
+                                ),
+                            }
+                        ),
+                        "created_at": now_text,
+                    }
+                )
             result = ResearchDepositResult(
                 protocol="research-deposit-result/v2",
                 status="validated" if bundle.validate_only else "committed",
@@ -538,6 +610,7 @@ class ResearchDepositService:
                 return result
 
             repository.complete_idempotency(
+                namespace_kind=namespace_kind,
                 namespace_id=namespace_id,
                 operation=_OPERATION,
                 key=bundle.idempotency_key,
@@ -545,11 +618,15 @@ class ResearchDepositService:
                 response_json=response_json,
             )
             completed = repository.get_idempotency(
-                namespace_id, _OPERATION, bundle.idempotency_key
+                namespace_kind,
+                namespace_id,
+                _OPERATION,
+                bundle.idempotency_key,
             )
             if completed is None or completed["response_json"] != response_json:
                 raise IdempotencyConflict(
-                    "idempotency reservation was not owned by this transaction"
+                    "IDEMPOTENCY_CONFLICT: The idempotency reservation was "
+                    "not owned by this transaction."
                 )
 
             self._fault("before_blob_finalize")
@@ -694,6 +771,7 @@ class ResearchDepositService:
         *,
         namespace_kind: str,
         namespace_id: str,
+        actor: dict[str, str | None],
         now: datetime,
     ) -> tuple[str | None, str | None, str | None, str]:
         inquiry = bundle.inquiry
@@ -717,6 +795,7 @@ class ResearchDepositService:
                     "focus_json": canonical_json(focus),
                     "namespace_kind": namespace_kind,
                     "namespace_id": namespace_id,
+                    **actor,
                     "dedupe_key": (
                         f"v2:topic:{namespace_kind}:{namespace_id}:{slug}"
                     ),
@@ -745,6 +824,7 @@ class ResearchDepositService:
                     "author_type": self._author_type(bundle),
                     "namespace_kind": namespace_kind,
                     "namespace_id": namespace_id,
+                    **actor,
                     "public_index_state": self._index_state(bundle.visibility),
                     "dedupe_key": (
                         f"v2:question:{namespace_kind}:{namespace_id}:"
@@ -776,6 +856,7 @@ class ResearchDepositService:
                 "author_type": self._author_type(bundle),
                 "namespace_kind": namespace_kind,
                 "namespace_id": namespace_id,
+                **actor,
                 "public_index_state": self._index_state(bundle.visibility),
                 "dedupe_key": (
                     f"v2:run:{namespace_kind}:{namespace_id}:"
@@ -796,6 +877,7 @@ class ResearchDepositService:
         *,
         namespace_kind: str,
         namespace_id: str,
+        actor: dict[str, str | None],
         visibility: str,
         now_text: str,
     ) -> str:
@@ -847,6 +929,7 @@ class ResearchDepositService:
                 "visibility": visibility,
                 "namespace_kind": namespace_kind,
                 "namespace_id": namespace_id,
+                **actor,
                 "public_index_state": self._index_state(visibility),
                 "dedupe_key": dedupe_key,
                 "created_at": now_text,
@@ -967,6 +1050,7 @@ class ResearchDepositService:
         focal_label: str,
         namespace_kind: str,
         namespace_id: str,
+        actor: dict[str, str | None],
         now_text: str,
     ) -> dict[str, Any]:
         claim = plan.request
@@ -987,6 +1071,7 @@ class ResearchDepositService:
             "model_version": bundle.run.provenance.model_version,
             "namespace_kind": namespace_kind,
             "namespace_id": namespace_id,
+            **actor,
             "public_index_state": self._index_state(bundle.visibility),
             "dedupe_key": (
                 f"v2:claim:{namespace_kind}:{namespace_id}:{claim.canonical_key}"
@@ -1016,7 +1101,8 @@ class ResearchDepositService:
     ) -> ResearchDepositResult:
         if row["request_sha256"] != request_hash:
             raise IdempotencyConflict(
-                "idempotency key was already used for a different request"
+                "IDEMPOTENCY_CONFLICT: The idempotency key was already used "
+                "for a different request."
             )
         if validate_only:
             return ResearchDepositResult(
