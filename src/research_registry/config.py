@@ -6,7 +6,7 @@ import json
 import os
 import secrets
 
-from .managed_config import load_managed_local_config
+from .managed_config import load_managed_local_config, managed_data_dir
 
 
 @dataclass(frozen=True)
@@ -44,17 +44,23 @@ def _optional_env(name: str, default: str | None = None) -> str | None:
 
 
 def load_settings() -> Settings:
-    project_root = Path(__file__).resolve().parents[2]
     managed = load_managed_local_config()
 
     data_dir = Path(
         os.getenv(
             "RESEARCH_REGISTRY_DATA_DIR",
-            managed.data_dir if managed else project_root / ".data",
+            managed.data_dir if managed else managed_data_dir(),
         )
     )
     db_path = Path(os.getenv("RESEARCH_REGISTRY_DB_PATH", data_dir / "registry.sqlite3"))
-    database_url = os.getenv("RESEARCH_REGISTRY_DATABASE_URL", f"sqlite:///{db_path.expanduser().resolve()}")
+    database_url = os.getenv(
+        "RESEARCH_REGISTRY_DATABASE_URL",
+        (
+            managed.database_url
+            if managed and managed.database_url
+            else f"sqlite:///{db_path.expanduser().resolve()}"
+        ),
+    )
     capture_queue_path = Path(
         os.getenv(
             "RESEARCH_REGISTRY_CAPTURE_QUEUE_PATH",
@@ -108,7 +114,11 @@ def load_settings() -> Settings:
         capture_queue_path=capture_queue_path,
         backend_profile_path=backend_profile_path,
         admin_token=_optional_env("RESEARCH_REGISTRY_ADMIN_TOKEN", managed.admin_token if managed else None),
-        session_secret=os.getenv("RESEARCH_REGISTRY_SESSION_SECRET", managed.session_secret if managed else secrets.token_hex(32)),
+        session_secret=(
+            os.getenv("RESEARCH_REGISTRY_SESSION_SECRET")
+            or (managed.session_secret if managed else None)
+            or secrets.token_hex(32)
+        ),
         host=host,
         port=port,
         default_backend_url=_optional_env("RESEARCH_REGISTRY_DEFAULT_BACKEND_URL"),

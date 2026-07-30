@@ -5,7 +5,7 @@ Research Registry is in developer preview. Support is intentionally narrow.
 ## Where To Start
 
 - If you are brand new, start with [README.md](README.md) and [docs/getting-started.md](docs/getting-started.md).
-- If you want the managed localhost install, read [docs/deploy-local.md](docs/deploy-local.md).
+- If you want the personal no-Docker install, read [docs/deploy-local.md](docs/deploy-local.md).
 - If you want a shared self-hosted setup, read [docs/deploy-shared-compose.md](docs/deploy-shared-compose.md).
 - If you want the API flow, read [docs/api-quickstart.md](docs/api-quickstart.md).
 - If you want the default Codex integration, read [docs/codex-plugin.md](docs/codex-plugin.md).
@@ -13,8 +13,8 @@ Research Registry is in developer preview. Support is intentionally narrow.
 
 ## Supported Preview Paths
 
-- managed localhost runtime for Codex-first developers on Linux
-- managed localhost runtime for Codex-first developers on macOS
+- personal SQLite/STDIO runtime for Codex-first developers on Linux
+- personal SQLite/STDIO runtime for Codex-first developers on macOS
 - shared self-hosted Compose deployment for internal teams on private networks
 
 Not currently claimed:
@@ -33,7 +33,7 @@ Not currently claimed:
 
 Good issue subjects:
 
-- `local install fails on macOS with Docker Desktop running`
+- `personal init creates a database with the wrong mode on macOS`
 - `repo-aware capture picked the wrong test command for package.json workspace`
 - `README says X but make status reports Y`
 
@@ -46,13 +46,13 @@ Bad issue subjects:
 When filing an issue, include:
 
 - exact commit or release tag
-- platform and Docker version
+- platform, Python version, and Docker version only for Compose issues
 - the command you ran
 - the relevant log or failing output
-- whether you were using `make up`, shared Compose, or a repo-local development path
+- whether you were using personal SQLite/STDIO or shared Compose
 
 ## Scope Boundaries
 
-- Localhost preview support assumes Docker with Compose support and Python 3.12.
+- Personal preview support assumes Python 3.12; Docker is not required.
 - Shared Compose support assumes you operate the network boundary, DNS, and TLS layer yourself.
 - Security reports should follow the private disclosure path documented in [SECURITY.md](SECURITY.md).

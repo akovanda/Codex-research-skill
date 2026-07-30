@@ -34,7 +34,17 @@ from ..ingestion.web import (
 from ..service import RegistryService
 
 
-def _local_auth() -> AuthContext:
+def _local_stdio_auth() -> AuthContext:
+    return AuthContext(
+        actor_user_id="local-stdio",
+        is_admin=False,
+        scopes=["admin", "ingest", "publish", "read_private"],
+        namespace_kind="user",
+        namespace_id="local",
+    )
+
+
+def _admin_auth() -> AuthContext:
     return AuthContext(
         is_admin=True,
         scopes=["admin", "ingest", "publish", "read_private"],
@@ -207,7 +217,7 @@ class WriteMcpRuntime:
             except PermissionError:
                 auth = None
         if auth is None and self.allow_admin_fallback:
-            auth = _local_auth()
+            auth = _local_stdio_auth()
         if auth is None:
             raise PermissionError(
                 "AUTH_REQUIRED: Authentication is required for review writes."
@@ -233,7 +243,7 @@ class WriteMcpRuntime:
             and self.settings.admin_token
             and admin_token == self.settings.admin_token
         ):
-            return _local_auth()
+            return _admin_auth()
         return None
 
     @staticmethod

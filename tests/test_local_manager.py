@@ -27,7 +27,12 @@ from research_registry.local_manager import (
     upsert_managed_codex_config,
     write_local_runtime_files,
 )
-from research_registry.managed_config import PRIVATE_DIR_MODE, PRIVATE_FILE_MODE, write_managed_local_config
+from research_registry.managed_config import (
+    PRIVATE_DIR_MODE,
+    PRIVATE_FILE_MODE,
+    load_managed_local_config,
+    write_managed_local_config,
+)
 
 
 def _assert_mode(path: Path, expected: int) -> None:
@@ -92,6 +97,46 @@ def test_write_local_runtime_files_sets_private_permissions(tmp_path: Path, monk
     _assert_mode(config.data_dir, PRIVATE_DIR_MODE)
     _assert_mode(config.compose_file_path, PRIVATE_FILE_MODE)
     _assert_mode(config.compose_env_path, PRIVATE_FILE_MODE)
+
+
+def test_managed_config_omits_none_values_for_personal_mode(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "RESEARCH_REGISTRY_MANAGED_CONFIG_DIR",
+        str(tmp_path / "config"),
+    )
+    monkeypatch.setenv(
+        "RESEARCH_REGISTRY_MANAGED_DATA_DIR",
+        str(tmp_path / "data"),
+    )
+    base = build_local_config(port=8029)
+    personal = replace(
+        base,
+        deployment_mode="personal",
+        backend_url=None,
+        mcp_url=None,
+        admin_token=None,
+        session_secret=None,
+        api_key=None,
+        database_url=f"sqlite:///{base.data_dir / 'registry.sqlite3'}",
+    )
+
+    write_managed_local_config(personal)
+    rendered = personal.config_path.read_text(encoding="utf-8")
+    loaded = load_managed_local_config()
+
+    assert '"None"' not in rendered
+    assert "admin_token" not in rendered
+    assert "session_secret" not in rendered
+    assert "api_key" not in rendered
+    assert "backend_url" not in rendered
+    assert "mcp_url" not in rendered
+    assert loaded is not None
+    assert loaded.deployment_mode == "personal"
+    assert loaded.backend_url is None
+    assert loaded.admin_token is None
 
 
 def test_install_skip_start_does_not_require_port_to_be_free(tmp_path: Path, monkeypatch) -> None:

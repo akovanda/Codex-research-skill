@@ -23,7 +23,17 @@ from ..persistence.read_adapter import CurrentRetrievalAdapter, ReadAccess
 from ..service import RegistryService
 
 
-def _local_auth() -> AuthContext:
+def _local_stdio_auth() -> AuthContext:
+    return AuthContext(
+        actor_user_id="local-stdio",
+        is_admin=False,
+        scopes=["admin", "ingest", "publish", "read_private"],
+        namespace_kind="user",
+        namespace_id="local",
+    )
+
+
+def _admin_auth() -> AuthContext:
     return AuthContext(
         is_admin=True,
         scopes=["admin", "ingest", "publish", "read_private"],
@@ -221,7 +231,7 @@ class ReadMcpRuntime:
             except PermissionError:
                 auth = None
         if auth is None and self.allow_admin_fallback:
-            auth = _local_auth()
+            auth = _local_stdio_auth()
         if auth is None:
             if allow_unauthenticated and require_scope is None:
                 return None
@@ -249,7 +259,7 @@ class ReadMcpRuntime:
             and self.settings.admin_token
             and admin_token == self.settings.admin_token
         ):
-            return _local_auth()
+            return _admin_auth()
         return None
 
     @staticmethod
@@ -271,7 +281,11 @@ class ReadMcpRuntime:
             namespace_kind=auth.namespace_kind if auth else None,
             namespace_id=auth.namespace_id if auth else None,
             is_admin=bool(auth and auth.is_admin),
-            local_trusted=bool(self.allow_admin_fallback and auth and auth.is_admin),
+            local_trusted=bool(
+                self.allow_admin_fallback
+                and auth
+                and auth.actor_user_id == "local-stdio"
+            ),
         )
 
     def _require_retrieval(self) -> CurrentRetrievalAdapter:

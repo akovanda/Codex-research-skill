@@ -4,7 +4,7 @@ This is the shortest end-to-end API flow for the localhost preview.
 
 This quickstart shows the full admin bootstrap flow so it also makes sense for shared self-hosted setups.
 
-If you used the managed localhost install from `make up`, you already have:
+If you used the retained shared localhost install from `make shared-up`, you already have:
 
 - an admin token from `make token`
 - a shared local API key from `make token`
@@ -13,7 +13,7 @@ You can skip the org bootstrap section and use that shared local API key directl
 
 Prerequisites:
 
-- run `make up`
+- run `make shared-up`
 - keep the app at `http://127.0.0.1:8010`
 - copy the admin token from `make token`
 - these examples assume `jq` is available for shell variable extraction

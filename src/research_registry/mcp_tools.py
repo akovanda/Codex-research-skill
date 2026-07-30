@@ -61,6 +61,16 @@ def _admin_auth() -> AuthContext:
     )
 
 
+def _local_stdio_auth() -> AuthContext:
+    return AuthContext(
+        actor_user_id="local-stdio",
+        scopes=["admin", "ingest", "publish", "read_private"],
+        namespace_kind="user",
+        namespace_id="local",
+        is_admin=False,
+    )
+
+
 class McpToolRuntime:
     def __init__(
         self,
@@ -271,7 +281,7 @@ class McpToolRuntime:
             except PermissionError:
                 auth = None
         if auth is None and self.allow_admin_fallback:
-            auth = _admin_auth()
+            auth = _local_stdio_auth()
 
         if auth is None:
             if allow_unauthenticated and require_scope is None:

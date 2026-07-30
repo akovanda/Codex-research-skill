@@ -34,6 +34,8 @@ def backup_sqlite(
     *,
     manifest_path: Path,
     blob_root: Path | None = None,
+    config_path: Path | None = None,
+    config_destination: Path | None = None,
 ) -> dict[str, Any]:
     """Create and verify an online SQLite backup without overwriting files."""
     resolved = source if isinstance(source, DatabaseTarget) else resolve_database_target(source)
@@ -43,10 +45,35 @@ def backup_sqlite(
     manifest_path = manifest_path.expanduser().resolve()
     if destination == manifest_path:
         raise ValueError("backup destination and manifest path must differ")
+    if (config_path is None) != (config_destination is None):
+        raise ValueError(
+            "config source and backup destination must be provided together"
+        )
+    resolved_config_destination = (
+        config_destination.expanduser().resolve()
+        if config_destination is not None
+        else None
+    )
+    if resolved_config_destination in {destination, manifest_path}:
+        raise ValueError(
+            "database, manifest, and config backup paths must differ"
+        )
+    if (
+        resolved_config_destination is not None
+        and resolved_config_destination.parent != manifest_path.parent
+    ):
+        raise ValueError(
+            "config backup must be stored beside its manifest"
+        )
     if destination.exists():
         raise FileExistsError(destination)
     if manifest_path.exists():
         raise FileExistsError(manifest_path)
+    if (
+        resolved_config_destination is not None
+        and resolved_config_destination.exists()
+    ):
+        raise FileExistsError(resolved_config_destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -80,6 +107,21 @@ def backup_sqlite(
             backup_blob_inventory,
             blob_root=blob_root,
         )
+        configuration: dict[str, Any] = {
+            "status": "not_included_v1",
+        }
+        if config_path is not None and resolved_config_destination is not None:
+            resolved_config_source = config_path.expanduser().resolve()
+            _copy_file_exclusive(
+                resolved_config_source,
+                resolved_config_destination,
+            )
+            configuration = {
+                "status": "included",
+                "filename": resolved_config_destination.name,
+                "sha256": _file_sha256(resolved_config_destination),
+                "byte_count": resolved_config_destination.stat().st_size,
+            }
         artifact_sha256 = _file_sha256(destination)
         manifest: dict[str, Any] = {
             "format_version": BACKUP_MANIFEST_VERSION,
@@ -98,9 +140,7 @@ def backup_sqlite(
             "inventory": {
                 "tables": backup_inventory,
             },
-            "configuration": {
-                "status": "not_included_v1",
-            },
+            "configuration": configuration,
             "blob_inventory": blob_manifest,
             "verification": {
                 **integrity,
@@ -117,6 +157,12 @@ def backup_sqlite(
     except Exception:
         if destination.exists() and not manifest_path.exists():
             destination.unlink()
+        if (
+            resolved_config_destination is not None
+            and resolved_config_destination.exists()
+            and not manifest_path.exists()
+        ):
+            resolved_config_destination.unlink()
         raise
 
 
@@ -155,6 +201,7 @@ def verify_sqlite_backup(
         manifest["blob_inventory"],
         blob_root=blob_root,
     )
+    _verify_manifest_configuration(manifest, manifest_path)
     return {
         "verified": True,
         "sha256": actual_sha256,
@@ -545,6 +592,53 @@ def _write_json_exclusive(path: Path, payload: dict[str, Any]) -> None:
         path.chmod(0o600)
 
 
+def _copy_file_exclusive(source: Path, destination: Path) -> None:
+    if not source.is_file() or source.is_symlink():
+        raise BackupVerificationError(
+            "local configuration is not a regular file"
+        )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(
+        destination,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
+    )
+    try:
+        with os.fdopen(descriptor, "wb") as output_stream:
+            with source.open("rb") as input_stream:
+                for chunk in iter(
+                    lambda: input_stream.read(1024 * 1024),
+                    b"",
+                ):
+                    output_stream.write(chunk)
+                output_stream.flush()
+                os.fsync(output_stream.fileno())
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+    if os.name != "nt":
+        destination.chmod(0o600)
+
+
+def _verify_manifest_configuration(
+    manifest: dict[str, Any],
+    manifest_path: Path,
+) -> None:
+    configuration = manifest["configuration"]
+    if configuration["status"] != "included":
+        return
+    config_backup = manifest_path.parent / configuration["filename"]
+    if (
+        not config_backup.is_file()
+        or config_backup.is_symlink()
+        or config_backup.stat().st_size != configuration["byte_count"]
+        or _file_sha256(config_backup) != configuration["sha256"]
+    ):
+        raise BackupVerificationError(
+            "backup configuration does not match the manifest"
+        )
+
+
 def _load_manifest(path: Path) -> dict[str, Any]:
     if path.stat().st_size > 1024 * 1024:
         raise BackupVerificationError("backup manifest exceeds the size limit")
@@ -577,6 +671,34 @@ def _validate_manifest_shape(manifest: Any) -> None:
         or artifact["byte_count"] < 0
     ):
         raise BackupVerificationError("backup manifest artifact is invalid")
+    configuration = manifest.get("configuration")
+    if not isinstance(configuration, dict) or configuration.get(
+        "status"
+    ) not in {"not_included_v1", "included"}:
+        raise BackupVerificationError(
+            "backup manifest configuration inventory is invalid"
+        )
+    if configuration["status"] == "included":
+        filename = configuration.get("filename")
+        digest = configuration.get("sha256")
+        byte_count = configuration.get("byte_count")
+        if (
+            not isinstance(filename, str)
+            or not filename
+            or Path(filename).name != filename
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in digest
+            )
+            or not isinstance(byte_count, int)
+            or isinstance(byte_count, bool)
+            or byte_count < 0
+        ):
+            raise BackupVerificationError(
+                "backup manifest configuration artifact is invalid"
+            )
     inventory = manifest.get("inventory")
     if not isinstance(inventory, dict) or not isinstance(inventory.get("tables"), dict):
         raise BackupVerificationError("backup manifest inventory is invalid")

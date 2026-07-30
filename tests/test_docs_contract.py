@@ -16,6 +16,7 @@ PRIMARY_DOCS = [
     REPO_ROOT / "docs" / "deploy-kubernetes.md",
     REPO_ROOT / "docs" / "operations.md",
     REPO_ROOT / "docs" / "codex-plugin.md",
+    REPO_ROOT / "docs" / "migrate-managed-postgres.md",
     REPO_ROOT / "docs" / "implicit-research-capture.md",
     REPO_ROOT / "docs" / "repo-aware-capture.md",
     REPO_ROOT / "docs" / "memory-retrieval-skill.md",
@@ -110,6 +111,7 @@ def test_open_source_preview_surface_files_exist() -> None:
         REPO_ROOT / "deploy" / "kubernetes" / "migrate-job.yaml",
         REPO_ROOT / "docs" / "getting-started.md",
         REPO_ROOT / "docs" / "api-quickstart.md",
+        REPO_ROOT / "docs" / "migrate-managed-postgres.md",
         REPO_ROOT / "docs" / "repo-aware-capture.md",
     ]
     for path in required:
@@ -131,26 +133,26 @@ def test_release_scope_docs_are_consistent() -> None:
     api_quickstart = (REPO_ROOT / "docs" / "api-quickstart.md").read_text(encoding="utf-8")
 
     assert "GitHub-first open-source preview" in readme
-    assert "make up" in readme
-    assert "make token" in readme
+    assert "make init" in readme
+    assert "research-registry backup" in readme
     assert "What success looks like" in readme
-    assert "managed localhost runtime for multiple local Codex instances" in readme
+    assert "personal SQLite plus filesystem blobs" in readme
     assert "shared self-hosted Compose deployment for internal teams" in readme
     assert "direct public-internet exposure" in readme
     assert "Windows: not yet claimed" in readme
     assert "/docs" in readme
     assert "OpenAPI JSON" in readme
-    assert "make up" in deploy_local
-    assert "make uninstall" in deploy_local
-    assert "make purge-local" in deploy_local
-    assert "make up" in getting_started
-    assert "make status" in getting_started
-    assert "make token" in getting_started
-    assert "make uninstall" in getting_started
-    assert "managed localhost runtime on `127.0.0.1:8010`" in architecture
+    assert "make init" in deploy_local
+    assert "research-registry backup" in deploy_local
+    assert "make shared-up" in deploy_local
+    assert "make init" in getting_started
+    assert "research-registry doctor" in getting_started
+    assert "research-registry backup" in getting_started
+    assert "make shared-up" in getting_started
+    assert "tokenless same-user STDIO MCP" in architecture
     assert "internal-only" in deploy_shared
     assert "example-only" in deploy_kubernetes
-    assert "development-only" in deploy_local
+    assert "no daemon, system service, network listener" in deploy_local
     assert "`v0.1.0` preview" in operations
     assert "Initial open-source preview release." in changelog
     assert "GitHub source releases" in release
@@ -165,8 +167,9 @@ def test_release_scope_docs_are_consistent() -> None:
     assert "make preview-check" in makefile
     assert "make workflow-check" in makefile
     assert "make grounded-pass-check" in makefile
-    assert "make token" in makefile
-    assert "make uninstall" in makefile
+    assert "make init" in makefile
+    assert "make shared-up" in makefile
+    assert "make backup" in makefile
     assert "/openapi.json" in api_quickstart
     assert "/api/admin/api-keys" in api_quickstart
     assert "/api/import/bibtex" in api_quickstart

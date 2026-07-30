@@ -102,6 +102,11 @@ def _state_path(home: Path) -> Path:
     return _managed_root(home) / INSTALL_STATE_NAME
 
 
+def managed_codex_install_present() -> bool:
+    """Return whether the dedicated managed plugin root exists."""
+    return _managed_root(codex_home()).exists()
+
+
 def _marketplace_bytes() -> bytes:
     payload = {
         "name": CODEX_MARKETPLACE_NAME,

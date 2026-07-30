@@ -32,7 +32,7 @@ Helpful extras:
 
 ## Scope Notes
 
-- Preview support is strongest for the managed localhost runtime and the shared self-hosted Compose deployment.
+- Preview support is strongest for personal SQLite/STDIO and the shared self-hosted Compose deployment.
 - Kubernetes manifests are example deployment assets in this preview, not a production-hardening claim.
 - Public-internet exposure is not a supported default operating mode for this release.
 
@@ -46,12 +46,15 @@ They do not add an HTTP or MCP surface.
   samples, URL query strings, or credentials.
 - SQLite online backups and manifests are mode `0600` on supported POSIX
   systems and refuse existing destinations.
+- Configured personal backups include a separately hashed mode-`0600` config
+  artifact and verify the referenced content-addressed blob inventory.
 - Restore verification checks artifact SHA-256, SQLite integrity, foreign keys,
   row counts, and deterministic table hashes before accepting the copy.
 - Postgres planning drops usernames, passwords, and URL query strings and
   returns argv arrays rather than executable shell text.
-- V1 manifests explicitly report that no v2 blob store is configured; they do
-  not imply that future blob content has been backed up.
+- V1 manifests explicitly report when no v2 blob store is configured. V2 blob
+  inventory does not duplicate blob bodies; the private blob tree must remain
+  in normal host backups.
 
 Treat audit reports, backup artifacts, and manifests as sensitive even though
 default reports omit content. Keep them under normal host access controls.

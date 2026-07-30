@@ -9,7 +9,9 @@ invocation or user approval.
 
 For first-run local setup, start with [Getting Started](getting-started.md).
 
-For the default localhost path, run `make up` once before relying on implicit capture.
+For embedded local storage, run `make init` once before relying on this legacy
+workflow. Installing the focused plugin does not install these broad legacy
+skills.
 
 Primary pieces:
 
@@ -50,8 +52,9 @@ Precedence:
 4. `RESEARCH_REGISTRY_DEFAULT_BACKEND_URL`
 5. localhost default
 
-When no remote backend is configured, local skill use stays on the embedded local backend.
-When the managed localhost runtime is installed, local skill use should prefer that shared localhost backend.
+When no remote backend is configured, local skill use stays on the embedded
+personal SQLite backend. An explicitly retained managed Postgres config
+continues to select its shared localhost backend.
 
 ## Local Source Roots
 
@@ -81,8 +84,7 @@ The default config-file location is `~/.config/research-registry/local-research-
 Useful local checks:
 
 ```bash
-make status
-make token
+research-registry doctor
 ```
 
 ## Queue

@@ -23,6 +23,11 @@ research-registry doctor
 Start a new Codex conversation after install so the new plugin, skills, and MCP
 tools are loaded.
 
+On a machine without explicit/shared backend configuration, `install-codex`
+first performs the same idempotent personal initialization as
+`research-registry init`. It creates private XDG SQLite/blob storage but writes
+no auth token. A dry run remains read-only and does not initialize storage.
+
 `install-codex` honors `CODEX_HOME`. It creates a dedicated local marketplace
 under:
 
@@ -34,7 +39,8 @@ It registers that marketplace and plugin with the installed Codex CLI. The
 installer never edits marketplace or plugin registry tables by guessing their
 format; it uses the documented `codex plugin` commands.
 
-The bundled MCP process uses the configured Research Registry database. Set
+The bundled MCP process defaults to the personal XDG SQLite database and
+performs safe first-run migration when needed. Set
 `RESEARCH_REGISTRY_DATABASE_URL` when the process should use a specific SQLite
 or Postgres database. You can also verify the launcher independently:
 
@@ -101,7 +107,9 @@ not part of the default v2 plugin.
 exact managed paths. They never print file contents, environment variables,
 tokens, authorization headers, or Codex command output.
 
-`research-registry doctor` checks the managed plugin files, bundled STDIO
-wiring, marketplace registration, plugin installation, and legacy migration in
-addition to the existing runtime checks. Diagnostic output contains state and
-paths, not stored research or secrets.
+`research-registry doctor` always checks personal config, SQLite, blobs, STDIO,
+and backup readiness. When the dedicated managed plugin root exists, it also
+checks plugin files, marketplace registration, plugin installation, and legacy
+migration. An init-only machine therefore does not fail merely because Codex is
+absent, while an installed plugin remains fully diagnosed. Diagnostic output
+contains state and paths, not stored research or secrets.

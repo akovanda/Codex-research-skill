@@ -4,7 +4,7 @@ This document covers the release-supported operator tasks for the `v0.1.0` previ
 
 Supported operator target:
 
-- localhost runtime for local Codex instances
+- personal SQLite/STDIO runtime for local Codex instances
 - shared self-hosted Compose deployment on internal-only networks
 
 This preview does not claim support for direct public-internet exposure.
@@ -37,6 +37,17 @@ SQLite backup uses the online SQLite backup API, so it includes committed WAL
 state rather than blindly copying a live database file. The destination and
 manifest must not already exist.
 
+For the configured personal registry:
+
+```bash
+research-registry backup --output ./registry.backup.sqlite3
+```
+
+This also creates and verifies `registry.backup.sqlite3.config.toml`. Personal
+config contains no auth secrets, but the artifact is still mode `0600`.
+
+For an explicit database:
+
 ```bash
 research-registry backup \
   --database ./registry.sqlite3 \
@@ -51,13 +62,18 @@ research-registry restore \
 ```
 
 The manifest records the database SHA-256, byte count, table row counts,
-deterministic per-table content hashes, integrity result, and v1 blob/config
-status. Restore verification repeats the hash, integrity, foreign-key, row-count,
-and deterministic-content checks against a new destination.
+deterministic per-table content hashes, integrity result, configuration
+artifact, and blob status. Restore verification repeats the hash, integrity,
+foreign-key, row-count, and deterministic-content checks against a new
+destination.
 
-Research Registry v1 has no configured content-addressed blob store. The
-manifest records that fact rather than claiming to include blobs. Back up
-operator configuration separately:
+Personal v2 verifies the configured content-addressed blob inventory before
+accepting the database backup. The manifest inventories referenced objects; it
+does not duplicate the live blob bodies. Back up the private XDG blob tree with
+the database bundle. Explicit v1 databases without a blob root record
+`not_configured_v1`.
+
+For shared deployments, back up operator configuration separately:
 
 - `~/.config/research-registry/config.toml`
 - `~/.config/research-registry/.env`
@@ -113,11 +129,12 @@ cp deploy/.env.example deploy/.env  # only if you have not already created deplo
 docker compose -f deploy/compose.yaml --env-file deploy/.env up --build -d
 ```
 
-Managed localhost runtime:
+Personal install:
 
 ```bash
-make up SEED_DEMO=0
-make status
+research-registry backup --output ./registry.pre-upgrade.sqlite3
+research-registry init
+research-registry doctor
 ```
 
 The current container startup path runs migrations before serving traffic. Upgrades should still be treated as intentional operational events, not invisible background changes.
@@ -131,7 +148,13 @@ If an upgrade fails:
 3. restore the previous verified database backup if the schema or data is no longer usable
 4. restart and verify `/readyz`
 
-Managed localhost runtime rollback helpers:
+Personal rollback:
+
+- stop MCP/review foreground processes
+- verify and restore the previous SQLite/config/blob backup
+- run `research-registry doctor`
+
+Retained managed Docker/Postgres rollback helpers:
 
 - stop with `make down`
 - remove the managed localhost integration with `make uninstall`
@@ -149,7 +172,9 @@ When rotating:
 3. revoke old keys
 4. restart the app if you changed admin token or session secret env vars
 
-For the managed localhost runtime, inspect the current admin token and API key with:
+Personal STDIO has no token to rotate. The optional `serve` process requires
+`RESEARCH_REGISTRY_ADMIN_TOKEN` in its environment. For the retained managed
+Docker/Postgres runtime, inspect the current admin token and API key with:
 
 ```bash
 make token

@@ -12,8 +12,10 @@ Use this for GitHub source releases in the current preview phase.
 6. Update `CHANGELOG.md` for the release.
 7. Confirm the private security reporting path in `SECURITY.md` is real, enabled for the published repository, and not a placeholder for a real maintainer-owned security contact.
 8. Confirm `[project.urls]` in `pyproject.toml` points at the published repository.
-9. Confirm the `release image` workflow can publish `ghcr.io/akovanda/codex-research-skill:<version>`.
-10. Confirm package-installed CLI smoke tests can run `research-registry up --skip-start --skip-pull` and install both managed skills without a source checkout.
+9. Confirm wheel and sdist clean-HOME smoke can initialize SQLite, install the
+   focused plugin, and complete STDIO status/search without Docker.
+10. Confirm the `release image` workflow can publish
+    `ghcr.io/akovanda/codex-research-skill:<version>` for shared Compose.
 
 Do not tag a public preview release until items 5 through 10 are complete.
 
@@ -40,5 +42,6 @@ git push origin v0.1.0
 - release type: open-source preview
 - supported runtime modes
 - unsupported or example-only deployment paths
-- package-manager CLI status and the required GHCR image tag
+- package-manager CLI status and no-Docker personal path
+- GHCR image tag for the separate shared Compose path
 - any migration or operator notes

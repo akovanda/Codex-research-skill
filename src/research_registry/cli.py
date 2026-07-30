@@ -10,6 +10,7 @@ from .codex_install import (
     diagnose_codex_install,
     format_codex_install_report,
     install_codex,
+    managed_codex_install_present,
     uninstall_codex,
 )
 from .local_manager import (
@@ -38,10 +39,28 @@ def _package_version() -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="research-registry",
-        description="Manage the local Research Registry runtime and Codex integration.",
+        description=(
+            "Manage the local Research Registry runtime: personal SQLite "
+            "and shared deployments."
+        ),
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {_package_version()}")
     subparsers = parser.add_subparsers(dest="command")
+
+    init = subparsers.add_parser(
+        "init",
+        help="Initialize the private XDG SQLite database and blob storage.",
+    )
+    init.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a content-free structured initialization result.",
+    )
+    init.add_argument(
+        "--install-codex",
+        action="store_true",
+        help="Also install the bundled Codex plugin after local initialization.",
+    )
 
     up = subparsers.add_parser("up", help="Install or update the managed localhost runtime.")
     up.add_argument("--port", type=int, default=None, help="Host port for the local registry.")
@@ -101,7 +120,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Also remove managed local config/data directories and docker volumes.",
     )
 
-    subparsers.add_parser("web", help="Run the web app directly from the current environment.")
+    serve = subparsers.add_parser(
+        "serve",
+        help="Run the optional local web review server with explicit authentication.",
+    )
+    serve.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind host. Defaults to loopback.",
+    )
+    serve.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Bind port. Defaults to the local config port.",
+    )
+    subparsers.add_parser(
+        "web",
+        help="Compatibility alias for the directly configured web app.",
+    )
 
     mcp = subparsers.add_parser(
         "mcp",
@@ -327,6 +364,40 @@ def main() -> None:
         parser.print_help()
         return
 
+    if args.command == "init":
+        from .local_personal import initialize_personal_registry
+
+        result = initialize_personal_registry()
+        payload = {
+            "status": "initialized" if result.created else "current",
+            "database_kind": "sqlite",
+            "migration_state": result.migration_state,
+            "applied_migrations": list(result.applied_migrations),
+            "config_path": str(result.paths.config_path),
+            "data_dir": str(result.paths.data_dir),
+            "database_path": str(result.paths.database_path),
+            "blob_root": str(result.paths.blob_root),
+        }
+        if args.json:
+            print(json.dumps(payload, sort_keys=True))
+        else:
+            for key, value in payload.items():
+                rendered = (
+                    ",".join(value)
+                    if isinstance(value, list)
+                    else str(value).lower()
+                    if isinstance(value, bool)
+                    else str(value)
+                )
+                print(f"{key}={rendered}")
+        if args.install_codex:
+            print(
+                format_codex_install_report(
+                    install_codex()
+                )
+            )
+        return
+
     if args.command == "up":
         ensure_prerequisites()
         install_local_runtime(
@@ -346,14 +417,27 @@ def main() -> None:
         return
 
     if args.command == "doctor":
-        print(
-            format_doctor(
-                diagnose_local_runtime() + diagnose_codex_install()
+        from .managed_config import load_managed_local_config
+
+        managed = load_managed_local_config()
+        if managed is None or managed.deployment_mode == "personal":
+            from .local_personal import diagnose_personal_registry
+
+            checks = diagnose_personal_registry()
+            if managed_codex_install_present():
+                checks += diagnose_codex_install()
+            print(format_doctor(checks))
+        else:
+            print(
+                format_doctor(
+                    diagnose_local_runtime() + diagnose_codex_install()
+                )
             )
-        )
         return
 
     if args.command == "install-codex":
+        if not args.dry_run:
+            _initialize_personal_default()
         print(
             format_codex_install_report(
                 install_codex(dry_run=args.dry_run)
@@ -396,6 +480,22 @@ def main() -> None:
         print(format_status(local_runtime_status()))
         return
 
+    if args.command == "serve":
+        token = os.environ.get("RESEARCH_REGISTRY_ADMIN_TOKEN")
+        if not token:
+            parser.error(
+                "serve requires RESEARCH_REGISTRY_ADMIN_TOKEN"
+            )
+        _initialize_personal_default()
+        os.environ["RESEARCH_REGISTRY_ADMIN_TOKEN"] = token
+        os.environ["RESEARCH_REGISTRY_HOST"] = args.host
+        if args.port is not None:
+            os.environ["RESEARCH_REGISTRY_PORT"] = str(args.port)
+        from .web import main as web_main
+
+        web_main()
+        return
+
     if args.command == "web":
         from .web import main as web_main
 
@@ -429,6 +529,7 @@ def main() -> None:
         from .backup import backup_sqlite, plan_postgres_backup
         from .config import load_settings
         from .db import resolve_database_target
+        from .managed_config import load_managed_local_config
 
         settings = load_settings()
         database = args.database or settings.database_url
@@ -436,11 +537,31 @@ def main() -> None:
         target = resolve_database_target(database)
         if target.kind == "sqlite":
             manifest_path = args.manifest or args.output.with_suffix(args.output.suffix + ".manifest.json")
+            managed = (
+                load_managed_local_config()
+                if args.database is None
+                else None
+            )
+            config_source = (
+                managed.config_path
+                if managed is not None
+                and managed.deployment_mode == "personal"
+                else None
+            )
+            config_destination = (
+                args.output.with_suffix(
+                    args.output.suffix + ".config.toml"
+                )
+                if config_source is not None
+                else None
+            )
             manifest = backup_sqlite(
                 target,
                 args.output,
                 manifest_path=manifest_path,
                 blob_root=blob_root,
+                config_path=config_source,
+                config_destination=config_destination,
             )
             print(
                 json.dumps(
@@ -448,6 +569,7 @@ def main() -> None:
                         "status": "verified",
                         "database_kind": "sqlite",
                         "sha256": manifest["artifacts"][0]["sha256"],
+                        "configuration": manifest["configuration"]["status"],
                     },
                     sort_keys=True,
                 )
@@ -610,6 +732,12 @@ def _run_mcp_stdio(database: str | None) -> None:
     from .mcp_server import main as mcp_main
 
     mcp_main()
+
+
+def _initialize_personal_default() -> None:
+    from .local_personal import initialize_personal_registry_if_unconfigured
+
+    initialize_personal_registry_if_unconfigured()
 
 
 if __name__ == "__main__":

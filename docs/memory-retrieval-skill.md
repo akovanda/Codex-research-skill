@@ -15,10 +15,11 @@ If you are just trying to get the project running, start with [Getting Started](
 ## Install locally
 
 ```bash
-make up
+make shared-up
 ```
 
-`make up` installs both managed skill symlinks into `~/.codex/skills/` and starts the default localhost backend.
+`make shared-up` retains the older behavior: it installs both managed skill
+symlinks into `~/.codex/skills/` and starts the shared localhost backend.
 
 ## Start the local backend
 
@@ -34,7 +35,8 @@ This gives the skill a shared localhost backend plus a managed MCP endpoint in `
 ./.venv/bin/research-registry-seed-memory-retrieval
 ```
 
-`make up` already runs this seed step by default. Rerun it manually only if you want to refresh the demo corpus.
+`make shared-up` already runs this seed step by default. Rerun it manually only
+if you want to refresh the demo corpus.
 
 ## Validate
 

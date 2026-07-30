@@ -6,14 +6,20 @@ VENV ?= .venv
 VENV_PYTHON := $(VENV)/bin/python
 INSTALL_STAMP := $(VENV)/.editable-installed
 SEED_DEMO ?= 1
+BACKUP_OUTPUT ?= $(CURDIR)/research-registry.backup.sqlite3
 
-.PHONY: help venv install up status doctor repair down token uninstall purge-local test build preview-check workflow-check grounded-pass-check rr2-migration-check
+.PHONY: help venv install init up mcp serve backup shared-up status doctor repair down token uninstall purge-local test build preview-check workflow-check grounded-pass-check rr2-migration-check
 
 help:
 	@printf "Targets:\n"
-	@printf "  make up      Create/update the local env, start the localhost stack, and seed demo data by default.\n"
-	@printf "  make status  Show the current localhost runtime status.\n"
-	@printf "  make doctor  Check Docker, runtime image, Codex MCP config, and skill links.\n"
+	@printf "  make init    Create/update the local env and initialize personal SQLite storage.\n"
+	@printf "  make up      Alias for the no-daemon personal init path.\n"
+	@printf "  make mcp     Run tokenless local STDIO MCP in the foreground.\n"
+	@printf "  make serve   Run the optional review server (requires RESEARCH_REGISTRY_ADMIN_TOKEN).\n"
+	@printf "  make backup  Create a verified personal backup at BACKUP_OUTPUT.\n"
+	@printf "  make shared-up  Start the retained Docker/Postgres localhost stack.\n"
+	@printf "  make status  Show the retained shared localhost runtime status.\n"
+	@printf "  make doctor  Check personal SQLite, blobs, migrations, MCP, and backup health.\n"
 	@printf "  make repair  Repair managed Codex MCP config and skill links.\n"
 	@printf "  make down    Stop the localhost runtime.\n"
 	@printf "  make token   Print the managed localhost admin token and API key.\n"
@@ -27,7 +33,8 @@ help:
 	@printf "  make grounded-pass-check  Run the 27-pass grounded research suite and write a markdown report.\n"
 	@printf "\n"
 	@printf "Options:\n"
-	@printf "  SEED_DEMO=0  Skip demo content during make up.\n"
+	@printf "  BACKUP_OUTPUT=/safe/path/registry.sqlite3  Select the personal backup path.\n"
+	@printf "  SEED_DEMO=0  Skip demo content during make shared-up.\n"
 
 $(VENV_PYTHON):
 	@$(PYTHON) -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' || \
@@ -45,7 +52,23 @@ $(INSTALL_STAMP): $(VENV_PYTHON) pyproject.toml
 
 install: $(INSTALL_STAMP)
 
-up: install
+init: install
+	$(VENV_PYTHON) -m research_registry init
+
+up: init
+
+mcp: init
+	$(VENV_PYTHON) -m research_registry mcp
+
+serve: init
+	@test -n "$$RESEARCH_REGISTRY_ADMIN_TOKEN" || \
+		(printf "Set RESEARCH_REGISTRY_ADMIN_TOKEN in the environment before make serve.\n" >&2; exit 1)
+	$(VENV_PYTHON) -m research_registry serve
+
+backup: init
+	$(VENV_PYTHON) -m research_registry backup --output "$(BACKUP_OUTPUT)"
+
+shared-up: install
 	$(VENV_PYTHON) -m research_registry up --build-local-image --image research-registry-local:latest
 ifeq ($(SEED_DEMO),1)
 	$(VENV_PYTHON) -m research_registry.seed_demo
