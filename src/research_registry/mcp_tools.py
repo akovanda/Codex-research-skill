@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
@@ -13,20 +13,39 @@ from .contracts.v2 import (
     ConflictState,
     FreshnessState,
     GetInclude,
+    RefreshEntity,
+    ResearchRefreshResult,
+    ResearchReviewResult,
     ResearchSearchResponse,
     ResearchStatusResponse,
+    ReviewEntity,
+    ReviewNewRevision,
     ReviewState,
     SearchKind,
     SearchScope,
+    SnapshotPolicy,
 )
 from .mcp.read_runtime import ReadMcpRuntime
 from .mcp.schema import close_tool_input_schema
+from .mcp.write_runtime import WriteMcpRuntime
 from .models import AuthContext, ClaimCreate, ExcerptCreate, PublishRequest, QuestionCreate, ReportCreate, ResearchSessionCreate, SourceCreate
 from .service import RegistryService
 
 
 _READ_ONLY = ToolAnnotations(
     readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+_REVIEW_WRITE = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=True,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+_REFRESH_QUEUE_WRITE = ToolAnnotations(
+    readOnlyHint=False,
     destructiveHint=False,
     idempotentHint=True,
     openWorldHint=False,
@@ -381,6 +400,13 @@ def create_mcp_server(
         allow_admin_fallback=allow_admin_fallback,
         legacy_tools_enabled=True,
     )
+    write_runtime = WriteMcpRuntime(
+        backend,
+        settings=settings,
+        service=service,
+        default_api_key=default_api_key if allow_admin_fallback else None,
+        allow_admin_fallback=allow_admin_fallback,
+    )
 
     mcp = FastMCP(
         "Research Registry",
@@ -449,6 +475,70 @@ def create_mcp_server(
         )
 
     close_tool_input_schema(mcp, "research_get")
+
+    @mcp.tool(annotations=_REVIEW_WRITE, structured_output=True)
+    def research_review(
+        idempotency_key: Annotated[
+            str, StringConstraints(min_length=1, max_length=200)
+        ],
+        entity: ReviewEntity,
+        action: Literal[
+            "approve",
+            "contest",
+            "reject",
+            "supersede",
+            "request_refresh",
+            "dismiss_refresh",
+        ],
+        expected_revision_id: Annotated[
+            str, StringConstraints(max_length=200)
+        ]
+        | None = None,
+        expected_state: Annotated[str, StringConstraints(max_length=100)]
+        | None = None,
+        note: Annotated[str, StringConstraints(max_length=20_000)] | None = None,
+        new_revision: ReviewNewRevision | None = None,
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ResearchReviewResult:
+        """Append a review decision. Writes state; never publishes or networks."""
+        return write_runtime.research_review(
+            idempotency_key=idempotency_key,
+            entity=entity,
+            action=action,
+            expected_revision_id=expected_revision_id,
+            expected_state=expected_state,
+            note=note,
+            new_revision=new_revision,
+            ctx=ctx,
+        )
+
+    close_tool_input_schema(mcp, "research_review")
+
+    @mcp.tool(annotations=_REFRESH_QUEUE_WRITE, structured_output=True)
+    def research_refresh(
+        mode: Literal["inspect", "enqueue"],
+        entities: Annotated[
+            list[RefreshEntity], Field(min_length=1, max_length=100)
+        ],
+        idempotency_key: Annotated[
+            str, StringConstraints(max_length=200)
+        ]
+        | None = None,
+        snapshot_policy: SnapshotPolicy | None = None,
+        priority: Annotated[float, Field(ge=0, le=1)] = 0.5,
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ResearchRefreshResult:
+        """Inspect or enqueue refresh work. No locator access or network capture."""
+        return write_runtime.research_refresh(
+            mode=mode,
+            idempotency_key=idempotency_key,
+            entities=list(entities),
+            snapshot_policy=snapshot_policy,
+            priority=priority,
+            ctx=ctx,
+        )
+
+    close_tool_input_schema(mcp, "research_refresh")
 
     @mcp.tool()
     def search(

@@ -52,6 +52,10 @@ class DbCursor:
     def fetchall(self):
         return self._cursor.fetchall()
 
+    @property
+    def rowcount(self) -> int:
+        return int(self._cursor.rowcount)
+
 
 class DbConnection:
     def __init__(self, target: DatabaseTarget, raw_connection: Any):

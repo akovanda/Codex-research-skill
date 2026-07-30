@@ -9,13 +9,22 @@ from ..db import (
     open_database,
     resolve_database_target,
 )
-from .repositories import DepositRepository, SourceVersionRepository
+from .repositories import (
+    DepositRepository,
+    ReviewRefreshRepository,
+    SourceVersionRepository,
+)
 
 
 class UnitOfWork:
     """Explicit transaction boundary for one application operation."""
 
-    def __init__(self, database: str | Path | DatabaseTarget):
+    def __init__(
+        self,
+        database: str | Path | DatabaseTarget,
+        *,
+        immediate_write: bool = False,
+    ):
         self.database = (
             database
             if isinstance(database, DatabaseTarget)
@@ -24,14 +33,19 @@ class UnitOfWork:
         self.connection: DbConnection | None = None
         self.deposit: DepositRepository | None = None
         self.source_versions: SourceVersionRepository | None = None
+        self.review_refresh: ReviewRefreshRepository | None = None
+        self.immediate_write = immediate_write
         self._committed = False
 
     def __enter__(self) -> UnitOfWork:
         if self.connection is not None:
             raise RuntimeError("unit of work is already active")
         self.connection = open_database(self.database)
+        if self.immediate_write and self.database.kind == "sqlite":
+            self.connection.execute("BEGIN IMMEDIATE")
         self.deposit = DepositRepository(self.connection)
         self.source_versions = SourceVersionRepository(self.connection)
+        self.review_refresh = ReviewRefreshRepository(self.connection)
         return self
 
     def commit(self) -> None:
@@ -59,3 +73,4 @@ class UnitOfWork:
             self.connection = None
             self.deposit = None
             self.source_versions = None
+            self.review_refresh = None

@@ -300,8 +300,61 @@ SELECT
      COALESCE(c.canonical_key, '')) AS body,
     NULL AS locator, NULL AS doi, NULL AS repository, NULL AS path,
     c.canonical_key, t.slug AS topic_slug, NULL AS quote_hash,
-    c.dedupe_key, c.review_state, c.trust_tier, c.conflict_state,
-    COALESCE(rs.freshness_state, 'unknown') AS freshness,
+    c.dedupe_key, c.review_state, c.trust_tier,
+    CASE
+        WHEN COALESCE(cr.status, c.status) = 'contested'
+          OR EXISTS (
+              SELECT 1 FROM claim_evidence conflict_ce
+              WHERE conflict_ce.claim_revision_id = c.current_revision_id
+                AND conflict_ce.relationship = 'refutes'
+          )
+        THEN 'conflicted'
+        ELSE c.conflict_state
+    END AS conflict_state,
+    CASE
+        WHEN EXISTS (
+            SELECT 1 FROM claim_evidence stale_ce
+            JOIN evidence_spans stale_e
+              ON stale_e.id = stale_ce.evidence_span_id
+            WHERE stale_ce.claim_revision_id = c.current_revision_id
+              AND stale_e.anchor_state = 'stale'
+        )
+        OR EXISTS (
+            SELECT 1 FROM refresh_queue failed_rq
+            WHERE failed_rq.status = 'failed'
+              AND (
+                  (failed_rq.entity_kind = 'claim'
+                   AND failed_rq.entity_id = c.id)
+                  OR (
+                      failed_rq.entity_kind = 'evidence'
+                      AND EXISTS (
+                          SELECT 1 FROM claim_evidence failed_ce
+                          WHERE failed_ce.claim_revision_id = c.current_revision_id
+                            AND failed_ce.evidence_span_id = failed_rq.entity_id
+                      )
+                  )
+              )
+        )
+        THEN 'stale'
+        WHEN EXISTS (
+            SELECT 1 FROM refresh_queue pending_rq
+            WHERE pending_rq.status IN ('pending', 'running')
+              AND (
+                  (pending_rq.entity_kind = 'claim'
+                   AND pending_rq.entity_id = c.id)
+                  OR (
+                      pending_rq.entity_kind = 'evidence'
+                      AND EXISTS (
+                          SELECT 1 FROM claim_evidence pending_ce
+                          WHERE pending_ce.claim_revision_id = c.current_revision_id
+                            AND pending_ce.evidence_span_id = pending_rq.entity_id
+                      )
+                  )
+              )
+        )
+        THEN 'needs_refresh'
+        ELSE COALESCE(rs.freshness_state, 'unknown')
+    END AS freshness,
     COALESCE(cr.status, c.status) AS status,
     (SELECT COUNT(*) FROM claim_evidence ce
      WHERE ce.claim_revision_id = c.current_revision_id) AS evidence_count,

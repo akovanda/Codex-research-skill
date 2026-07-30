@@ -69,6 +69,14 @@ does not follow corpus URLs, and rejects files larger than 5 MiB or corpora with
 more than 5,000 documents or 5,000 cases. Private evaluation corpora should
 remain outside the repository and under normal host access controls.
 
+`research_review` and the enqueue mode of `research_refresh` are explicit MCP
+write operations. Shared HTTP transport requires an authenticated API key with
+admin scope and has no admin/default-key fallback. Local STDIO may use the
+trusted operating-system user boundary. These tools never publish, fetch
+locators, contact a network, or rewrite a claim without an explicit closed
+request. Optimistic revision/state checks and transactional idempotency prevent
+stale or replayed requests from silently overwriting current state.
+
 ## Disclosure Expectations
 
 - Do not publish exploit details before the maintainer has had a reasonable chance to reproduce and mitigate the issue.

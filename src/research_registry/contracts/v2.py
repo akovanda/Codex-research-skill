@@ -623,6 +623,28 @@ class ResearchReviewRequest(ClosedModel):
     new_revision: ReviewNewRevision | None = None
 
 
+class ClaimCurrentState(ClosedModel):
+    claim_id: RecordId
+    current_revision_id: RecordId
+    revision_number: int = Field(ge=1)
+    status: ClaimRevisionStatus
+    review_state: ReviewState
+    conflict_state: ConflictState
+    freshness: FreshnessState
+
+
+class ResearchReviewResult(ClosedModel):
+    protocol: Literal["research-review-result/v2"]
+    status: Literal["applied"]
+    idempotent_replay: bool
+    event_id: RecordId
+    entity: ReviewEntity
+    current_revision_id: RecordId | None = None
+    revision_created: bool
+    current_state: ClaimCurrentState | None = None
+    refresh_item_ids: list[RecordId] = Field(default_factory=list, max_length=200)
+
+
 class RefreshEntity(ClosedModel):
     kind: Literal[
         "source",
@@ -642,6 +664,35 @@ class ResearchRefreshRequest(ClosedModel):
     entities: list[RefreshEntity] = Field(min_length=1, max_length=100)
     snapshot_policy: SnapshotPolicy | None = None
     priority: float = Field(default=0.5, ge=0, le=1)
+
+
+class RefreshPlanItem(ClosedModel):
+    entity: RefreshEntity
+    reason: Literal[
+        "expired",
+        "source_changed",
+        "anchor_missing",
+        "conflict",
+        "manual",
+    ]
+    refresh_item_id: RecordId | None = None
+    queue_status: Literal[
+        "not_enqueued",
+        "pending",
+        "running",
+        "resolved",
+        "dismissed",
+        "failed",
+    ]
+    created: bool
+
+
+class ResearchRefreshResult(ClosedModel):
+    protocol: Literal["research-refresh-result/v2"]
+    status: Literal["inspected", "enqueued"]
+    committed: bool
+    idempotent_replay: bool
+    items: list[RefreshPlanItem] = Field(max_length=500)
 
 
 class RefreshBacklog(ClosedModel):
@@ -753,7 +804,9 @@ DepositResult = ResearchDepositResult
 ErrorResponse = ResearchErrorResponse
 GetRequest = ResearchGetRequest
 RefreshRequest = ResearchRefreshRequest
+RefreshResult = ResearchRefreshResult
 ReviewRequest = ResearchReviewRequest
+ReviewResult = ResearchReviewResult
 SearchRequest = ResearchSearchRequest
 SearchResponse = ResearchSearchResponse
 StatusResponse = ResearchStatusResponse
@@ -779,16 +832,20 @@ __all__ = [
     "JsonPointerSelector",
     "LineRangeSelector",
     "RefreshRequest",
+    "RefreshResult",
+    "ResearchRefreshResult",
     "ResearchDepositRequest",
     "ResearchDepositResult",
     "ResearchErrorResponse",
     "ResearchGetRequest",
     "ResearchRefreshRequest",
     "ResearchReviewRequest",
+    "ResearchReviewResult",
     "ResearchSearchRequest",
     "ResearchSearchResponse",
     "ResearchStatusResponse",
     "ReviewRequest",
+    "ReviewResult",
     "SearchRequest",
     "SearchResponse",
     "SourceSelectorV2",

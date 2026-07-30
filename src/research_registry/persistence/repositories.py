@@ -65,6 +65,16 @@ def canonical_json(value: Any) -> str:
     )
 
 
+def _json_object(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def deterministic_v2_id(prefix: str, kind: str, legacy_id: str) -> str:
     return f"{prefix}_{uuid5(_MIGRATION_NAMESPACE, f'{kind}:{legacy_id}')}"
 
@@ -1001,6 +1011,757 @@ class DepositRepository:
             "UPDATE questions SET status = 'answered' WHERE id = ?",
             (question_id,),
         )
+
+
+class ReviewRefreshRepository:
+    """Portable SQL for append-only review decisions and refresh work."""
+
+    def __init__(self, conn: DbConnection):
+        self.conn = conn
+
+    def get_idempotency(
+        self, namespace_id: str, operation: str, key: str
+    ) -> Any | None:
+        return self.conn.execute(
+            """
+            SELECT * FROM idempotency_keys
+            WHERE namespace_id = ? AND operation = ? AND "key" = ?
+            """,
+            (namespace_id, operation, key),
+        ).fetchone()
+
+    def reserve_idempotency(
+        self,
+        *,
+        namespace_id: str,
+        operation: str,
+        key: str,
+        request_sha256: str,
+        reservation_json: str,
+        created_at: str,
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO idempotency_keys (
+                namespace_id, operation, "key", request_sha256,
+                response_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(namespace_id, operation, "key") DO NOTHING
+            """,
+            (
+                namespace_id,
+                operation,
+                key,
+                request_sha256,
+                reservation_json,
+                created_at,
+            ),
+        )
+
+    def complete_idempotency(
+        self,
+        *,
+        namespace_id: str,
+        operation: str,
+        key: str,
+        reservation_json: str,
+        response_json: str,
+    ) -> None:
+        cursor = self.conn.execute(
+            """
+            UPDATE idempotency_keys
+            SET response_json = ?
+            WHERE namespace_id = ? AND operation = ? AND "key" = ?
+              AND response_json = ?
+            """,
+            (
+                response_json,
+                namespace_id,
+                operation,
+                key,
+                reservation_json,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("idempotency reservation was not completed")
+
+    def get_claim_for_revision(
+        self,
+        revision_id: str,
+        *,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> Any | None:
+        suffix = " FOR UPDATE" if self.conn.target.kind == "postgres" else ""
+        return self.conn.execute(
+            """
+            SELECT
+                c.id AS claim_id,
+                c.current_revision_id,
+                c.review_state,
+                c.conflict_state,
+                c.human_reviewed,
+                c.session_id,
+                c.topic_id,
+                c.canonical_key,
+                c.scope_json,
+                c.created_at AS claim_created_at,
+                cr.id AS revision_id,
+                cr.revision_number,
+                cr.title,
+                cr.statement,
+                cr.status AS revision_status,
+                cr.confidence,
+                cr.valid_from,
+                cr.valid_until,
+                cr.created_by_model,
+                cr.metadata_json
+            FROM claims c
+            JOIN claim_revisions cr ON cr.claim_id = c.id
+            WHERE cr.id = ? AND c.namespace_kind = ? AND c.namespace_id = ?
+            """
+            + suffix,
+            (revision_id, namespace_kind, namespace_id),
+        ).fetchone()
+
+    def get_claim(
+        self,
+        claim_id: str,
+        *,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> Any | None:
+        suffix = " FOR UPDATE" if self.conn.target.kind == "postgres" else ""
+        return self.conn.execute(
+            """
+            SELECT
+                c.id AS claim_id,
+                c.current_revision_id,
+                c.review_state,
+                c.conflict_state,
+                c.human_reviewed,
+                c.session_id,
+                c.topic_id,
+                c.canonical_key,
+                c.scope_json,
+                c.created_at AS claim_created_at,
+                cr.id AS revision_id,
+                cr.revision_number,
+                cr.title,
+                cr.statement,
+                cr.status AS revision_status,
+                cr.confidence,
+                cr.valid_from,
+                cr.valid_until,
+                cr.created_by_model,
+                cr.metadata_json
+            FROM claims c
+            JOIN claim_revisions cr ON cr.id = c.current_revision_id
+            WHERE c.id = ? AND c.namespace_kind = ? AND c.namespace_id = ?
+            """
+            + suffix,
+            (claim_id, namespace_kind, namespace_id),
+        ).fetchone()
+
+    def next_claim_revision_number(self, claim_id: str) -> int:
+        row = self.conn.execute(
+            """
+            SELECT COALESCE(MAX(revision_number), 0) + 1 AS number
+            FROM claim_revisions WHERE claim_id = ?
+            """,
+            (claim_id,),
+        ).fetchone()
+        return int(row["number"])
+
+    def insert_claim_revision(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO claim_revisions (
+                id, claim_id, revision_number, title, statement, status,
+                confidence, valid_from, valid_until, supersedes_revision_id,
+                created_by_model, created_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                values["id"],
+                values["claim_id"],
+                values["revision_number"],
+                values["title"],
+                values["statement"],
+                values["status"],
+                values["confidence"],
+                values["valid_from"],
+                values["valid_until"],
+                values["supersedes_revision_id"],
+                values["created_by_model"],
+                values["created_at"],
+                values["metadata_json"],
+            ),
+        )
+
+    def copy_claim_evidence(
+        self, *, from_revision_id: str, to_revision_id: str
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO claim_evidence (
+                claim_revision_id, evidence_span_id, relationship, rationale,
+                weight, review_state, created_at
+            )
+            SELECT ?, evidence_span_id, relationship, rationale, weight,
+                   review_state, created_at
+            FROM claim_evidence
+            WHERE claim_revision_id = ?
+            """,
+            (to_revision_id, from_revision_id),
+        )
+
+    def update_claim_current(
+        self,
+        *,
+        claim_id: str,
+        expected_revision_id: str,
+        revision_id: str,
+        title: str,
+        statement: str,
+        legacy_status: str,
+        confidence: float,
+        review_state: str,
+        conflict_state: str,
+        updated_at: str,
+    ) -> None:
+        cursor = self.conn.execute(
+            """
+            UPDATE claims
+            SET current_revision_id = ?, title = ?, statement = ?, status = ?,
+                confidence = ?, review_state = ?, conflict_state = ?,
+                human_reviewed = ?, updated_at = ?
+            WHERE id = ? AND current_revision_id = ?
+            """,
+            (
+                revision_id,
+                title,
+                statement,
+                legacy_status,
+                confidence,
+                review_state,
+                conflict_state,
+                int(review_state == "reviewed"),
+                updated_at,
+                claim_id,
+                expected_revision_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("EXPECTED_REVISION_MISMATCH")
+
+    def update_claim_review_state(
+        self,
+        *,
+        claim_id: str,
+        expected_revision_id: str,
+        review_state: str,
+        conflict_state: str,
+        updated_at: str,
+    ) -> None:
+        cursor = self.conn.execute(
+            """
+            UPDATE claims
+            SET review_state = ?, conflict_state = ?, human_reviewed = ?,
+                updated_at = ?
+            WHERE id = ? AND current_revision_id = ?
+            """,
+            (
+                review_state,
+                conflict_state,
+                int(review_state == "reviewed"),
+                updated_at,
+                claim_id,
+                expected_revision_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("EXPECTED_REVISION_MISMATCH")
+
+    def current_claim_has_refuting_evidence(self, claim_id: str) -> bool:
+        row = self.conn.execute(
+            """
+            SELECT 1 AS present
+            FROM claims c
+            JOIN claim_evidence ce
+              ON ce.claim_revision_id = c.current_revision_id
+            WHERE c.id = ? AND ce.relationship = 'refutes'
+            LIMIT 1
+            """,
+            (claim_id,),
+        ).fetchone()
+        return row is not None
+
+    def claim_freshness(self, claim_id: str) -> str:
+        stale = self.conn.execute(
+            """
+            SELECT 1 AS present
+            FROM claims c
+            JOIN claim_evidence ce
+              ON ce.claim_revision_id = c.current_revision_id
+            JOIN evidence_spans e ON e.id = ce.evidence_span_id
+            WHERE c.id = ? AND e.anchor_state = 'stale'
+            LIMIT 1
+            """,
+            (claim_id,),
+        ).fetchone()
+        if stale is not None:
+            return "stale"
+        failed = self.conn.execute(
+            """
+            SELECT 1 AS present
+            FROM refresh_queue rq
+            WHERE rq.status = 'failed' AND (
+                (rq.entity_kind = 'claim' AND rq.entity_id = ?)
+                OR (
+                    rq.entity_kind = 'evidence'
+                    AND EXISTS (
+                        SELECT 1 FROM claims c
+                        JOIN claim_evidence ce
+                          ON ce.claim_revision_id = c.current_revision_id
+                        WHERE c.id = ? AND ce.evidence_span_id = rq.entity_id
+                    )
+                )
+            )
+            LIMIT 1
+            """,
+            (claim_id, claim_id),
+        ).fetchone()
+        if failed is not None:
+            return "stale"
+        pending = self.conn.execute(
+            """
+            SELECT 1 AS present
+            FROM refresh_queue rq
+            WHERE rq.status IN ('pending', 'running') AND (
+                (rq.entity_kind = 'claim' AND rq.entity_id = ?)
+                OR (
+                    rq.entity_kind = 'evidence'
+                    AND EXISTS (
+                        SELECT 1 FROM claims c
+                        JOIN claim_evidence ce
+                          ON ce.claim_revision_id = c.current_revision_id
+                        WHERE c.id = ? AND ce.evidence_span_id = rq.entity_id
+                    )
+                )
+            )
+            LIMIT 1
+            """,
+            (claim_id, claim_id),
+        ).fetchone()
+        if pending is not None:
+            return "needs_refresh"
+        row = self.conn.execute(
+            """
+            SELECT COALESCE(rs.freshness_state, 'fresh') AS freshness
+            FROM claims c
+            LEFT JOIN research_sessions rs ON rs.id = c.session_id
+            WHERE c.id = ?
+            """,
+            (claim_id,),
+        ).fetchone()
+        value = row["freshness"] if row is not None else "unknown"
+        return value if value in {"fresh", "needs_refresh", "stale", "unknown"} else "unknown"
+
+    def insert_review_event(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO review_events (
+                id, entity_kind, entity_id, action, from_state, to_state,
+                note, actor_type, actor_id, created_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                values["id"],
+                values["entity_kind"],
+                values["entity_id"],
+                values["action"],
+                values["from_state"],
+                values["to_state"],
+                values["note"],
+                values["actor_type"],
+                values["actor_id"],
+                values["created_at"],
+                values["metadata_json"],
+            ),
+        )
+
+    def get_reviewable_entity(
+        self,
+        *,
+        kind: str,
+        entity_id: str,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> dict[str, Any] | None:
+        suffix = " FOR UPDATE" if self.conn.target.kind == "postgres" else ""
+        if kind == "evidence":
+            row = self.conn.execute(
+                """
+                SELECT e.*, s.namespace_kind, s.namespace_id
+                FROM evidence_spans e
+                JOIN source_versions sv ON sv.id = e.source_version_id
+                JOIN sources s ON s.id = sv.source_id
+                WHERE e.id = ? AND s.namespace_kind = ? AND s.namespace_id = ?
+                """
+                + suffix,
+                (entity_id, namespace_kind, namespace_id),
+            ).fetchone()
+            if row is None:
+                return None
+            metadata = _json_object(row["metadata_json"])
+            return {
+                "event_kind": "evidence",
+                "event_id": entity_id,
+                "queue_kind": "evidence",
+                "queue_id": entity_id,
+                "review_state": self._latest_review_state(
+                    "evidence", entity_id, row["review_state"]
+                ),
+                "legacy_table": "excerpts",
+                "legacy_id": metadata.get("v1_excerpt_id")
+                or metadata.get("legacy_excerpt_id"),
+            }
+        if kind == "source_version":
+            row = self.conn.execute(
+                """
+                SELECT sv.id, sv.source_id, s.review_state,
+                       s.namespace_kind, s.namespace_id
+                FROM source_versions sv
+                JOIN sources s ON s.id = sv.source_id
+                WHERE sv.id = ? AND s.namespace_kind = ? AND s.namespace_id = ?
+                """
+                + suffix,
+                (entity_id, namespace_kind, namespace_id),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "event_kind": "source_version",
+                "event_id": entity_id,
+                "queue_kind": "source",
+                "queue_id": row["source_id"],
+                "review_state": self._latest_review_state(
+                    "source_version", entity_id, row["review_state"]
+                ),
+                "legacy_table": "sources",
+                "legacy_id": row["source_id"],
+            }
+        if kind == "report":
+            row = self.conn.execute(
+                """
+                SELECT id, review_state FROM reports
+                WHERE id = ? AND namespace_kind = ? AND namespace_id = ?
+                """
+                + suffix,
+                (entity_id, namespace_kind, namespace_id),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "event_kind": "report",
+                "event_id": entity_id,
+                "queue_kind": "report",
+                "queue_id": entity_id,
+                "review_state": self._latest_review_state(
+                    "report", entity_id, row["review_state"]
+                ),
+                "legacy_table": "reports",
+                "legacy_id": entity_id,
+            }
+        return None
+
+    def update_legacy_review_mirror(
+        self,
+        *,
+        table: str,
+        record_id: str | None,
+        review_state: str,
+        conflict_state: str,
+    ) -> None:
+        if record_id is None:
+            return
+        if table not in {"sources", "excerpts", "reports"}:
+            raise ValueError("unsupported review mirror")
+        self.conn.execute(
+            f"""
+            UPDATE {table}
+            SET review_state = ?, conflict_state = ?, human_reviewed = ?
+            WHERE id = ?
+            """,
+            (
+                review_state,
+                conflict_state,
+                int(review_state == "reviewed"),
+                record_id,
+            ),
+        )
+
+    def resolve_refresh_root(
+        self,
+        *,
+        kind: str,
+        entity_id: str,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> tuple[str, str] | None:
+        if kind == "source":
+            row = self.conn.execute(
+                """
+                SELECT id FROM sources
+                WHERE id = ? AND namespace_kind = ? AND namespace_id = ?
+                """,
+                (entity_id, namespace_kind, namespace_id),
+            ).fetchone()
+            return ("source", entity_id) if row is not None else None
+        if kind == "source_version":
+            row = self.conn.execute(
+                """
+                SELECT sv.source_id
+                FROM source_versions sv
+                JOIN sources s ON s.id = sv.source_id
+                WHERE sv.id = ? AND s.namespace_kind = ? AND s.namespace_id = ?
+                """,
+                (entity_id, namespace_kind, namespace_id),
+            ).fetchone()
+            return ("source", row["source_id"]) if row is not None else None
+        if kind == "evidence":
+            row = self.conn.execute(
+                """
+                SELECT e.id
+                FROM evidence_spans e
+                JOIN source_versions sv ON sv.id = e.source_version_id
+                JOIN sources s ON s.id = sv.source_id
+                WHERE e.id = ? AND s.namespace_kind = ? AND s.namespace_id = ?
+                """,
+                (entity_id, namespace_kind, namespace_id),
+            ).fetchone()
+            return ("evidence", entity_id) if row is not None else None
+        if kind == "claim":
+            row = self.conn.execute(
+                """
+                SELECT id FROM claims
+                WHERE id = ? AND namespace_kind = ? AND namespace_id = ?
+                """,
+                (entity_id, namespace_kind, namespace_id),
+            ).fetchone()
+            return ("claim", entity_id) if row is not None else None
+        if kind == "report":
+            row = self.conn.execute(
+                """
+                SELECT id FROM reports
+                WHERE id = ? AND namespace_kind = ? AND namespace_id = ?
+                """,
+                (entity_id, namespace_kind, namespace_id),
+            ).fetchone()
+            return ("report", entity_id) if row is not None else None
+        if kind == "refresh_item":
+            item = self.get_refresh_item(
+                entity_id,
+                namespace_kind=namespace_kind,
+                namespace_id=namespace_id,
+            )
+            if item is None:
+                return None
+            return (item["entity_kind"], item["entity_id"])
+        return None
+
+    def expand_refresh_targets(
+        self, root_kind: str, root_id: str
+    ) -> list[tuple[str, str]]:
+        targets: list[tuple[str, str]] = [(root_kind, root_id)]
+        evidence_ids: list[str] = []
+        if root_kind == "source":
+            evidence_ids = [
+                row["id"]
+                for row in self.conn.execute(
+                    """
+                    SELECT e.id
+                    FROM evidence_spans e
+                    JOIN source_versions sv ON sv.id = e.source_version_id
+                    WHERE sv.source_id = ?
+                    ORDER BY e.id
+                    """,
+                    (root_id,),
+                ).fetchall()
+            ]
+            targets.extend(("evidence", item) for item in evidence_ids)
+        elif root_kind == "evidence":
+            evidence_ids = [root_id]
+
+        claim_ids: list[str] = []
+        if evidence_ids:
+            claim_ids = [
+                row["id"]
+                for row in self.conn.execute(
+                    """
+                    SELECT DISTINCT c.id
+                    FROM claims c
+                    JOIN claim_evidence ce
+                      ON ce.claim_revision_id = c.current_revision_id
+                    WHERE ce.evidence_span_id IN (
+                    """
+                    + ",".join("?" for _ in evidence_ids)
+                    + ") ORDER BY c.id",
+                    tuple(evidence_ids),
+                ).fetchall()
+            ]
+            targets.extend(("claim", item) for item in claim_ids)
+        elif root_kind == "claim":
+            claim_ids = [root_id]
+
+        if claim_ids:
+            report_ids = [
+                row["id"]
+                for row in self.conn.execute(
+                    """
+                    SELECT DISTINCT r.id
+                    FROM reports r
+                    JOIN report_claims rc ON rc.report_id = r.id
+                    WHERE rc.claim_id IN (
+                    """
+                    + ",".join("?" for _ in claim_ids)
+                    + ") ORDER BY r.id",
+                    tuple(claim_ids),
+                ).fetchall()
+            ]
+            targets.extend(("report", item) for item in report_ids)
+        return list(dict.fromkeys(targets))
+
+    def enqueue_refresh(
+        self,
+        *,
+        refresh_id: str,
+        entity_kind: str,
+        entity_id: str,
+        reason: str,
+        priority: float,
+        detected_at: str,
+        details_json: str,
+    ) -> tuple[Any, bool]:
+        cursor = self.conn.execute(
+            """
+            INSERT INTO refresh_queue (
+                id, entity_kind, entity_id, reason, status, priority,
+                detected_at, details_json
+            ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
+            ON CONFLICT DO NOTHING
+            """,
+            (
+                refresh_id,
+                entity_kind,
+                entity_id,
+                reason,
+                priority,
+                detected_at,
+                details_json,
+            ),
+        )
+        created = cursor.rowcount == 1
+        row = self.conn.execute(
+            """
+            SELECT * FROM refresh_queue
+            WHERE entity_kind = ? AND entity_id = ? AND reason = ?
+              AND status IN ('pending', 'running')
+            ORDER BY detected_at, id
+            LIMIT 1
+            """,
+            (entity_kind, entity_id, reason),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("pending refresh item could not be resolved")
+        return row, created
+
+    def get_refresh_item(
+        self,
+        refresh_id: str,
+        *,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> Any | None:
+        suffix = " FOR UPDATE" if self.conn.target.kind == "postgres" else ""
+        row = self.conn.execute(
+            "SELECT * FROM refresh_queue WHERE id = ?" + suffix,
+            (refresh_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        root = self.resolve_refresh_root(
+            kind=row["entity_kind"],
+            entity_id=row["entity_id"],
+            namespace_kind=namespace_kind,
+            namespace_id=namespace_id,
+        )
+        return row if root is not None else None
+
+    def dismiss_refresh(
+        self,
+        *,
+        refresh_id: str,
+        expected_state: str,
+        resolved_at: str,
+    ) -> Any:
+        cursor = self.conn.execute(
+            """
+            UPDATE refresh_queue
+            SET status = 'dismissed', resolved_at = ?
+            WHERE id = ? AND status = ?
+            """,
+            (resolved_at, refresh_id, expected_state),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("EXPECTED_STATE_MISMATCH")
+        return self.conn.execute(
+            "SELECT * FROM refresh_queue WHERE id = ?",
+            (refresh_id,),
+        ).fetchone()
+
+    def review_event_target_for_refresh(
+        self, entity_kind: str, entity_id: str
+    ) -> tuple[str, str] | None:
+        if entity_kind in {"evidence", "report"}:
+            return (entity_kind, entity_id)
+        if entity_kind == "claim":
+            row = self.conn.execute(
+                "SELECT current_revision_id FROM claims WHERE id = ?",
+                (entity_id,),
+            ).fetchone()
+            if row is not None and row["current_revision_id"]:
+                return ("claim_revision", row["current_revision_id"])
+            return None
+        if entity_kind == "source":
+            row = self.conn.execute(
+                """
+                SELECT id FROM source_versions
+                WHERE source_id = ?
+                ORDER BY retrieved_at DESC, created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (entity_id,),
+            ).fetchone()
+            if row is not None:
+                return ("source_version", row["id"])
+        return None
+
+    def _latest_review_state(
+        self, entity_kind: str, entity_id: str, fallback: str
+    ) -> str:
+        row = self.conn.execute(
+            """
+            SELECT to_state FROM review_events
+            WHERE entity_kind = ? AND entity_id = ?
+              AND action IN ('approve', 'contest', 'reject', 'supersede')
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (entity_kind, entity_id),
+        ).fetchone()
+        return row["to_state"] if row is not None else fallback
 
 
 class SourceVersionRepository:

@@ -101,6 +101,8 @@ class ReadMcpRuntime:
                 "cursor-pagination",
                 "bounded-hydration",
                 "deep-research-read-only",
+                "review-events",
+                "refresh-inspect-enqueue",
             ],
             legacy_tools_enabled=self.legacy_tools_enabled,
             embedding_status="disabled",
