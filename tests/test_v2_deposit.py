@@ -18,8 +18,15 @@ from research_registry.application.deposit import (
     IdempotencyConflict,
     ResearchDepositService,
 )
+from research_registry.application.migrate_v2 import run_v2_backfill
 from research_registry.contracts.v2 import ResearchDepositRequest
 from research_registry.ingestion.blobs import FilesystemBlobStore
+from research_registry.models import (
+    ClaimCreate,
+    ExcerptCreate,
+    SourceCreate,
+    SourceSelector,
+)
 from research_registry.service import RegistryService
 
 
@@ -227,6 +234,203 @@ def test_complete_deposit_is_atomic_private_and_idempotent(
     with pytest.raises(IdempotencyConflict):
         deposits.deposit(changed)
     assert _counts(registry)["claim_revisions"] == 1
+
+
+def test_native_deposit_backfill_identity_is_stable_and_new_v1_writes_project(
+    tmp_path: Path,
+) -> None:
+    registry, _, deposits = _service(tmp_path)
+    request = ResearchDepositRequest.model_validate(
+        _bundle(key="native-backfill-identity")
+    )
+    receipt = deposits.deposit(request)
+    counts_after_deposit = _counts(registry)
+    record_ids = receipt.records.model_dump()
+
+    with registry.connect() as conn:
+        claim_pointer = conn.execute(
+            "SELECT current_revision_id FROM claims WHERE id = ?",
+            (receipt.records.claim_ids["claim"],),
+        ).fetchone()["current_revision_id"]
+        relationship = dict(
+            conn.execute(
+                """
+                SELECT *
+                FROM claim_evidence
+                WHERE claim_revision_id = ?
+                """,
+                (claim_pointer,),
+            ).fetchone()
+        )
+
+    for _ in range(2):
+        result = run_v2_backfill(registry.database_url)
+        assert result.status == "completed"
+        assert _counts(registry) == counts_after_deposit
+        with registry.connect() as conn:
+            current = conn.execute(
+                "SELECT current_revision_id FROM claims WHERE id = ?",
+                (receipt.records.claim_ids["claim"],),
+            ).fetchone()["current_revision_id"]
+            current_relationship = dict(
+                conn.execute(
+                    """
+                    SELECT *
+                    FROM claim_evidence
+                    WHERE claim_revision_id = ?
+                    """,
+                    (current,),
+                ).fetchone()
+            )
+        assert current == claim_pointer
+        assert current_relationship == relationship
+
+    replay = deposits.deposit(request)
+    assert replay.idempotent_replay is True
+    assert replay.records.model_dump() == record_ids
+
+    source = registry.create_source(
+        SourceCreate(
+            locator="note:retained-v1-after-native-backfill",
+            title="Retained v1 source",
+            content_sha256="b" * 64,
+        )
+    )
+    excerpt = registry.create_excerpt(
+        ExcerptCreate(
+            source_id=source.id,
+            question_id=receipt.records.question_id,
+            focal_label="retained v1 projection",
+            note="A new retained write still projects.",
+            selector=SourceSelector(exact="new retained write"),
+            quote_text="new retained write",
+        )
+    )
+    claim = registry.create_claim(
+        ClaimCreate(
+            question_id=receipt.records.question_id,
+            title="Retained writes still project",
+            focal_label="retained v1 projection",
+            statement="A retained v1 write projects after backfill completion.",
+            excerpt_ids=[excerpt.id],
+        )
+    )
+    counts_after_v1 = _counts(registry)
+    with registry.connect() as conn:
+        projected = conn.execute(
+            """
+            SELECT current_revision_id
+            FROM claims
+            WHERE id = ?
+            """,
+            (claim.id,),
+        ).fetchone()
+        link_count = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM claim_evidence
+            WHERE claim_revision_id = ?
+            """,
+            (projected["current_revision_id"],),
+        ).fetchone()["count"]
+    assert projected["current_revision_id"] is not None
+    assert link_count == 1
+
+    run_v2_backfill(registry.database_url)
+    assert _counts(registry) == counts_after_v1
+
+
+@pytest.mark.skipif(
+    "TEST_DATABASE_URL" not in os.environ,
+    reason="postgres native projection identity parity requires TEST_DATABASE_URL",
+)
+def test_postgres_native_deposit_backfill_preserves_authoritative_ids(
+    tmp_path: Path,
+) -> None:
+    registry = RegistryService(os.environ["TEST_DATABASE_URL"])
+    registry.initialize()
+    suffix = uuid4().hex
+    payload = _bundle(key=f"postgres-native-projection-{suffix}")
+    payload["inquiry"]["prompt"] = f"Postgres native projection {suffix}"
+    payload["inquiry"]["topic_label"] = f"Postgres projection {suffix}"
+    payload["sources"][0]["identity"]["locator"] = (
+        f"note:postgres-native-projection-{suffix}"
+    )
+    payload["sources"][0]["identity"]["canonical_key"] = (
+        f"postgres-native-projection-{suffix}"
+    )
+    payload["sources"][0]["version"]["version_key"] = (
+        f"note:postgres-native-projection-{suffix}"
+    )
+    payload["sources"][0]["version"]["canonical_locator"] = (
+        f"note:postgres-native-projection-{suffix}"
+    )
+    payload["claims"][0]["canonical_key"] = (
+        f"postgres-native-projection-claim-{suffix}"
+    )
+    content = f"{CONTENT} {suffix}"
+    content_bytes = content.encode("utf-8")
+    payload["sources"][0]["version"]["content_sha256"] = sha256(
+        content_bytes
+    ).hexdigest()
+    payload["sources"][0]["version"]["snapshot"]["text"] = content
+    payload["sources"][0]["version"]["snapshot"]["byte_count"] = len(
+        content_bytes
+    )
+    deposits = ResearchDepositService(
+        registry.database,
+        FilesystemBlobStore(tmp_path / "postgres-blobs"),
+    )
+    request = ResearchDepositRequest.model_validate(payload)
+    receipt = deposits.deposit(request)
+    expected = receipt.records.model_dump()
+
+    for _ in range(2):
+        run_v2_backfill(registry.database_url, resume=True)
+        with registry.connect() as conn:
+            version_ids = {
+                row["id"]
+                for row in conn.execute(
+                    "SELECT id FROM source_versions WHERE source_id = ?",
+                    (receipt.records.source_ids["source"],),
+                ).fetchall()
+            }
+            evidence_ids = {
+                row["id"]
+                for row in conn.execute(
+                    """
+                    SELECT e.id
+                    FROM evidence_spans e
+                    JOIN source_versions sv ON sv.id = e.source_version_id
+                    WHERE sv.source_id = ?
+                    """,
+                    (receipt.records.source_ids["source"],),
+                ).fetchall()
+            }
+            claim = conn.execute(
+                "SELECT current_revision_id FROM claims WHERE id = ?",
+                (receipt.records.claim_ids["claim"],),
+            ).fetchone()
+            relationship_count = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM claim_evidence
+                WHERE claim_revision_id = ?
+                """,
+                (receipt.records.claim_revision_ids["claim"],),
+            ).fetchone()["count"]
+        assert version_ids == {
+            receipt.records.source_version_ids["source"]
+        }
+        assert evidence_ids == {receipt.records.evidence_ids["evidence"]}
+        assert (
+            claim["current_revision_id"]
+            == receipt.records.claim_revision_ids["claim"]
+        )
+        assert relationship_count == 1
+
+    replay = deposits.deposit(request)
+    assert replay.records.model_dump() == expected
 
 
 def test_concurrent_identical_deposits_commit_once_and_replay(

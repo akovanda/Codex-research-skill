@@ -11,6 +11,7 @@ from research_registry.application.deposit import ResearchDepositService
 from research_registry.application.search import ResearchSearchService
 from research_registry.contracts.v2 import ResearchSearchRequest
 from research_registry.ingestion.blobs import FilesystemBlobStore
+from research_registry.models import SourceCreate
 from research_registry.persistence.read_adapter import (
     CurrentRetrievalAdapter,
     ReadAccess,
@@ -184,6 +185,11 @@ def test_source_freshness_uses_controlled_due_time_and_affects_ranking(
         ("src_due_before", "2026-07-30T11:59:59+00:00"),
         ("src_due_exact", "2026-07-30T12:00:00+00:00"),
         ("src_due_after", "2026-07-30T12:00:01+00:00"),
+        ("src_due_z", "2026-07-30T12:00:00Z"),
+        ("src_due_west_future", "2026-07-30T05:30:00-07:00"),
+        ("src_due_east_before", "2026-07-30T17:29:59+05:30"),
+        ("src_due_east_after", "2026-07-30T17:30:01+05:30"),
+        ("src_due_naive_utc", "2026-07-30T12:00:00"),
         ("src_due_unknown", None),
     )
     with registry.connect() as conn:
@@ -207,8 +213,13 @@ def test_source_freshness_uses_controlled_due_time_and_affects_ranking(
     assert {row["id"]: row["freshness"] for row in projected} == {
         "src_due_after": "fresh",
         "src_due_before": "needs_refresh",
+        "src_due_east_after": "fresh",
+        "src_due_east_before": "needs_refresh",
         "src_due_exact": "needs_refresh",
+        "src_due_naive_utc": "needs_refresh",
         "src_due_unknown": "unknown",
+        "src_due_west_future": "fresh",
+        "src_due_z": "needs_refresh",
     }
     direct = CurrentRetrievalAdapter(
         registry.database,
@@ -231,6 +242,36 @@ def test_source_freshness_uses_controlled_due_time_and_affects_ranking(
     )
     scores = {item.id: item.score for item in response.hits}
     assert scores["src_due_after"] > scores["src_due_before"]
+
+
+def test_new_freshness_timestamps_are_persisted_as_utc_and_naive_means_utc(
+    tmp_path: Path,
+) -> None:
+    registry, _ = _registry(tmp_path)
+    offset = registry.create_source(
+        SourceCreate(
+            locator="note:offset-due",
+            title="Offset due time",
+            refresh_due_at=datetime.fromisoformat(
+                "2026-07-30T05:30:00-07:00"
+            ),
+        )
+    )
+    naive = registry.create_source(
+        SourceCreate(
+            locator="note:naive-due",
+            title="Naive due time",
+            refresh_due_at=datetime.fromisoformat("2026-07-30T12:30:00"),
+        )
+    )
+    with registry.connect() as conn:
+        rows = conn.execute(
+            "SELECT id, refresh_due_at FROM sources WHERE id IN (?, ?)",
+            (offset.id, naive.id),
+        ).fetchall()
+    persisted = {row["id"]: row["refresh_due_at"] for row in rows}
+    assert persisted[offset.id] == "2026-07-30T12:30:00+00:00"
+    assert persisted[naive.id] == "2026-07-30T12:30:00+00:00"
 
 
 def test_sqlite_projection_fts_exact_lookup_and_explained_ranking(

@@ -16,7 +16,11 @@ from research_registry.application.migrate_v2 import (
 )
 from research_registry.cli import build_parser, main as cli_main
 from research_registry.migration_runner import MigrationRunner
-from research_registry.persistence.repositories import V2ReadRepository
+from research_registry.persistence.repositories import (
+    V2BackfillRepository,
+    V2ReadRepository,
+)
+from research_registry.models import SourceCreate
 from research_registry.service import RegistryService
 from tests.fixtures.v1 import populate_v1_fixture, weaken_sqlite_v1_fixture
 
@@ -30,6 +34,7 @@ V2_TABLES = {
     "review_events",
     "refresh_queue",
     "idempotency_keys",
+    "legacy_projection_identity",
     "migration_backfill_progress",
     "migration_backfill_warnings",
     "migration_backfill_errors",
@@ -163,6 +168,49 @@ def test_backfill_requires_explicit_schema_migration(tmp_path: Path) -> None:
             )
         }
     assert tables == set()
+
+
+def test_backfill_freshness_compares_offset_timestamps_as_instants(
+    tmp_path: Path,
+) -> None:
+    service = RegistryService(tmp_path / "offset-backfill.sqlite3")
+    service.initialize()
+    future = service.create_source(
+        SourceCreate(
+            locator="note:backfill-offset-future",
+            title="Offset future",
+        )
+    )
+    overdue = service.create_source(
+        SourceCreate(
+            locator="note:backfill-offset-overdue",
+            title="Offset overdue",
+        )
+    )
+    with service.connect() as conn:
+        conn.execute(
+            "UPDATE sources SET refresh_due_at = ? WHERE id = ?",
+            ("2026-07-30T05:30:00-07:00", future.id),
+        )
+        conn.execute(
+            "UPDATE sources SET refresh_due_at = ? WHERE id = ?",
+            ("2026-07-30T17:29:59+05:30", overdue.id),
+        )
+        repository = V2BackfillRepository(
+            conn, now_text="2026-07-30T12:00:00Z"
+        )
+        for source_id in (future.id, overdue.id):
+            row = conn.execute(
+                "SELECT * FROM sources WHERE id = ?", (source_id,)
+            ).fetchone()
+            repository.process_row("source_versions", row)
+        queued = conn.execute(
+            """
+            SELECT entity_id FROM refresh_queue
+            WHERE reason = 'expired' ORDER BY entity_id
+            """
+        ).fetchall()
+    assert [row["entity_id"] for row in queued] == [overdue.id]
 
 
 def test_immutable_v2_records_and_review_events_are_database_enforced(

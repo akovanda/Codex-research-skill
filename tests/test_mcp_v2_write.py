@@ -39,6 +39,10 @@ def test_write_tools_are_closed_bounded_and_hide_v1_contracts_by_default(
         assert tool.annotations.idempotentHint is True
         assert tool.annotations.openWorldHint is (name == "research_refresh")
     assert tools["research_deposit"].annotations.destructiveHint is False
+    visibility_schema = tools["research_deposit"].parameters["properties"][
+        "visibility"
+    ]
+    assert visibility_schema["enum"] == ["private"]
     assert tools["research_refresh"].parameters["properties"]["mode"]["enum"] == [
         "inspect",
         "enqueue",

@@ -38,6 +38,7 @@ from research_registry.models import (
     SourceSelector,
 )
 from research_registry.service import RegistryService
+from tests.fixtures.v2_review import seed_review_registry
 
 
 def make_service(tmp_path: Path) -> RegistryService:
@@ -117,6 +118,84 @@ def test_question_claim_report_roundtrip_search_and_public_visibility(tmp_path: 
 
     service.review(ReviewRequest(kind="claim", record_id=claim.id))
     assert service.get_claim(claim.id, include_private=True).human_reviewed is True
+
+
+def test_retained_http_review_appends_one_attributed_v2_event(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    app = create_app(settings)
+    client = TestClient(app)
+    service = app.state.service
+    _, ids = seed_review_registry(
+        tmp_path,
+        key="retained-http-review",
+        database=service.database.url,
+    )
+    issued = service.issue_api_key(
+        ApiKeyCreate(
+            label="legacy-review-admin",
+            actor_user_id="reviewer",
+            scopes=["admin", "read_private"],
+        )
+    )
+    headers = {"x-api-key": issued.token}
+    payload = {
+        "kind": "claim",
+        "record_id": ids["claim"],
+        "reviewed": True,
+    }
+
+    first = client.post("/api/review", headers=headers, json=payload)
+    replay = client.post("/api/review", headers=headers, json=payload)
+    reversal = client.post(
+        "/api/review",
+        headers=headers,
+        json={**payload, "reviewed": False},
+    )
+    report_review = client.post(
+        "/api/review",
+        headers=headers,
+        json={
+            "kind": "report",
+            "record_id": ids["report"],
+            "reviewed": True,
+        },
+    )
+
+    assert first.status_code == 200
+    assert replay.status_code == 200
+    assert reversal.status_code == 403
+    assert report_review.status_code == 200
+    with service.connect() as conn:
+        events = conn.execute(
+            """
+            SELECT * FROM review_events
+            WHERE entity_kind = 'claim_revision' AND entity_id = ?
+            """,
+            (ids["revision"],),
+        ).fetchall()
+        audit = conn.execute(
+            """
+            SELECT * FROM audit_log
+            WHERE action = 'review' AND record_id = ?
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (ids["claim"],),
+        ).fetchone()
+        report_event = conn.execute(
+            """
+            SELECT * FROM review_events
+            WHERE entity_kind = 'report' AND entity_id = ?
+            """,
+            (ids["report"],),
+        ).fetchone()
+    assert len(events) == 1
+    assert events[0]["action"] == "approve"
+    assert events[0]["actor_id"] == issued.record.id
+    assert audit is not None and audit["api_key_id"] == issued.record.id
+    assert report_event is not None
+    assert report_event["actor_id"] == issued.record.id
 
 
 def test_api_key_isolation_and_public_namespace_vs_global_index(tmp_path: Path) -> None:

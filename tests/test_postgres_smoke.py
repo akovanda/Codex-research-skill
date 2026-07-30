@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
+from hashlib import sha256
 from uuid import uuid4
 
 import pytest
@@ -106,6 +107,11 @@ def test_postgres_source_freshness_matches_sqlite_boundaries() -> None:
         f"src_pg_before_{suffix}": "2026-07-30T11:59:59+00:00",
         f"src_pg_exact_{suffix}": "2026-07-30T12:00:00+00:00",
         f"src_pg_after_{suffix}": "2026-07-30T12:00:01+00:00",
+        f"src_pg_z_{suffix}": "2026-07-30T12:00:00Z",
+        f"src_pg_west_future_{suffix}": "2026-07-30T05:30:00-07:00",
+        f"src_pg_east_before_{suffix}": "2026-07-30T17:29:59+05:30",
+        f"src_pg_east_after_{suffix}": "2026-07-30T17:30:01+05:30",
+        f"src_pg_naive_{suffix}": "2026-07-30T12:00:00",
     }
     with service.connect() as conn:
         for source_id, due_at in states.items():
@@ -122,13 +128,20 @@ def test_postgres_source_freshness_matches_sqlite_boundaries() -> None:
         rebuild_search_documents(conn, now=now)
         rows = conn.execute(
             "SELECT id, freshness FROM search_documents "
-            "WHERE id IN (?, ?, ?) ORDER BY id",
+            "WHERE id IN ("
+            + ",".join("?" for _ in states)
+            + ") ORDER BY id",
             tuple(states),
         ).fetchall()
     actual = {row["id"]: row["freshness"] for row in rows}
     assert actual[f"src_pg_before_{suffix}"] == "needs_refresh"
     assert actual[f"src_pg_exact_{suffix}"] == "needs_refresh"
     assert actual[f"src_pg_after_{suffix}"] == "fresh"
+    assert actual[f"src_pg_z_{suffix}"] == "needs_refresh"
+    assert actual[f"src_pg_west_future_{suffix}"] == "fresh"
+    assert actual[f"src_pg_east_before_{suffix}"] == "needs_refresh"
+    assert actual[f"src_pg_east_after_{suffix}"] == "fresh"
+    assert actual[f"src_pg_naive_{suffix}"] == "needs_refresh"
 
 
 @pytest.mark.skipif(
@@ -147,6 +160,15 @@ def test_postgres_v2_deposit_and_idempotent_replay(tmp_path) -> None:
     request["sources"][0]["version"]["version_key"] += f"-{suffix}"
     request["sources"][0]["version"]["canonical_locator"] += f"-{suffix}"
     request["claims"][0]["canonical_key"] += f"-{suffix}"
+    content = request["sources"][0]["version"]["snapshot"]["text"] + f" {suffix}"
+    content_bytes = content.encode("utf-8")
+    request["sources"][0]["version"]["content_sha256"] = sha256(
+        content_bytes
+    ).hexdigest()
+    request["sources"][0]["version"]["snapshot"]["text"] = content
+    request["sources"][0]["version"]["snapshot"]["byte_count"] = len(
+        content_bytes
+    )
     deposits = ResearchDepositService(
         service.database,
         FilesystemBlobStore(tmp_path / "postgres-smoke-blobs"),

@@ -30,6 +30,13 @@ PDF/complex parsers remain unsupported without a future isolated optional
 extra, embeddings remain optional and absent, and there is no agent loop or
 automatic publication.
 
+Post-alpha correctness follow-ups are explicitly tracked: resolve evidence
+anchors during deposit whenever retained content bytes are available; expand
+PostgreSQL coverage from sequential smoke checks to concurrent identical,
+conflicting-idempotency, and canonical-claim requests; and narrow psycopg
+exception translation so programming and schema failures retain distinct
+stable diagnostics.
+
 Offline `SHA256SUMS`, SPDX 2.3 SBOM, and in-toto/SLSA-shaped provenance drafts
 are generated under `.data/release/<version>/`. Local provenance explicitly records a
 dirty working tree and is unsigned. The manual release-artifacts workflow

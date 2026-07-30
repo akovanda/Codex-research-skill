@@ -126,7 +126,10 @@ rr2-contract-check: install
 
 rr2-migration-check: install
 	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_v2_migration.py tests/test_migrations.py tests/test_postgres_smoke.py
-	PYTHONPATH=src $(VENV_PYTHON) -m research_registry migrate --plan --json
+	@plan_db="$$(mktemp)"; \
+	trap 'rm -f -- "$$plan_db"' EXIT; \
+	PYTHONPATH=src $(VENV_PYTHON) -m research_registry migrate \
+		--database "$$plan_db" --plan --json
 
 rr2-mcp-check: install
 	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_mcp_v2_read.py tests/test_mcp_v2_write.py tests/test_deep_research_mcp.py tests/test_plugin_v2.py tests/test_contract_snapshots.py
