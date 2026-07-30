@@ -84,6 +84,7 @@
           <button type="submit" class="ghost">Mark Reviewed</button>
         </form>
         <form action="/admin/{{ hit.kind }}/{{ hit.id }}/publish" method="post">
+          <label class="confirmation"><input type="checkbox" name="confirm" value="yes" required> Confirm public publishing</label>
           <button type="submit">Publish</button>
         </form>
       </div>

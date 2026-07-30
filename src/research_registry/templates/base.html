@@ -9,14 +9,17 @@
   <body>
     <div class="backdrop"></div>
     <header class="site-header">
-      <a class="brand" href="/">Research Registry</a>
-      <nav>
-        <a href="/">Public Board</a>
+      <a class="brand" href="/v2/search">Research Registry</a>
+      <nav aria-label="Primary navigation">
+        <a href="/v2/search">Search</a>
         {% if is_admin %}
-        <a href="/admin">Workspace</a>
+        <a href="/v2/review">Review</a>
+        <a href="/v2/refresh">Refresh</a>
+        <a href="/v2/status">Status</a>
         {% else %}
         <a href="/admin/login">Workspace Login</a>
         {% endif %}
+        <a href="/">Public Board</a>
       </nav>
     </header>
     <main class="page-shell">

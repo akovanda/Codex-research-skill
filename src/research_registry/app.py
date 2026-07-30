@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -12,6 +13,15 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__
 from .config import Settings, load_settings
+from .application.review import (
+    ExpectedRevisionMismatch,
+    ExpectedStateMismatch,
+    ReviewError,
+    ReviewRecordNotFound,
+    ResearchReviewService,
+)
+from .application.refresh import InvalidRefreshTransition
+from .contracts.v2 import ResearchReviewRequest
 from .mcp_tools import create_mcp_server
 from .mcp.deep_research import create_deep_research_server
 from .models import (
@@ -35,6 +45,8 @@ from .models import (
     SourceCreate,
 )
 from .service import RegistryService
+from .persistence.read_adapter import ReadAccess
+from .web_v2 import V2WebViewService
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 
@@ -95,6 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.service = service
     app.state.mcp = mcp
     app.state.deep_research_mcp = deep_research_mcp
+    app.state.web_v2 = V2WebViewService(service.database, settings)
     app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
     app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static")
     app.mount("/mcp", mcp_app)
@@ -171,8 +184,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/sources/{source_id}", response_class=HTMLResponse)
     def source_detail(source_id: str, request: Request) -> HTMLResponse:
-        source = _safe_get(lambda: service.get_source(source_id, include_private=_is_admin(request)))
-        excerpts = service.list_excerpts_for_source(source.id, include_private=_is_admin(request))
+        include_private = _is_admin(request)
+        source = _safe_get(
+            lambda: service.get_source(source_id, include_private=include_private)
+        )
+        excerpts = service.list_excerpts_for_source(
+            source.id, include_private=include_private
+        )
         return TEMPLATES.TemplateResponse(
             request,
             "source_detail.html",
@@ -181,8 +199,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/excerpts/{excerpt_id}", response_class=HTMLResponse)
     def excerpt_detail(excerpt_id: str, request: Request) -> HTMLResponse:
-        excerpt = _safe_get(lambda: service.get_excerpt(excerpt_id, include_private=_is_admin(request)))
-        source = service.get_source(excerpt.source_id, include_private=True)
+        include_private = _is_admin(request)
+        excerpt = _safe_get(
+            lambda: service.get_excerpt(
+                excerpt_id, include_private=include_private
+            )
+        )
+        source = _safe_get(
+            lambda: service.get_source(
+                excerpt.source_id, include_private=include_private
+            )
+        )
         return TEMPLATES.TemplateResponse(
             request,
             "excerpt_detail.html",
@@ -195,14 +222,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/claims/{claim_id}", response_class=HTMLResponse)
     def claim_detail(claim_id: str, request: Request) -> HTMLResponse:
-        claim = _safe_get(lambda: service.get_claim(claim_id, include_private=_is_admin(request)))
-        excerpts = service.list_excerpts_for_claim(claim.id, include_private=True)
-        sources = {excerpt.source_id: service.get_source(excerpt.source_id, include_private=True) for excerpt in excerpts}
-        question = service.get_question(claim.question_id, include_private=True)
+        include_private = _is_admin(request)
+        claim = _safe_get(
+            lambda: service.get_claim(claim_id, include_private=include_private)
+        )
+        excerpts = service.list_excerpts_for_claim(
+            claim.id, include_private=include_private
+        )
+        sources = {
+            excerpt.source_id: _safe_get(
+                lambda source_id=excerpt.source_id: service.get_source(
+                    source_id, include_private=include_private
+                )
+            )
+            for excerpt in excerpts
+        }
+        question = _safe_get(
+            lambda: service.get_question(
+                claim.question_id, include_private=include_private
+            )
+        )
         return TEMPLATES.TemplateResponse(
             request,
             "claim_detail.html",
-            {"request": request, "claim": claim, "question": question, "excerpts": excerpts, "sources": sources, "is_admin": _is_admin(request)},
+            {"request": request, "claim": claim, "question": question, "excerpts": excerpts, "sources": sources, "is_admin": include_private},
         )
 
     @app.get("/findings/{finding_id}", response_class=HTMLResponse)
@@ -213,9 +256,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def report_detail(report_id: str, request: Request) -> HTMLResponse:
         include_private = _is_admin(request)
         report = _safe_get(lambda: service.get_report(report_id, include_private=include_private))
-        question = service.get_question(report.question_id, include_private=True)
-        claims = [service.get_claim(claim_id, include_private=True) for claim_id in report.claim_ids]
-        sources = {source_id: service.get_source(source_id, include_private=True) for source_id in report.source_ids}
+        question = _safe_get(
+            lambda: service.get_question(
+                report.question_id, include_private=include_private
+            )
+        )
+        claims = [
+            _safe_get(
+                lambda claim_id=claim_id: service.get_claim(
+                    claim_id, include_private=include_private
+                )
+            )
+            for claim_id in report.claim_ids
+        ]
+        sources = {
+            source_id: _safe_get(
+                lambda source_id=source_id: service.get_source(
+                    source_id, include_private=include_private
+                )
+            )
+            for source_id in report.source_ids
+        }
         follow_up_questions = []
         for question_id in report.guidance.follow_up_question_ids:
             try:
@@ -239,7 +300,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/admin/login", response_class=HTMLResponse)
     def admin_login(request: Request) -> HTMLResponse:
         if _is_admin(request):
-            return RedirectResponse("/admin", status_code=303)
+            return RedirectResponse("/v2/search", status_code=303)
         return TEMPLATES.TemplateResponse(request, "admin_login.html", {"request": request, "error": None})
 
     @app.post("/admin/login", response_class=HTMLResponse)
@@ -247,7 +308,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.admin_token and token != settings.admin_token:
             return TEMPLATES.TemplateResponse(request, "admin_login.html", {"request": request, "error": "Token mismatch"}, status_code=401)
         request.session["is_admin"] = True
-        return RedirectResponse("/admin", status_code=303)
+        return RedirectResponse("/v2/search", status_code=303)
 
     @app.post("/admin/logout")
     async def admin_logout(request: Request) -> RedirectResponse:
@@ -265,9 +326,319 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {"request": request, "dashboard": dashboard, "results": results},
         )
 
+    @app.get("/v2", include_in_schema=False)
+    def v2_home() -> RedirectResponse:
+        return RedirectResponse("/v2/search", status_code=303)
+
+    @app.get("/v2/search", response_class=HTMLResponse, include_in_schema=False)
+    def v2_search(
+        request: Request,
+        q: str = "",
+        kind: str | None = None,
+        review_state: str | None = None,
+        conflict_state: str | None = None,
+        freshness: str | None = None,
+        cursor: str | None = None,
+    ) -> HTMLResponse:
+        auth, access = _web_read_access(request)
+        try:
+            page = app.state.web_v2.search_page(
+                q,
+                access=access,
+                kind=kind or None,
+                review_state=review_state or None,
+                conflict_state=conflict_state or None,
+                freshness=freshness or None,
+                cursor=cursor or None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=_safe_error_message(exc)) from exc
+        return TEMPLATES.TemplateResponse(
+            request,
+            "v2_search.html",
+            {
+                "request": request,
+                "page": page,
+                "is_admin": bool(auth and auth.is_admin),
+            },
+        )
+
+    @app.get(
+        "/v2/claims/{claim_id}",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    def v2_claim_detail(claim_id: str, request: Request) -> HTMLResponse:
+        auth, access = _web_read_access(request)
+        try:
+            claim = app.state.web_v2.claim_detail(
+                claim_id,
+                access=access,
+                can_review=bool(auth and auth.is_admin),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=_safe_error_message(exc)) from exc
+        return TEMPLATES.TemplateResponse(
+            request,
+            "v2_claim_detail.html",
+            {
+                "request": request,
+                "claim": claim,
+                "is_admin": bool(auth and auth.is_admin),
+            },
+        )
+
+    @app.get(
+        "/v2/evidence/{evidence_id}",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    def v2_evidence_detail(evidence_id: str, request: Request) -> HTMLResponse:
+        auth, access = _web_read_access(request)
+        try:
+            evidence = app.state.web_v2.evidence_detail(
+                evidence_id,
+                access=access,
+                can_review=bool(auth and auth.is_admin),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=_safe_error_message(exc)) from exc
+        return TEMPLATES.TemplateResponse(
+            request,
+            "v2_evidence_detail.html",
+            {
+                "request": request,
+                "evidence": evidence,
+                "is_admin": bool(auth and auth.is_admin),
+            },
+        )
+
+    @app.get(
+        "/v2/sources/{source_id}",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    def v2_source_detail(source_id: str, request: Request) -> HTMLResponse:
+        auth, access = _web_read_access(request)
+        try:
+            source = app.state.web_v2.source_detail(
+                source_id,
+                access=access,
+                can_review=bool(auth and auth.is_admin),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=_safe_error_message(exc)) from exc
+        return TEMPLATES.TemplateResponse(
+            request,
+            "v2_source_detail.html",
+            {
+                "request": request,
+                "source": source,
+                "is_admin": bool(auth and auth.is_admin),
+            },
+        )
+
+    @app.get(
+        "/v2/source-versions/{version_id}",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    def v2_source_version_detail(version_id: str, request: Request) -> HTMLResponse:
+        auth, access = _web_read_access(request)
+        try:
+            detail = app.state.web_v2.source_version_detail(
+                version_id,
+                access=access,
+                can_review=bool(auth and auth.is_admin),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=_safe_error_message(exc)) from exc
+        return TEMPLATES.TemplateResponse(
+            request,
+            "v2_source_version_detail.html",
+            {
+                "request": request,
+                "detail": detail,
+                "is_admin": bool(auth and auth.is_admin),
+            },
+        )
+
+    @app.get("/v2/reports/{report_id}", include_in_schema=False)
+    def v2_report_compatibility(report_id: str) -> RedirectResponse:
+        return RedirectResponse(f"/reports/{report_id}", status_code=307)
+
+    @app.get("/v2/questions/{question_id}", include_in_schema=False)
+    def v2_question_compatibility(question_id: str) -> RedirectResponse:
+        return RedirectResponse(f"/questions/{question_id}", status_code=307)
+
+    @app.get("/v2/review", response_class=HTMLResponse, include_in_schema=False)
+    def v2_review_inbox(request: Request) -> HTMLResponse:
+        auth = _admin_guard(request)
+        access = _access_for_auth(auth)
+        inbox = app.state.web_v2.review_inbox(access=access)
+        return TEMPLATES.TemplateResponse(
+            request,
+            "v2_review_inbox.html",
+            {"request": request, "inbox": inbox, "is_admin": True},
+        )
+
+    @app.post("/v2/review", response_class=HTMLResponse, include_in_schema=False)
+    def v2_apply_review(
+        request: Request,
+        entity_kind: str = Form(...),
+        entity_id: str = Form(...),
+        action: str = Form(...),
+        expected_revision_id: str | None = Form(default=None),
+        expected_state: str | None = Form(default=None),
+        note: str | None = Form(default=None),
+        confirm: str | None = Form(default=None),
+        new_title: str | None = Form(default=None),
+        new_statement: str | None = Form(default=None),
+        new_status: str | None = Form(default=None),
+        new_confidence: float | None = Form(default=None),
+    ) -> HTMLResponse:
+        auth = _admin_guard(request)
+        if action in {"contest", "reject", "supersede", "dismiss_refresh"} and confirm != "yes":
+            return _v2_error_response(
+                request,
+                title="Confirmation required",
+                message="Confirm this state-changing action before submitting it.",
+                status_code=400,
+                return_href=_review_return_href(entity_kind, entity_id),
+            )
+        new_revision = None
+        if action == "supersede":
+            if (
+                new_title is None
+                or new_statement is None
+                or new_status is None
+                or new_confidence is None
+            ):
+                return _v2_error_response(
+                    request,
+                    title="Replacement revision required",
+                    message="A superseding action requires complete replacement claim fields.",
+                    status_code=400,
+                    return_href=_review_return_href(entity_kind, entity_id),
+                )
+            new_revision = {
+                "title": new_title,
+                "statement": new_statement,
+                "status": new_status,
+                "confidence": new_confidence,
+            }
+        try:
+            command = ResearchReviewRequest.model_validate(
+                {
+                    "protocol": "research-review/v2",
+                    "idempotency_key": f"web-review-{uuid4().hex}",
+                    "entity": {"kind": entity_kind, "id": entity_id},
+                    "action": action,
+                    "expected_revision_id": expected_revision_id,
+                    "expected_state": expected_state,
+                    "note": note or None,
+                    "new_revision": new_revision,
+                }
+            )
+            result = ResearchReviewService(service.database).review(
+                command,
+                namespace_kind=auth.namespace_kind,
+                namespace_id=auth.namespace_id,
+                actor_type="human",
+                actor_id=auth.actor_user_id or auth.api_key_id,
+            )
+        except (ExpectedRevisionMismatch, ExpectedStateMismatch):
+            return _v2_error_response(
+                request,
+                title="Another reviewer changed this record",
+                message=(
+                    "Another reviewer changed the current revision or review state "
+                    "before this action was applied."
+                ),
+                status_code=409,
+                return_href=_review_return_href(entity_kind, entity_id),
+                retry=True,
+            )
+        except ReviewRecordNotFound:
+            return _v2_error_response(
+                request,
+                title="Review target not found",
+                message="The accessible review target could not be found.",
+                status_code=404,
+                return_href="/v2/review",
+            )
+        except (ReviewError, InvalidRefreshTransition, ValueError):
+            return _v2_error_response(
+                request,
+                title="Review action is not valid",
+                message="The requested review transition is not valid for the current state.",
+                status_code=400,
+                return_href=_review_return_href(entity_kind, entity_id),
+            )
+        if result.current_state is not None:
+            location = f"/v2/claims/{result.current_state.claim_id}"
+        elif entity_kind == "refresh_item":
+            location = "/v2/refresh"
+        else:
+            location = app.state.web_v2.record_href(entity_kind, entity_id)
+        return RedirectResponse(location, status_code=303)
+
+    @app.get("/v2/refresh", response_class=HTMLResponse, include_in_schema=False)
+    def v2_refresh_queue(request: Request) -> HTMLResponse:
+        auth = _admin_guard(request)
+        queue = app.state.web_v2.refresh_queue(access=_access_for_auth(auth))
+        return TEMPLATES.TemplateResponse(
+            request,
+            "v2_refresh_queue.html",
+            {"request": request, "queue": queue, "is_admin": True},
+        )
+
+    @app.get(
+        "/v2/deposits/{receipt_key}",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    def v2_deposit_receipt(receipt_key: str, request: Request) -> HTMLResponse:
+        auth = _admin_guard(request)
+        if len(receipt_key) > 200:
+            raise HTTPException(status_code=404, detail="deposit receipt not found")
+        try:
+            receipt = app.state.web_v2.deposit_receipt(
+                receipt_key,
+                namespace_id=auth.namespace_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=_safe_error_message(exc)) from exc
+        return TEMPLATES.TemplateResponse(
+            request,
+            "v2_deposit_receipt.html",
+            {"request": request, "receipt": receipt, "is_admin": True},
+        )
+
+    @app.get("/v2/status", response_class=HTMLResponse, include_in_schema=False)
+    def v2_status(request: Request) -> HTMLResponse:
+        _admin_guard(request)
+        try:
+            service.check_ready()
+            status = app.state.web_v2.status()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="registry health is unavailable") from exc
+        return TEMPLATES.TemplateResponse(
+            request,
+            "v2_status.html",
+            {"request": request, "status": status, "is_admin": True},
+        )
+
     @app.post("/admin/{kind}/{record_id}/publish")
-    def admin_publish(kind: str, record_id: str, request: Request) -> RedirectResponse:
+    async def admin_publish(
+        kind: str,
+        record_id: str,
+        request: Request,
+    ) -> RedirectResponse:
         _require_admin(request)
+        form = await request.form()
+        if form.get("confirm") != "yes":
+            raise HTTPException(status_code=400, detail="publish confirmation required")
         service.publish(PublishRequest(kind=kind, record_id=record_id, include_in_global_index=True), auth=_admin_auth())
         return RedirectResponse(request.headers.get("referer", "/admin"), status_code=303)
 
@@ -487,6 +858,26 @@ def _optional_auth(request: Request) -> AuthContext | None:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
+def _web_read_access(request: Request) -> tuple[AuthContext | None, ReadAccess]:
+    auth = _optional_auth(request)
+    include_private = bool(auth and auth.has_scope("read_private"))
+    return auth, _access_for_auth(auth, include_private=include_private)
+
+
+def _access_for_auth(
+    auth: AuthContext | None,
+    *,
+    include_private: bool = True,
+) -> ReadAccess:
+    return ReadAccess(
+        include_private=include_private and auth is not None,
+        namespace_kind=auth.namespace_kind if auth else None,
+        namespace_id=auth.namespace_id if auth else None,
+        is_admin=bool(auth and auth.is_admin),
+        local_trusted=False,
+    )
+
+
 def _require_auth(request: Request, scope: str | None = None) -> AuthContext:
     auth = _optional_auth(request)
     if auth is None:
@@ -511,6 +902,49 @@ def _admin_guard(request: Request) -> AuthContext:
     if not auth.is_admin:
         raise HTTPException(status_code=403, detail="admin scope required")
     return auth
+
+
+def _safe_error_message(error: Exception) -> str:
+    message = str(error)
+    if ": " in message:
+        message = message.split(": ", 1)[1]
+    return message[:500] or "The requested record could not be found."
+
+
+def _review_return_href(entity_kind: str, entity_id: str) -> str:
+    if entity_kind == "refresh_item":
+        return "/v2/refresh"
+    if entity_kind == "evidence":
+        return f"/v2/evidence/{entity_id}"
+    if entity_kind == "source_version":
+        return f"/v2/source-versions/{entity_id}"
+    if entity_kind == "report":
+        return f"/reports/{entity_id}"
+    return "/v2/review"
+
+
+def _v2_error_response(
+    request: Request,
+    *,
+    title: str,
+    message: str,
+    status_code: int,
+    return_href: str,
+    retry: bool = False,
+) -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(
+        request,
+        "v2_error.html",
+        {
+            "request": request,
+            "title": title,
+            "message": message,
+            "return_href": return_href,
+            "retry": retry,
+            "is_admin": True,
+        },
+        status_code=status_code,
+    )
 
 
 app = create_app()

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Request not applied · Research Registry{% endblock %}
+{% block content %}
+<section class="panel narrow error-panel" role="alert">
+  <p class="eyebrow">Request not applied</p>
+  <h1>{{ title }}</h1>
+  <p>{{ message }}</p>
+  {% if retry %}<p>Reload the current record before trying again.</p>{% endif %}
+  <p><a class="button-link ghost" href="{{ return_href }}">Return</a></p>
+</section>
+{% endblock %}

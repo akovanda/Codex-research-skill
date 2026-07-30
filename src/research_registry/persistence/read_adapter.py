@@ -354,12 +354,137 @@ class CurrentRetrievalAdapter:
                 "commit_sha": row["commit_sha"],
                 "blob_sha": row["blob_sha"],
                 "path": row["path"],
+                "snapshot_policy": self._json_object(
+                    row["metadata_json"]
+                ).get("snapshot_policy"),
+                "snapshot_available": row["content_object_id"] is not None,
                 "review_state": row["review_state"],
                 "trust_tier": row["trust_tier"],
                 "conflict_state": row["conflict_state"],
             }
             for row in rows
         ]
+
+    def list_claim_revisions_for_evidence(
+        self,
+        evidence_id: str,
+        *,
+        access: ReadAccess,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        clause, parameters = self._access_clause("c", access)
+        with connect_database(self.database) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    c.id AS claim_id, cr.id AS revision_id,
+                    cr.revision_number, cr.title, cr.status,
+                    ce.relationship, ce.rationale, ce.weight,
+                    c.review_state, c.conflict_state
+                FROM claim_evidence ce
+                JOIN claim_revisions cr ON cr.id = ce.claim_revision_id
+                JOIN claims c ON c.id = cr.claim_id
+                WHERE ce.evidence_span_id = ? AND {clause}
+                ORDER BY cr.created_at DESC, cr.id ASC
+                LIMIT ?
+                """,
+                (evidence_id, *parameters, limit),
+            ).fetchall()
+        return [
+            {
+                "claim_id": row["claim_id"],
+                "revision_id": row["revision_id"],
+                "revision_number": int(row["revision_number"]),
+                "title": row["title"],
+                "status": row["status"],
+                "relationship": row["relationship"],
+                "rationale": row["rationale"],
+                "weight": float(row["weight"]),
+                "review_state": row["review_state"],
+                "conflict_state": row["conflict_state"],
+            }
+            for row in rows
+        ]
+
+    def list_refresh_queue(
+        self,
+        *,
+        access: ReadAccess,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        clause, parameters = self._access_clause("owner", access)
+        with connect_database(self.database) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT rq.*, owner.title
+                FROM refresh_queue rq
+                JOIN (
+                    SELECT 'source' AS entity_kind, s.id, s.title,
+                           s.visibility, s.namespace_kind, s.namespace_id,
+                           s.public_index_state
+                    FROM sources s
+                    UNION ALL
+                    SELECT 'evidence', e.id, s.title,
+                           s.visibility, s.namespace_kind, s.namespace_id,
+                           s.public_index_state
+                    FROM evidence_spans e
+                    JOIN source_versions sv ON sv.id = e.source_version_id
+                    JOIN sources s ON s.id = sv.source_id
+                    UNION ALL
+                    SELECT 'claim', c.id, c.title,
+                           c.visibility, c.namespace_kind, c.namespace_id,
+                           c.public_index_state
+                    FROM claims c
+                    UNION ALL
+                    SELECT 'report', r.id, r.title,
+                           r.visibility, r.namespace_kind, r.namespace_id,
+                           r.public_index_state
+                    FROM reports r
+                ) owner
+                  ON owner.entity_kind = rq.entity_kind
+                 AND owner.id = rq.entity_id
+                WHERE {clause}
+                ORDER BY rq.priority DESC, rq.detected_at DESC, rq.id ASC
+                LIMIT ?
+                """,
+                (*parameters, limit),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "entity_kind": row["entity_kind"],
+                "entity_id": row["entity_id"],
+                "title": row["title"],
+                "reason": row["reason"],
+                "status": row["status"],
+                "priority": float(row["priority"]),
+                "detected_at": row["detected_at"],
+                "resolved_at": row["resolved_at"],
+                "details": self._json(row["details_json"]) or {},
+            }
+            for row in rows
+        ]
+
+    def get_deposit_receipt(
+        self,
+        key: str,
+        *,
+        namespace_id: str,
+    ) -> dict[str, Any] | None:
+        with connect_database(self.database) as conn:
+            row = conn.execute(
+                """
+                SELECT response_json FROM idempotency_keys
+                WHERE namespace_id = ?
+                  AND operation = 'research_deposit_v2'
+                  AND "key" = ?
+                """,
+                (namespace_id, key),
+            ).fetchone()
+        if row is None:
+            return None
+        value = self._json(row["response_json"])
+        return value if isinstance(value, dict) and "protocol" in value else None
 
     def list_reviews(
         self,
@@ -1049,3 +1174,8 @@ class CurrentRetrievalAdapter:
             return json.loads(value)
         except json.JSONDecodeError:
             return None
+
+    @classmethod
+    def _json_object(cls, value: str | None) -> dict[str, Any]:
+        parsed = cls._json(value)
+        return parsed if isinstance(parsed, dict) else {}

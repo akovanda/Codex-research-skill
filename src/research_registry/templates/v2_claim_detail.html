@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Claim · Research Registry{% endblock %}
+{% block content %}
+<section class="hero compact detail">
+  <div>
+    <p class="eyebrow">Claim · Current revision {{ claim.current_revision.revision_number }}</p>
+    <h1>{{ claim.title }}</h1>
+    <p class="lede safe-content">{{ claim.statement }}</p>
+  </div>
+  <div class="badge-row">
+    <span class="badge">{{ claim.status }}</span>
+    <span class="badge {{ "positive" if claim.review_state == "reviewed" else "warning" }}">{{ claim.review_state }}</span>
+    <span class="badge {{ "danger" if claim.conflict_state == "conflicted" else "neutral" }}">{{ claim.conflict_state }}</span>
+    <span class="badge {{ "warning" if claim.freshness in ("stale", "needs_refresh") else "neutral" }}">{{ claim.freshness | replace("_", " ") }}</span>
+  </div>
+  <dl class="meta-grid">
+    <dt>Claim ID</dt><dd><code>{{ claim.id }}</code></dd>
+    <dt>Current revision</dt><dd><code>{{ claim.current_revision.id }}</code></dd>
+    <dt>Confidence</dt><dd>{{ "%.2f" | format(claim.confidence) }}</dd>
+    <dt>Scope</dt><dd><pre class="inline-data">{{ claim.scope | tojson(indent=2) }}</pre></dd>
+  </dl>
+</section>
+
+{% if claim.error %}
+<section class="panel error-panel" role="alert">
+  <h2>Review was not applied</h2>
+  <p>{{ claim.error }}</p>
+  <p>Reload the current record before trying the review again.</p>
+</section>
+{% endif %}
+
+{% if claim.can_review %}
+<section class="panel" aria-labelledby="claim-actions-heading">
+  <div class="panel-head">
+    <h2 id="claim-actions-heading">Review current revision</h2>
+    <span>Optimistic concurrency protected</span>
+  </div>
+  <div class="action-grid">
+    {% for action, label, tone in (("approve", "Approve", ""), ("contest", "Contest", "ghost"), ("reject", "Reject", "danger"), ("request_refresh", "Request refresh", "ghost")) %}
+    <form action="/v2/review" method="post" class="review-form">
+      <input type="hidden" name="entity_kind" value="claim_revision">
+      <input type="hidden" name="entity_id" value="{{ claim.current_revision.id }}">
+      <input type="hidden" name="action" value="{{ action }}">
+      <input type="hidden" name="expected_revision_id" value="{{ claim.current_revision.id }}">
+      <input type="hidden" name="expected_state" value="{{ claim.review_state }}">
+      {% if action in ("contest", "reject") %}
+      <label class="confirmation"><input type="checkbox" name="confirm" value="yes" required> Confirm {{ action }} action</label>
+      {% endif %}
+      <button type="submit" class="{{ tone }}" aria-label="{{ label }} current claim revision">{{ label }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  <details class="supersede-form">
+    <summary>Supersede with a replacement revision</summary>
+    <form action="/v2/review" method="post" class="stack">
+      <input type="hidden" name="entity_kind" value="claim_revision">
+      <input type="hidden" name="entity_id" value="{{ claim.current_revision.id }}">
+      <input type="hidden" name="action" value="supersede">
+      <input type="hidden" name="expected_revision_id" value="{{ claim.current_revision.id }}">
+      <input type="hidden" name="expected_state" value="{{ claim.review_state }}">
+      <label>Replacement title <input name="new_title" value="{{ claim.title }}" required maxlength="500"></label>
+      <label>Replacement statement <textarea name="new_statement" required maxlength="50000">{{ claim.statement }}</textarea></label>
+      <label>Status
+        <select name="new_status">
+          {% for value in ("draft", "partial", "supported", "contested", "rejected") %}
+          <option value="{{ value }}" {% if value == claim.status %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Confidence <input type="number" name="new_confidence" min="0" max="1" step="0.01" value="{{ claim.confidence }}" required></label>
+      <label class="confirmation"><input type="checkbox" name="confirm" value="yes" required> Confirm superseding this revision</label>
+      <button type="submit" class="danger" aria-label="Supersede current claim revision">Create replacement revision</button>
+    </form>
+  </details>
+</section>
+{% endif %}
+
+{% for relationship, heading in (("supports", "Supports"), ("refutes", "Refutes"), ("qualifies", "Qualifies"), ("contextualizes", "Context")) %}
+<section class="panel evidence-group" aria-labelledby="{{ relationship }}-heading">
+  <div class="panel-head">
+    <h2 id="{{ relationship }}-heading">{{ heading }}</h2>
+    <span>{{ claim.evidence_groups[relationship] | length }} span(s)</span>
+  </div>
+  <div class="stack">
+    {% for evidence in claim.evidence_groups[relationship] %}
+    <article class="card">
+      <div class="badge-row">
+        <span class="badge">{{ evidence.relationship }}</span>
+        <span class="badge">{{ evidence.anchor_state }}</span>
+        <span class="badge">{{ evidence.review_state }}</span>
+      </div>
+      <h3><a href="/v2/evidence/{{ evidence.id }}">{{ evidence.source_title }}</a></h3>
+      <blockquote>{{ evidence.quote_text }}</blockquote>
+      {% if evidence.rationale %}<p>{{ evidence.rationale }}</p>{% endif %}
+      <p class="muted"><code>{{ evidence.id }}</code> · source version <code>{{ evidence.source_version_id }}</code></p>
+    </article>
+    {% else %}
+    <p class="empty">No {{ heading | lower }} evidence is linked to this revision.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+
+<section class="grid two-up">
+  <div class="panel">
+    <div class="panel-head"><h2>Revision history</h2><span>{{ claim.revisions | length }}</span></div>
+    <div class="stack">
+      {% for revision in claim.revisions %}
+      <details class="card" {% if revision.id == claim.current_revision.id %}open{% endif %}>
+        <summary>Revision {{ revision.revision_number }} · {{ revision.status }} · <code>{{ revision.id }}</code></summary>
+        <h3>{{ revision.title }}</h3>
+        <p class="safe-content">{{ revision.statement }}</p>
+        <p class="muted">{{ revision.created_at }} · confidence {{ "%.2f" | format(revision.confidence) }}</p>
+      </details>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Review history</h2><span>{{ claim.reviews | length }}</span></div>
+    <div class="stack">
+      {% for review in claim.reviews %}
+      <article class="card"><strong>{{ review.action }}</strong><p>{{ review.note or "No note supplied." }}</p><p class="muted">{{ review.created_at }} · {{ review.actor_type }}</p></article>
+      {% else %}<p class="empty">No review events yet.</p>{% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Dependent reports</h2><span>{{ claim.reports | length }}</span></div>
+  <div class="stack">
+    {% for report in claim.reports %}
+    <article class="card"><h3><a href="/reports/{{ report.id }}">{{ report.title }}</a></h3><p class="safe-content">{{ report.summary }}</p></article>
+    {% else %}<p class="empty">No reports currently depend on this claim.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

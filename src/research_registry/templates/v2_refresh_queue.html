@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Refresh queue · Research Registry{% endblock %}
+{% block content %}
+<section class="hero compact">
+  <div>
+    <p class="eyebrow">Freshness workflow</p>
+    <h1>Refresh queue</h1>
+    <p class="lede">Inspect source changes and stale anchors. Dismissing work records an append-only event; it never rewrites evidence.</p>
+  </div>
+</section>
+<section class="panel">
+  <div class="panel-head"><h2>Queue items</h2><span>{{ queue.items | length }}</span></div>
+  <div class="stack">
+    {% for item in queue.items %}
+    <article class="card">
+      <div class="badge-row"><span class="badge">{{ item.status }}</span><span class="badge">{{ item.reason | replace("_", " ") }}</span><span class="badge">priority {{ "%.2f" | format(item.priority) }}</span></div>
+      <h3><a href="{{ item.href }}">{{ item.title }}</a></h3>
+      <p class="muted"><code>{{ item.id }}</code> · {{ item.entity_kind }} <code>{{ item.entity_id }}</code> · detected {{ item.detected_at }}</p>
+      {% if item.details %}
+      <details>
+        <summary>Change and anchor metadata</summary>
+        <pre>{{ item.details | tojson(indent=2) }}</pre>
+      </details>
+      {% endif %}
+      {% if item.status == "pending" %}
+      <form action="/v2/review" method="post" class="review-form">
+        <input type="hidden" name="entity_kind" value="refresh_item">
+        <input type="hidden" name="entity_id" value="{{ item.id }}">
+        <input type="hidden" name="action" value="dismiss_refresh">
+        <input type="hidden" name="expected_state" value="{{ item.status }}">
+        <label class="confirmation"><input type="checkbox" name="confirm" value="yes" required> Confirm dismissal</label>
+        <button type="submit" class="ghost" aria-label="Dismiss refresh item {{ item.id }}">Dismiss</button>
+      </form>
+      {% endif %}
+    </article>
+    {% else %}<p class="empty">The refresh queue is empty.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

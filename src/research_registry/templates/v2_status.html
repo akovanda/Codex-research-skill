@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Status · Research Registry{% endblock %}
+{% block content %}
+<section class="hero compact">
+  <div>
+    <p class="eyebrow">Operator status</p>
+    <h1>Registry health</h1>
+    <p class="lede">Content-free health and capability metadata. Tokens, source bodies, claims, quotes, and reports are never shown here.</p>
+  </div>
+</section>
+<section class="grid two-up">
+  <div class="panel">
+    <div class="panel-head"><h2>Application</h2></div>
+    <dl class="meta-grid">
+      <dt>Application version</dt><dd>{{ status.application_version }}</dd>
+      <dt>Schema version</dt><dd>{{ status.schema_version }}</dd>
+      <dt>Migration state</dt><dd>{{ status.migration_state }}</dd>
+      <dt>Capture mode</dt><dd>{{ status.capture_mode }}</dd>
+      <dt>Legacy tools</dt><dd>{{ status.legacy_tools }}</dd>
+      <dt>Retrieval profile</dt><dd>{{ status.retrieval_profile }}</dd>
+      <dt>Embedding status</dt><dd>{{ status.embedding_status }}</dd>
+      <dt>MCP transports</dt><dd>{{ status.mcp_transports }}</dd>
+    </dl>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Storage</h2></div>
+    <dl class="meta-grid">
+      <dt>Database</dt><dd>{{ status.database_type }} · {{ status.database_health }}</dd>
+      <dt>Database path</dt><dd><code>{{ status.database_path }}</code></dd>
+      <dt>Blob storage</dt><dd>{{ status.blob_backend }} · {{ status.blob_health }}</dd>
+      <dt>Referenced objects</dt><dd>{{ status.blob_referenced_objects }}</dd>
+      <dt>Missing/corrupt objects</dt><dd>{{ status.blob_missing_objects }}</dd>
+      <dt>Data path</dt><dd><code>{{ status.data_path }}</code></dd>
+    </dl>
+  </div>
+</section>
+<section class="grid two-up">
+  <div class="panel">
+    <div class="panel-head"><h2>Refresh backlog</h2></div>
+    <dl class="meta-grid"><dt>Pending</dt><dd>{{ status.refresh_pending }}</dd><dt>Running</dt><dd>{{ status.refresh_running }}</dd><dt>Failed</dt><dd>{{ status.refresh_failed }}</dd></dl>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Backup</h2></div>
+    <dl class="meta-grid"><dt>Backup age</dt><dd>{{ status.backup_age }}</dd><dt>Backup integrity</dt><dd>{{ status.backup_integrity }}</dd></dl>
+  </div>
+</section>
+{% endblock %}

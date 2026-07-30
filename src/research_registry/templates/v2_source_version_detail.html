@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Source version · Research Registry{% endblock %}
+{% block content %}
+<section class="hero compact detail">
+  <div>
+    <p class="eyebrow">Immutable source version</p>
+    <h1>{{ detail.source_title }}</h1>
+    <p class="lede">{{ detail.version.change_label }}</p>
+  </div>
+  <dl class="meta-grid">
+    <dt>Version ID</dt><dd><code>{{ detail.version.id }}</code></dd>
+    <dt>Source</dt><dd><a href="/v2/sources/{{ detail.version.source_id }}"><code>{{ detail.version.source_id }}</code></a></dd>
+    <dt>Kind</dt><dd>{{ detail.version.version_kind }}</dd>
+    <dt>Retrieved</dt><dd>{{ detail.version.retrieved_at }}</dd>
+    <dt>Canonical locator</dt><dd class="safe-content">{{ detail.version.canonical_locator }}</dd>
+    <dt>Content SHA-256</dt><dd><code>{{ detail.version.content_sha256 }}</code></dd>
+    <dt>Snapshot policy</dt><dd>{{ detail.version.snapshot_policy or "not recorded" }}</dd>
+    <dt>Snapshot body</dt><dd>Not exposed by the web UI</dd>
+    <dt>Parser</dt><dd>{{ detail.version.parser_name or "not recorded" }} {{ detail.version.parser_version or "" }}</dd>
+    {% if detail.version.repository %}
+    <dt>Repository</dt><dd>{{ detail.version.repository }}</dd>
+    <dt>Commit</dt><dd><code>{{ detail.version.commit_sha }}</code></dd>
+    <dt>Blob</dt><dd><code>{{ detail.version.blob_sha }}</code></dd>
+    <dt>Path</dt><dd><code>{{ detail.version.path }}</code></dd>
+    {% endif %}
+  </dl>
+</section>
+{% if detail.can_review %}
+<section class="panel" aria-labelledby="version-actions-heading">
+  <div class="panel-head"><h2 id="version-actions-heading">Review source version</h2><span>Current state: {{ detail.version.review_state }}</span></div>
+  <div class="action-grid">
+    {% for action, label, tone in (("approve", "Approve", ""), ("contest", "Contest", "ghost"), ("reject", "Reject", "danger"), ("request_refresh", "Request refresh", "ghost")) %}
+    <form action="/v2/review" method="post" class="review-form">
+      <input type="hidden" name="entity_kind" value="source_version">
+      <input type="hidden" name="entity_id" value="{{ detail.version.id }}">
+      <input type="hidden" name="action" value="{{ action }}">
+      <input type="hidden" name="expected_state" value="{{ detail.version.review_state }}">
+      {% if action in ("contest", "reject") %}<label class="confirmation"><input type="checkbox" name="confirm" value="yes" required> Confirm {{ action }}</label>{% endif %}
+      <button type="submit" class="{{ tone }}" aria-label="{{ label }} source version">{{ label }}</button>
+    </form>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+<section class="panel">
+  <div class="panel-head"><h2>Evidence anchored here</h2><span>{{ detail.evidence | length }}</span></div>
+  <div class="stack">
+    {% for evidence in detail.evidence %}
+    <article class="card"><h3><a href="/v2/evidence/{{ evidence.id }}"><code>{{ evidence.id }}</code></a></h3><blockquote>{{ evidence.quote_text }}</blockquote></article>
+    {% else %}<p class="empty">No accessible evidence is anchored to this version.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}
