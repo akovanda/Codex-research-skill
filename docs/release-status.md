@@ -1,7 +1,8 @@
 # V2 Release Status
 
-The repository metadata remains `0.1.0` open-source preview and is classified
-as alpha. RR2-014 adds release evidence and commands; it does not declare a
+The draft package and plugin metadata is aligned at `0.2.0a1` and is classified
+as alpha. The released preview remains `0.1.0`. RR2-014 adds release evidence
+and commands; it does not declare a
 stable release, create a tag, sign artifacts, publish a package, or push an
 image.
 
@@ -30,7 +31,7 @@ extra, embeddings remain optional and absent, and there is no agent loop or
 automatic publication.
 
 Offline `SHA256SUMS`, SPDX 2.3 SBOM, and in-toto/SLSA-shaped provenance drafts
-are generated under `.data/release/`. Local provenance explicitly records a
+are generated under `.data/release/<version>/`. Local provenance explicitly records a
 dirty working tree and is unsigned. The manual release-artifacts workflow
 uploads CI artifacts for maintainer review but does not publish a package or
 container. The separate image workflow is manual dispatch only.

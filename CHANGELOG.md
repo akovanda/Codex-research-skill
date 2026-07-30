@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Planned package and plugin version: `0.2.0a1`. This draft does not publish,
+tag, or release that version.
+
 - Added deterministic retrieval metrics (Recall@k, MRR, nDCG, Precision@5,
   evidence/state accuracy, duplicates, no-answer accuracy, latency, bytes, and
   calls), operator-local known-answer evaluation, and a recorded four-mode

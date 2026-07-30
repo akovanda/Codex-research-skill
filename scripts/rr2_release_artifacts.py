@@ -26,21 +26,23 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=ROOT / ".data" / "release")
     args = parser.parse_args()
 
+    project_version = version("research-registry")
+    artifact_prefix = f"research_registry-{project_version}"
     artifacts = sorted(
         [
-            *args.dist.glob("*.whl"),
-            *args.dist.glob("*.tar.gz"),
+            *args.dist.glob(f"{artifact_prefix}*.whl"),
+            *args.dist.glob(f"{artifact_prefix}*.tar.gz"),
         ],
         key=lambda path: path.name,
     )
     if not artifacts:
         raise SystemExit("no wheel or sdist found; run python -m build first")
-    args.output.mkdir(parents=True, exist_ok=True)
+    output = args.output / project_version
+    output.mkdir(parents=True, exist_ok=True)
     staged_artifacts = stage_release_artifacts(
         artifacts,
-        output_directory=args.output,
+        output_directory=output,
     )
-    project_version = version("research-registry")
     dependencies = _installed_dependencies()
     sbom = build_spdx_sbom(
         project_name="research-registry",
@@ -56,8 +58,8 @@ def main() -> None:
     provenance["predicate"]["runDetails"]["metadata"]["workingTreeDirty"] = bool(
         _git("status", "--porcelain")
     )
-    sbom_path = args.output / "research-registry.spdx.json"
-    provenance_path = args.output / "research-registry.intoto.jsonl"
+    sbom_path = output / "research-registry.spdx.json"
+    provenance_path = output / "research-registry.intoto.jsonl"
     sbom_path.write_text(
         json.dumps(sbom, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -67,7 +69,7 @@ def main() -> None:
         encoding="utf-8",
     )
     checksummed = [*staged_artifacts, sbom_path, provenance_path]
-    checksums_path = args.output / "SHA256SUMS"
+    checksums_path = output / "SHA256SUMS"
     write_sha256_manifest(
         checksummed,
         output_path=checksums_path,

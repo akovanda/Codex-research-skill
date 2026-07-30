@@ -12,7 +12,9 @@ The future public/shared network is not the current product target. The current 
 
 ## Release Scope
 
-`v0.1.0` is a **GitHub-first open-source preview**.
+`v0.1.0` is the **GitHub-first open-source preview**. The unreleased v2 draft
+uses aligned package and plugin metadata `0.2.0a1`; no alpha tag or artifact
+has been published.
 
 The v2 gate currently remains alpha until the operator-only Postgres,
 real-database migration, shared Compose, and security-review evidence is

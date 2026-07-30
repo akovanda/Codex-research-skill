@@ -1,6 +1,6 @@
 {
   "name": "research-registry",
-  "version": "0.1.0",
+  "version": "0.2.0a1",
   "description": "Recall and explicitly preserve durable, source-backed research.",
   "author": {
     "name": "Research Registry contributors",
