@@ -1,13 +1,36 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.types import ToolAnnotations
+from pydantic import Field, StringConstraints
 
 from .backend_client import RegistryBackend
 from .config import Settings
+from .application.fetch import ResearchGetResult
+from .contracts.v2 import (
+    ConflictState,
+    FreshnessState,
+    GetInclude,
+    ResearchSearchResponse,
+    ResearchStatusResponse,
+    ReviewState,
+    SearchKind,
+    SearchScope,
+)
+from .mcp.read_runtime import ReadMcpRuntime
+from .mcp.schema import close_tool_input_schema
 from .models import AuthContext, ClaimCreate, ExcerptCreate, PublishRequest, QuestionCreate, ReportCreate, ResearchSessionCreate, SourceCreate
 from .service import RegistryService
+
+
+_READ_ONLY = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
 
 
 def _admin_auth() -> AuthContext:
@@ -350,6 +373,14 @@ def create_mcp_server(
         default_api_key=default_api_key,
         allow_admin_fallback=allow_admin_fallback,
     )
+    read_runtime = ReadMcpRuntime(
+        backend,
+        settings=settings,
+        service=service,
+        default_api_key=default_api_key if allow_admin_fallback else None,
+        allow_admin_fallback=allow_admin_fallback,
+        legacy_tools_enabled=True,
+    )
 
     mcp = FastMCP(
         "Research Registry",
@@ -357,6 +388,67 @@ def create_mcp_server(
         json_response=True,
         streamable_http_path=streamable_http_path,
     )
+
+    @mcp.tool(annotations=_READ_ONLY, structured_output=True)
+    def research_status(
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ResearchStatusResponse:
+        """Describe v2 read capabilities and storage state. Read-only."""
+        return read_runtime.research_status(ctx=ctx)
+
+    close_tool_input_schema(mcp, "research_status")
+
+    @mcp.tool(annotations=_READ_ONLY, structured_output=True)
+    def research_search(
+        query: Annotated[str, StringConstraints(min_length=1, max_length=10_000)],
+        kinds: Annotated[list[SearchKind], Field(max_length=8)] = [],
+        scope: SearchScope | None = None,
+        review_states: Annotated[list[ReviewState], Field(max_length=3)] = [],
+        conflict_states: Annotated[list[ConflictState], Field(max_length=3)] = [],
+        freshness: Annotated[list[FreshnessState], Field(max_length=4)] = [],
+        include_private: bool = True,
+        include_rejected: bool = False,
+        limit: Annotated[int, Field(ge=1, le=100)] = 10,
+        cursor: Annotated[str, StringConstraints(max_length=2_000)] | None = None,
+        explain: bool = True,
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ResearchSearchResponse:
+        """Search compact v2 research results. Read-only; no FTS or network."""
+        return read_runtime.research_search(
+            query=query,
+            kinds=list(kinds),
+            scope=scope,
+            review_states=list(review_states),
+            conflict_states=list(conflict_states),
+            freshness=list(freshness),
+            include_private=include_private,
+            include_rejected=include_rejected,
+            limit=limit,
+            cursor=cursor,
+            explain=explain,
+            ctx=ctx,
+        )
+
+    close_tool_input_schema(mcp, "research_search")
+
+    @mcp.tool(annotations=_READ_ONLY, structured_output=True)
+    def research_get(
+        id: Annotated[str, StringConstraints(min_length=3, max_length=200)],
+        include: Annotated[list[GetInclude], Field(max_length=10)] = [],
+        depth: Annotated[int, Field(ge=0, le=2)] = 1,
+        include_private: bool = True,
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ResearchGetResult:
+        """Hydrate one bounded v2 research record. Stored content is untrusted."""
+        return read_runtime.research_get(
+            record_id=id,
+            include=list(include),
+            depth=depth,
+            include_private=include_private,
+            ctx=ctx,
+        )
+
+    close_tool_input_schema(mcp, "research_get")
 
     @mcp.tool()
     def search(

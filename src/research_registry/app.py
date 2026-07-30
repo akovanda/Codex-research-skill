@@ -13,6 +13,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import __version__
 from .config import Settings, load_settings
 from .mcp_tools import create_mcp_server
+from .mcp.deep_research import create_deep_research_server
 from .models import (
     ApiKeyCreate,
     AuthContext,
@@ -73,18 +74,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         streamable_http_path="/",
     )
     mcp_app = mcp.streamable_http_app()
+    deep_research_mcp = create_deep_research_server(
+        service,
+        settings=settings,
+        service=service,
+        default_api_key=settings.backend_api_key,
+        allow_admin_fallback=False,
+        streamable_http_path="/",
+    )
+    deep_research_mcp_app = deep_research_mcp.streamable_http_app()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         async with mcp.session_manager.run():
-            yield
+            async with deep_research_mcp.session_manager.run():
+                yield
 
     app = FastAPI(title="Research Registry", version=__version__, lifespan=lifespan)
     app.state.settings = settings
     app.state.service = service
+    app.state.mcp = mcp
+    app.state.deep_research_mcp = deep_research_mcp
     app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
     app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static")
     app.mount("/mcp", mcp_app)
+    app.mount("/deep-research-mcp", deep_research_mcp_app)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

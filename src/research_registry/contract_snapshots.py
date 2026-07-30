@@ -29,7 +29,11 @@ def http_openapi_snapshot(app: FastAPI) -> dict[str, Any]:
 
 def mcp_tools_snapshot(server: FastMCP) -> dict[str, Any]:
     """Return v1 MCP names, descriptions, and complete input JSON schemas."""
-    tools = server._tool_manager.list_tools()
+    tools = [
+        tool
+        for tool in server._tool_manager.list_tools()
+        if not tool.name.startswith("research_")
+    ]
     return {
         "contract": "research-registry-mcp-v1",
         "tools": [

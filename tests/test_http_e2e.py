@@ -512,6 +512,11 @@ async def _run_mcp_roundtrip(base_url: str, api_key: str) -> None:
                 assert "search" in tool_names
                 assert "create_question" in tool_names
                 assert "create_research_bundle" in tool_names
+                assert {
+                    "research_status",
+                    "research_search",
+                    "research_get",
+                } <= tool_names
 
                 status = await session.call_tool("backend_status")
                 assert status.isError is False
@@ -530,6 +535,35 @@ async def _run_mcp_roundtrip(base_url: str, api_key: str) -> None:
                 assert question.isError is False
                 question_payload = _tool_json(question)
                 question_id = question_payload["id"]
+
+                v2_status = await session.call_tool("research_status")
+                assert v2_status.isError is False
+                assert _tool_json(v2_status)["database_type"] == "sqlite"
+
+                v2_results = await session.call_tool(
+                    "research_search",
+                    {
+                        "query": "mcp localhost defaults",
+                        "include_private": True,
+                        "limit": 5,
+                    },
+                )
+                assert v2_results.isError is False
+                assert question_id in {
+                    hit["id"] for hit in _tool_json(v2_results)["hits"]
+                }
+
+                v2_question = await session.call_tool(
+                    "research_get",
+                    {
+                        "id": question_id,
+                        "include_private": True,
+                    },
+                )
+                assert v2_question.isError is False
+                assert _tool_json(v2_question)["content_label"] == (
+                    "untrusted research material"
+                )
 
                 results = await session.call_tool(
                     "search",
@@ -590,6 +624,47 @@ async def _run_mcp_roundtrip(base_url: str, api_key: str) -> None:
                 assert len(bundle_payload["excerpt_ids"]) == 1
                 assert len(bundle_payload["claim_ids"]) == 1
 
+    async with httpx.AsyncClient(
+        headers={"x-api-key": api_key}, timeout=20.0
+    ) as client:
+        async with streamable_http_client(
+            f"{base_url}/deep-research-mcp/", http_client=client
+        ) as streams:
+            read_stream, write_stream, _ = streams
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                tools = await session.list_tools()
+                assert {tool.name for tool in tools.tools} == {
+                    "search",
+                    "fetch",
+                }
+                searched = await session.call_tool(
+                    "search", {"query": "mcp localhost defaults"}
+                )
+                assert searched.isError is False
+                results = _tool_json(searched)["results"]
+                assert question_id in {result["id"] for result in results}
+                fetched = await session.call_tool(
+                    "fetch", {"id": question_id}
+                )
+                assert fetched.isError is False
+                assert _tool_json(fetched)["text"].startswith(
+                    "UNTRUSTED RESEARCH MATERIAL"
+                )
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        async with streamable_http_client(
+            f"{base_url}/deep-research-mcp/", http_client=client
+        ) as streams:
+            read_stream, write_stream, _ = streams
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                searched = await session.call_tool(
+                    "search", {"query": "mcp localhost defaults"}
+                )
+                assert searched.isError is False
+                assert _tool_json(searched)["results"] == []
+
 
 def test_live_http_mcp_roundtrip(tmp_path: Path) -> None:
     port = _free_port()
@@ -632,9 +707,11 @@ def test_live_http_mcp_roundtrip(tmp_path: Path) -> None:
             api_key = key_response.json()["token"]
 
         asyncio.run(_run_mcp_roundtrip(base_url, api_key))
-    except Exception:
+    except Exception as exc:
         logs = _terminate_server(server)
-        raise AssertionError(f"live HTTP MCP roundtrip failed\n\n{logs}") from None
+        raise AssertionError(
+            f"live HTTP MCP roundtrip failed: {exc!r}\n\n{logs}"
+        ) from None
     else:
         logs = _terminate_server(server)
         if server.returncode not in (0, -15):
