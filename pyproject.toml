@@ -70,7 +70,13 @@ research-registry-local-uninstall = "research_registry.local_uninstall:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-research_registry = ["templates/*.html", "static/*.css", "migrations/*.sql"]
+research_registry = [
+  "templates/*.html",
+  "static/*.css",
+  "migrations/*.sql",
+  "migrations/*/*.json",
+  "migrations/*/*.sql",
+]
 
 [tool.setuptools.data-files]
 "share/research-registry/skills/research-capture" = [

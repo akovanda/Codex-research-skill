@@ -7,7 +7,7 @@ VENV_PYTHON := $(VENV)/bin/python
 INSTALL_STAMP := $(VENV)/.editable-installed
 SEED_DEMO ?= 1
 
-.PHONY: help venv install up status doctor repair down token uninstall purge-local test build preview-check workflow-check grounded-pass-check
+.PHONY: help venv install up status doctor repair down token uninstall purge-local test build preview-check workflow-check grounded-pass-check rr2-migration-check
 
 help:
 	@printf "Targets:\n"
@@ -22,6 +22,7 @@ help:
 	@printf "  make test    Run the test suite.\n"
 	@printf "  make build   Build wheel and sdist artifacts.\n"
 	@printf "  make preview-check  Run tests, build artifacts, and both smoke suites.\n"
+	@printf "  make rr2-migration-check  Run dialect-aware migration tests and the read-only plan.\n"
 	@printf "  make workflow-check  Run the repo-local HTTP e2e test plus the research harnesses.\n"
 	@printf "  make grounded-pass-check  Run the 27-pass grounded research suite and write a markdown report.\n"
 	@printf "\n"
@@ -85,6 +86,10 @@ preview-check: install
 	PYTHONPATH=src $(VENV_PYTHON) -m build
 	RUN_LOCAL_INSTALL_SMOKE=1 PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_local_install_smoke.py
 	RUN_SHARED_COMPOSE_SMOKE=1 PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_shared_compose_smoke.py
+
+rr2-migration-check: install
+	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_migrations.py tests/test_postgres_smoke.py
+	PYTHONPATH=src $(VENV_PYTHON) -m research_registry migrate --plan --json
 
 workflow-check: install
 	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_http_e2e.py

@@ -80,6 +80,29 @@ redacted. Supply real credentials directly to a subprocess environment or argv
 when executing the reviewed plan. Do not paste a reconstructed command through
 `shell=True`, and record both client and server versions during the rehearsal.
 
+## Migration plan and verification
+
+Inspect the packaged migration plan after audit and verified backup:
+
+```bash
+research-registry migrate --plan --json
+research-registry migrate --dry-run --json
+research-registry migrate
+research-registry migrate --verify --json
+```
+
+Use `--database` for an explicit SQLite path or Postgres URL and
+`--target <migration-id>` to stop at a packaged migration. Plan and verify use
+read-only connections; planning a nonexistent SQLite target does not create the
+database. Dry-run applies transactional migrations and rolls them back. A
+bundle declared non-transactional is listed by migration and selected file,
+skipped by dry-run, and refused by automatic apply because rollback safety
+cannot be guaranteed.
+
+Migration output contains database kind, migration IDs, checksums, selected
+component filenames, and state only. It does not include SQL, prompts, sources,
+quotes, claims, reports, URLs, tokens, or database credentials.
+
 ## Upgrade
 
 Shared Compose:

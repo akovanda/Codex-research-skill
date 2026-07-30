@@ -137,6 +137,43 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Verify backup SHA-256, integrity, counts, and hashes before restoring.",
     )
+
+    migrate = subparsers.add_parser(
+        "migrate",
+        help="Plan, apply, dry-run, or verify packaged database migrations.",
+    )
+    migrate.add_argument(
+        "--database",
+        default=None,
+        help="SQLite path/URL or Postgres URL. Defaults to the configured database.",
+    )
+    migrate_mode = migrate.add_mutually_exclusive_group()
+    migrate_mode.add_argument(
+        "--plan",
+        action="store_true",
+        help="List applied and pending migrations without database writes.",
+    )
+    migrate_mode.add_argument(
+        "--verify",
+        action="store_true",
+        help="Verify applied checksums and managed schema invariants without writes.",
+    )
+    migrate_mode.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Apply transactional migrations and roll back; report skipped non-transactional bundles.",
+    )
+    migrate.add_argument(
+        "--target",
+        default=None,
+        metavar="MIGRATION_ID",
+        help="Stop the selected operation at this packaged migration.",
+    )
+    migrate.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the structured migration result as JSON.",
+    )
     return parser
 
 
@@ -265,6 +302,28 @@ def main() -> None:
             verify=args.verify,
         )
         print(json.dumps(result, sort_keys=True))
+        return
+
+    if args.command == "migrate":
+        from .config import load_settings
+        from .migrate import format_migration_result, run_migration
+
+        database = args.database or load_settings().database_url
+        operation = (
+            "plan"
+            if args.plan
+            else "verify"
+            if args.verify
+            else "dry_run"
+            if args.dry_run
+            else "migrate"
+        )
+        result = run_migration(
+            database,
+            operation=operation,
+            target=args.target,
+        )
+        print(format_migration_result(result, json_output=args.json))
         return
 
     parser.error(f"unknown command: {args.command}")
