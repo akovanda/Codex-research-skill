@@ -283,7 +283,17 @@ class CurrentRetrievalAdapter:
                 SELECT DISTINCT
                     e.id, e.source_version_id, e.quote_text, e.selector_type,
                     e.selector_json, e.note, e.confidence, e.anchor_state,
-                    e.review_state, e.trust_tier, e.created_at,
+                    COALESCE((
+                        SELECT re.to_state FROM review_events re
+                        WHERE re.entity_kind = 'evidence'
+                          AND re.entity_id = e.id
+                          AND re.action IN (
+                              'approve', 'contest', 'reject', 'supersede'
+                          )
+                        ORDER BY re.created_at DESC, re.id DESC
+                        LIMIT 1
+                    ), e.review_state) AS review_state,
+                    e.trust_tier, e.created_at,
                     sv.source_id, s.title AS source_title,
                     s.locator AS source_url, {relationship}
                 FROM evidence_spans e
@@ -746,7 +756,17 @@ class CurrentRetrievalAdapter:
                     substr(e.quote_text, 1, 4000) AS summary,
                     (e.quote_text || ' ' || COALESCE(e.note, '') || ' ' ||
                      s.title || ' ' || s.locator) AS search_text,
-                    e.review_state, s.conflict_state,
+                    COALESCE((
+                        SELECT re.to_state FROM review_events re
+                        WHERE re.entity_kind = 'evidence'
+                          AND re.entity_id = e.id
+                          AND re.action IN (
+                              'approve', 'contest', 'reject', 'supersede'
+                          )
+                        ORDER BY re.created_at DESC, re.id DESC
+                        LIMIT 1
+                    ), e.review_state) AS review_state,
+                    s.conflict_state,
                     CASE WHEN e.anchor_state = 'stale' THEN 'stale'
                          WHEN e.anchor_state = 'resolved' THEN 'fresh'
                          ELSE 'unknown' END AS freshness,
@@ -955,6 +975,16 @@ class CurrentRetrievalAdapter:
                 SELECT e.*, s.id AS source_id, s.title AS source_title,
                     s.locator AS source_url, s.conflict_state,
                     s.title AS read_title, e.quote_text AS read_text,
+                    COALESCE((
+                        SELECT re.to_state FROM review_events re
+                        WHERE re.entity_kind = 'evidence'
+                          AND re.entity_id = e.id
+                          AND re.action IN (
+                              'approve', 'contest', 'reject', 'supersede'
+                          )
+                        ORDER BY re.created_at DESC, re.id DESC
+                        LIMIT 1
+                    ), e.review_state) AS effective_review_state,
                     CASE WHEN e.anchor_state = 'stale' THEN 'stale'
                          WHEN e.anchor_state = 'resolved' THEN 'fresh'
                          ELSE 'unknown' END AS freshness
@@ -1168,7 +1198,11 @@ class CurrentRetrievalAdapter:
             title=row["read_title"],
             text=row["read_text"],
             url=url,
-            review_state=row["review_state"],
+            review_state=(
+                row["effective_review_state"]
+                if kind == "evidence"
+                else row["review_state"]
+            ),
             conflict_state=(
                 row["derived_conflict_state"]
                 if kind == "claim"

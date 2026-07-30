@@ -57,7 +57,6 @@
     "note": "Implementation uses a bounded retry loop.",
     "confidence": 0.98,
     "review_state": "unreviewed",
-    "trust_tier": "high",
     "metadata": {}
   }
 }

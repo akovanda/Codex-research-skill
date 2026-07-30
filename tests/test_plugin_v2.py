@@ -75,6 +75,8 @@ def test_deposit_skill_is_explicit_only_private_and_never_publishes() -> None:
     assert "validate_only" in skill
     assert "private" in skill.lower()
     assert "unreviewed" in skill.lower()
+    assert "cannot approve evidence" in skill.lower()
+    assert "omit evidence trust suggestions" in skill.lower()
     assert "never publish" in skill.lower()
     assert "untrusted" in skill.lower()
     assert "allow_implicit_invocation: false" in agent

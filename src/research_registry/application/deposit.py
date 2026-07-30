@@ -34,6 +34,7 @@ from .source_versions import SourceVersionConflict, SourceVersionService
 
 
 _OPERATION = "research_deposit_v2"
+_DEPOSIT_EVIDENCE_TRUST_TIER = "low"
 _V1_STATUS = {
     "supported": "supported",
     "partial": "partial",
@@ -362,8 +363,8 @@ class ResearchDepositService:
                         "selector_json": selector_json,
                         "quote_text": evidence.quote_text,
                         "confidence": evidence.confidence,
-                        "review_state": evidence.review_state,
-                        "trust_tier": evidence.trust_tier,
+                        "review_state": "unreviewed",
+                        "trust_tier": _DEPOSIT_EVIDENCE_TRUST_TIER,
                         "visibility": bundle.visibility,
                         "author_type": self._author_type(bundle),
                         "model_name": bundle.run.provenance.model,
@@ -376,7 +377,7 @@ class ResearchDepositService:
                             f"v2:{namespace_kind}:{namespace_id}:"
                             f"{bundle.idempotency_key}:evidence:{evidence.client_ref}"
                         ),
-                        "human_reviewed": int(evidence.review_state == "reviewed"),
+                        "human_reviewed": 0,
                         "created_at": now_text,
                     }
                 )
@@ -395,8 +396,8 @@ class ResearchDepositService:
                         "selector_json": selector_json,
                         "note": evidence.note,
                         "confidence": evidence.confidence,
-                        "review_state": evidence.review_state,
-                        "trust_tier": evidence.trust_tier,
+                        "review_state": "unreviewed",
+                        "trust_tier": _DEPOSIT_EVIDENCE_TRUST_TIER,
                         "created_by_model": bundle.run.provenance.model,
                         "created_at": now_text,
                         "metadata_json": canonical_json(metadata),

@@ -67,7 +67,6 @@ def _seed_v2(tmp_path: Path) -> tuple[RegistryService, dict[str, str]]:
                     "source_version": {"ref": "source"},
                     "quote_text": QUOTE,
                     "selector": {"type": "text_quote", "exact": QUOTE},
-                    "review_state": "reviewed",
                 }
             ],
             "claims": [

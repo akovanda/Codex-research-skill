@@ -281,12 +281,8 @@
           "type": "string"
         },
         "review_state": {
+          "const": "unreviewed",
           "default": "unreviewed",
-          "enum": [
-            "unreviewed",
-            "reviewed",
-            "flagged"
-          ],
           "title": "Review State",
           "type": "string"
         },
@@ -338,16 +334,6 @@
             }
           ],
           "title": "Source Version"
-        },
-        "trust_tier": {
-          "default": "medium",
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ],
-          "title": "Trust Tier",
-          "type": "string"
         }
       },
       "required": [

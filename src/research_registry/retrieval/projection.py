@@ -298,7 +298,14 @@ SELECT
     s.locator, NULL AS doi, sv.repository_locator AS repository, sv.path,
     NULL AS canonical_key, t.slug AS topic_slug,
     e.quote_sha256 AS quote_hash, NULL AS dedupe_key,
-    e.review_state, e.trust_tier, s.conflict_state,
+    COALESCE((
+        SELECT re.to_state FROM review_events re
+        WHERE re.entity_kind = 'evidence' AND re.entity_id = e.id
+          AND re.action IN ('approve', 'contest', 'reject', 'supersede')
+        ORDER BY re.created_at DESC, re.id DESC
+        LIMIT 1
+    ), e.review_state) AS review_state,
+    e.trust_tier, s.conflict_state,
     CASE WHEN e.anchor_state = 'stale' THEN 'stale'
          WHEN e.anchor_state IN ('resolved', 'relocated') THEN 'fresh'
          ELSE 'unknown' END AS freshness,

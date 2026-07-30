@@ -25,7 +25,6 @@ from .common import (
     ReviewState,
     Sha256,
     SnapshotPolicy,
-    TrustTier,
     Visibility,
 )
 
@@ -379,8 +378,7 @@ class DepositEvidence(ClosedModel):
     selector: SourceSelectorV2
     note: Annotated[str, StringConstraints(max_length=10_000)] | None = None
     confidence: float = Field(default=0.75, ge=0, le=1)
-    review_state: ReviewState = "unreviewed"
-    trust_tier: TrustTier = "medium"
+    review_state: Literal["unreviewed"] = "unreviewed"
     metadata: JsonObject50 = Field(default_factory=dict)
 
 

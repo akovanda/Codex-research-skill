@@ -99,8 +99,6 @@ def _bundle(*, key: str = "retrieval-contract", rejected: bool = False) -> dict:
                     "exact": QUOTE,
                 },
                 "note": "The retry loop has a fixed attempt budget.",
-                "review_state": "reviewed",
-                "trust_tier": "high",
             }
         ],
         "claims": [
