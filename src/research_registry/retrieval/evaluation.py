@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+from math import log2
 from pathlib import Path
 import tempfile
+from time import perf_counter_ns
 from typing import Any
 from uuid import uuid4
 
@@ -21,6 +23,45 @@ _EXACT_CATEGORIES = {"exact_id", "exact_locator", "exact_path", "exact_doi"}
 _MAX_CORPUS_BYTES = 5 * 1024 * 1024
 _MAX_CORPUS_DOCUMENTS = 5_000
 _MAX_CORPUS_CASES = 5_000
+_TOP_LEVEL_FIELDS = {"protocol", "ranking_profile", "documents", "cases"}
+_DOCUMENT_FIELDS = {
+    "key",
+    "kind",
+    "title",
+    "summary",
+    "body",
+    "locator",
+    "doi",
+    "repository",
+    "path",
+    "canonical_key",
+    "topic_slug",
+    "quote_hash",
+    "dedupe_key",
+    "review_state",
+    "trust_tier",
+    "conflict_state",
+    "freshness",
+    "status",
+    "evidence_count",
+    "updated_at",
+    "created_at",
+    "url",
+    "source_type",
+    "topic_id",
+}
+_CASE_FIELDS = {
+    "id",
+    "category",
+    "query",
+    "expected_document_keys",
+    "expected_evidence_min",
+    "expected_state",
+    "kinds",
+    "scope",
+    "include_rejected",
+}
+_EXPECTED_STATE_FIELDS = {"review", "conflict", "freshness"}
 _ID_PREFIX = {
     "question": "q",
     "source": "src",
@@ -38,6 +79,11 @@ class RetrievalCaseResult:
     expected_document_keys: tuple[str, ...]
     top_document_keys: tuple[str, ...]
     first_relevant_rank: int | None
+    evidence_resolved: bool | None
+    state_accurate: bool | None
+    latency_ms: float
+    response_byte_count: int
+    search_calls: int
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +92,11 @@ class RetrievalCaseResult:
             "expected_document_keys": list(self.expected_document_keys),
             "top_document_keys": list(self.top_document_keys),
             "first_relevant_rank": self.first_relevant_rank,
+            "evidence_resolved": self.evidence_resolved,
+            "state_accurate": self.state_accurate,
+            "latency_ms": self.latency_ms,
+            "response_byte_count": self.response_byte_count,
+            "search_calls": self.search_calls,
         }
 
 
@@ -58,9 +109,20 @@ class RetrievalEvaluationResult:
     recall_at_5: float
     recall_at_10: float
     mean_reciprocal_rank: float
+    ndcg_at_10: float
+    precision_at_5: float
+    evidence_resolvability: float
+    state_accuracy: float
+    duplicate_result_rate: float
+    no_answer_accuracy: float
     exact_recall_at_1: float
     sqlite_postgres_overlap: float | None
     postgres_status: str
+    p50_latency_ms: float
+    p95_latency_ms: float
+    response_byte_count: int
+    search_call_count: int
+    useful_answer_within_two_calls: float
     cases: tuple[RetrievalCaseResult, ...]
 
     def to_dict(self) -> dict[str, Any]:
@@ -72,9 +134,20 @@ class RetrievalEvaluationResult:
             "recall_at_5": self.recall_at_5,
             "recall_at_10": self.recall_at_10,
             "mean_reciprocal_rank": self.mean_reciprocal_rank,
+            "ndcg_at_10": self.ndcg_at_10,
+            "precision_at_5": self.precision_at_5,
+            "evidence_resolvability": self.evidence_resolvability,
+            "state_accuracy": self.state_accuracy,
+            "duplicate_result_rate": self.duplicate_result_rate,
+            "no_answer_accuracy": self.no_answer_accuracy,
             "exact_recall_at_1": self.exact_recall_at_1,
             "sqlite_postgres_overlap": self.sqlite_postgres_overlap,
             "postgres_status": self.postgres_status,
+            "p50_latency_ms": self.p50_latency_ms,
+            "p95_latency_ms": self.p95_latency_ms,
+            "response_byte_count": self.response_byte_count,
+            "search_call_count": self.search_call_count,
+            "useful_answer_within_two_calls": self.useful_answer_within_two_calls,
             "cases": [case.to_dict() for case in self.cases],
         }
 
@@ -99,6 +172,14 @@ def run_retrieval_evaluation(
     cases = tuple(sqlite_run)
     relevant = [case for case in cases if case.expected_document_keys]
     exact = [case for case in relevant if case.category in _EXACT_CATEGORIES]
+    evidence_cases = [
+        case for case in relevant if case.evidence_resolved is not None
+    ]
+    state_cases = [case for case in relevant if case.state_accurate is not None]
+    no_answer_cases = [
+        case for case in cases if not case.expected_document_keys
+    ]
+    latencies = [case.latency_ms for case in cases]
     return RetrievalEvaluationResult(
         protocol="research-retrieval-evaluation/v1",
         ranking_profile=RANKING_PROFILE_VERSION,
@@ -115,9 +196,31 @@ def run_retrieval_evaluation(
             / max(1, len(relevant)),
             6,
         ),
+        ndcg_at_10=_ndcg(relevant, 10),
+        precision_at_5=_precision(relevant, 5),
+        evidence_resolvability=_boolean_rate(
+            [bool(case.evidence_resolved) for case in evidence_cases]
+        ),
+        state_accuracy=_boolean_rate(
+            [bool(case.state_accurate) for case in state_cases]
+        ),
+        duplicate_result_rate=_duplicate_result_rate(cases),
+        no_answer_accuracy=_boolean_rate(
+            [not case.top_document_keys for case in no_answer_cases]
+        ),
         exact_recall_at_1=_recall(exact, 1),
         sqlite_postgres_overlap=overlap,
         postgres_status=postgres_status,
+        p50_latency_ms=_percentile(latencies, 0.50),
+        p95_latency_ms=_percentile(latencies, 0.95),
+        response_byte_count=sum(case.response_byte_count for case in cases),
+        search_call_count=sum(case.search_calls for case in cases),
+        useful_answer_within_two_calls=_boolean_rate(
+            [
+                case.first_relevant_rank is not None and case.search_calls <= 2
+                for case in relevant
+            ]
+        ),
         cases=cases,
     )
 
@@ -128,6 +231,7 @@ def _load_corpus(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("retrieval corpus must be an object")
+    _reject_unknown_fields(payload, _TOP_LEVEL_FIELDS, "corpus")
     if payload.get("protocol") != "research-retrieval-corpus/v1":
         raise ValueError("unsupported retrieval corpus protocol")
     if payload.get("ranking_profile") != RANKING_PROFILE_VERSION:
@@ -140,11 +244,65 @@ def _load_corpus(path: Path) -> dict[str, Any]:
         raise ValueError("retrieval corpus has too many documents")
     if len(cases) > _MAX_CORPUS_CASES:
         raise ValueError("retrieval corpus has too many cases")
+    if not all(isinstance(document, dict) for document in documents):
+        raise ValueError("retrieval corpus documents must be objects")
+    if not all(isinstance(case, dict) for case in cases):
+        raise ValueError("retrieval corpus cases must be objects")
+    for index, document in enumerate(documents):
+        _reject_unknown_fields(
+            document,
+            _DOCUMENT_FIELDS,
+            f"document[{index}]",
+        )
+    for index, case in enumerate(cases):
+        _reject_unknown_fields(case, _CASE_FIELDS, f"case[{index}]")
+        expected_state = case.get("expected_state")
+        if expected_state is not None:
+            if not isinstance(expected_state, dict):
+                raise ValueError(
+                    f"retrieval corpus case[{index}] expected_state must be an object"
+                )
+            _reject_unknown_fields(
+                expected_state,
+                _EXPECTED_STATE_FIELDS,
+                f"case[{index}].expected_state",
+            )
     keys = [document.get("key") for document in documents]
     if any(not isinstance(key, str) or not key for key in keys):
         raise ValueError("retrieval corpus document keys must be non-empty strings")
     if len(keys) != len(set(keys)):
         raise ValueError("retrieval corpus document keys must be unique")
+    known_keys = set(keys)
+    case_ids: list[str] = []
+    for index, case in enumerate(cases):
+        case_id = case.get("id")
+        if not isinstance(case_id, str) or not case_id:
+            raise ValueError(
+                f"retrieval corpus case[{index}] id must be a non-empty string"
+            )
+        case_ids.append(case_id)
+        expected = case.get("expected_document_keys", [])
+        if not isinstance(expected, list) or any(
+            not isinstance(key, str) for key in expected
+        ):
+            raise ValueError(
+                f"retrieval corpus case[{index}] expected_document_keys must be strings"
+            )
+        unknown = set(expected) - known_keys
+        if unknown:
+            raise ValueError(
+                "retrieval corpus case references unknown document: "
+                + ", ".join(sorted(unknown))
+            )
+        evidence_min = case.get("expected_evidence_min")
+        if evidence_min is not None and (
+            not isinstance(evidence_min, int) or evidence_min < 0
+        ):
+            raise ValueError(
+                f"retrieval corpus case[{index}] expected_evidence_min must be non-negative"
+            )
+    if len(case_ids) != len(set(case_ids)):
+        raise ValueError("retrieval corpus case ids must be unique")
     return payload
 
 
@@ -184,16 +342,19 @@ def _evaluate_database(
         }
         for case in payload["cases"]:
             query = _case_query(case["query"], documents_by_key, ids_by_key)
+            started = perf_counter_ns()
             response = search.search(
                 ResearchSearchRequest(
                     protocol="research-search/v2",
                     query=query,
                     kinds=case.get("kinds", []),
+                    scope=case.get("scope"),
                     include_rejected=bool(case.get("include_rejected", False)),
                     limit=10,
                 ),
                 access=access,
             )
+            latency_ms = round((perf_counter_ns() - started) / 1_000_000, 6)
             top_keys = tuple(
                 keys_by_id.get(hit.id, f"external:{hit.id}")
                 for hit in response.hits
@@ -207,6 +368,24 @@ def _evaluate_database(
                 ),
                 None,
             )
+            first_hit = (
+                response.hits[first_rank - 1]
+                if first_rank is not None
+                else None
+            )
+            evidence_min = case.get("expected_evidence_min")
+            evidence_resolved = (
+                first_hit is not None
+                and first_hit.evidence_count >= evidence_min
+                if evidence_min is not None
+                else None
+            )
+            expected_state = case.get("expected_state")
+            state_accurate = (
+                _state_matches(first_hit, expected_state)
+                if expected_state is not None
+                else None
+            )
             results.append(
                 RetrievalCaseResult(
                     case_id=case["id"],
@@ -214,6 +393,13 @@ def _evaluate_database(
                     expected_document_keys=expected,
                     top_document_keys=top_keys,
                     first_relevant_rank=first_rank,
+                    evidence_resolved=evidence_resolved,
+                    state_accurate=state_accurate,
+                    latency_ms=latency_ms,
+                    response_byte_count=len(
+                        response.model_dump_json().encode("utf-8")
+                    ),
+                    search_calls=1,
                 )
             )
         return results
@@ -296,6 +482,92 @@ def _recall(cases: list[RetrievalCaseResult], k: int) -> float:
         for case in cases
     )
     return round(hits / len(cases), 6)
+
+
+def _precision(cases: list[RetrievalCaseResult], k: int) -> float:
+    if not cases:
+        return 1.0
+    values = [
+        len(
+            set(case.expected_document_keys)
+            & set(case.top_document_keys[:k])
+        )
+        / k
+        for case in cases
+    ]
+    return round(sum(values) / len(values), 6)
+
+
+def _ndcg(cases: list[RetrievalCaseResult], k: int) -> float:
+    if not cases:
+        return 1.0
+    values: list[float] = []
+    for case in cases:
+        expected = set(case.expected_document_keys)
+        dcg = sum(
+            1.0 / log2(rank + 1)
+            for rank, key in enumerate(case.top_document_keys[:k], start=1)
+            if key in expected
+        )
+        ideal_count = min(k, len(expected))
+        ideal = sum(
+            1.0 / log2(rank + 1)
+            for rank in range(1, ideal_count + 1)
+        )
+        values.append(dcg / ideal if ideal else 1.0)
+    return round(sum(values) / len(values), 6)
+
+
+def _boolean_rate(values: list[bool]) -> float:
+    if not values:
+        return 1.0
+    return round(sum(values) / len(values), 6)
+
+
+def _duplicate_result_rate(cases: tuple[RetrievalCaseResult, ...]) -> float:
+    result_count = sum(len(case.top_document_keys) for case in cases)
+    if result_count == 0:
+        return 0.0
+    duplicate_count = sum(
+        len(case.top_document_keys) - len(set(case.top_document_keys))
+        for case in cases
+    )
+    return round(duplicate_count / result_count, 6)
+
+
+def _percentile(values: list[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = max(0, min(len(ordered) - 1, int((len(ordered) - 1) * quantile)))
+    return round(ordered[index], 6)
+
+
+def _state_matches(hit: Any, expected: dict[str, str]) -> bool:
+    if hit is None:
+        return False
+    return all(
+        {
+            "review": hit.review_state,
+            "conflict": hit.conflict_state,
+            "freshness": hit.freshness,
+        }[field]
+        == value
+        for field, value in expected.items()
+    )
+
+
+def _reject_unknown_fields(
+    value: dict[str, Any],
+    allowed: set[str],
+    label: str,
+) -> None:
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise ValueError(
+            f"retrieval corpus {label} has unknown field(s): "
+            + ", ".join(unknown)
+        )
 
 
 def _top_five_overlap(

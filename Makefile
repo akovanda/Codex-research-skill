@@ -7,8 +7,9 @@ VENV_PYTHON := $(VENV)/bin/python
 INSTALL_STAMP := $(VENV)/.editable-installed
 SEED_DEMO ?= 1
 BACKUP_OUTPUT ?= $(CURDIR)/research-registry.backup.sqlite3
+OPERATOR_EVIDENCE ?=
 
-.PHONY: help venv install init up mcp serve backup shared-up status doctor repair down token uninstall purge-local test build preview-check workflow-check grounded-pass-check rr2-migration-check
+.PHONY: help venv install init up mcp serve backup shared-up status doctor repair down token uninstall purge-local test build preview-check workflow-check grounded-pass-check rr2-contract-check rr2-migration-check rr2-mcp-check rr2-retrieval-eval rr2-security-check rr2-package-check rr2-rehearsal-check rr2-regression-check rr2-release-artifacts rr2-release-check rr2-alpha-check rr2-beta-check rr2-stable-check
 
 help:
 	@printf "Targets:\n"
@@ -28,7 +29,17 @@ help:
 	@printf "  make test    Run the test suite.\n"
 	@printf "  make build   Build wheel and sdist artifacts.\n"
 	@printf "  make preview-check  Run tests, build artifacts, and both smoke suites.\n"
+	@printf "  make rr2-contract-check  Run v1/v2 contract and schema snapshots.\n"
 	@printf "  make rr2-migration-check  Run dialect-aware migration tests and the read-only plan.\n"
+	@printf "  make rr2-mcp-check  Run high-level, Deep Research, and compatibility MCP checks.\n"
+	@printf "  make rr2-retrieval-eval  Run fixed synthetic retrieval and four-mode comparison metrics.\n"
+	@printf "  make rr2-security-check  Run SSRF, fuzz, privacy, log, ingestion, and atomicity checks.\n"
+	@printf "  make rr2-package-check  Build and smoke wheel/sdist with clean local homes.\n"
+	@printf "  make rr2-rehearsal-check  Rehearse fresh SQLite, upgrade, backup, restore, and rollback.\n"
+	@printf "  make rr2-release-check  Expose and compose every automated RR2 release constituent.\n"
+	@printf "  make rr2-alpha-check  Require the fixed alpha gate.\n"
+	@printf "  make rr2-beta-check  Require beta plus OPERATOR_EVIDENCE JSON.\n"
+	@printf "  make rr2-stable-check  Require stable plus OPERATOR_EVIDENCE JSON.\n"
 	@printf "  make workflow-check  Run the repo-local HTTP e2e test plus the research harnesses.\n"
 	@printf "  make grounded-pass-check  Run the 27-pass grounded research suite and write a markdown report.\n"
 	@printf "\n"
@@ -110,9 +121,56 @@ preview-check: install
 	RUN_LOCAL_INSTALL_SMOKE=1 PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_local_install_smoke.py
 	RUN_SHARED_COMPOSE_SMOKE=1 PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_shared_compose_smoke.py
 
+rr2-contract-check: install
+	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_v2_contracts.py tests/test_contract_snapshots.py tests/test_docs_contract.py
+
 rr2-migration-check: install
 	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_v2_migration.py tests/test_migrations.py tests/test_postgres_smoke.py
 	PYTHONPATH=src $(VENV_PYTHON) -m research_registry migrate --plan --json
+
+rr2-mcp-check: install
+	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_mcp_v2_read.py tests/test_mcp_v2_write.py tests/test_deep_research_mcp.py tests/test_plugin_v2.py tests/test_contract_snapshots.py
+
+rr2-retrieval-eval: install
+	PYTHONPATH=src $(VENV_PYTHON) -m research_registry eval-retrieval --corpus evals/retrieval/synthetic.json --release-level stable
+	PYTHONPATH=src $(VENV_PYTHON) -m research_registry eval-comparative --corpus evals/comparative/synthetic.json
+
+rr2-security-check: install
+	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/security tests/test_external_ingest_v2.py tests/test_git_evidence.py tests/test_blob_store.py tests/test_reanchor.py tests/test_v2_deposit.py tests/test_web_v2.py
+
+rr2-package-check: install
+	PYTHONPATH=src $(VENV_PYTHON) -m build
+	RUN_LOCAL_INSTALL_SMOKE=1 PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_local_install_smoke.py
+
+rr2-rehearsal-check: install
+	PYTHONPATH=src $(VENV_PYTHON) scripts/rr2_rehearsal.py
+
+rr2-regression-check: install
+	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q
+
+rr2-release-artifacts: install
+	PYTHONPATH=src $(VENV_PYTHON) scripts/rr2_release_artifacts.py
+
+rr2-release-check: install
+	$(MAKE) rr2-contract-check
+	$(MAKE) rr2-migration-check
+	$(MAKE) rr2-mcp-check
+	$(MAKE) rr2-retrieval-eval
+	$(MAKE) rr2-security-check
+	$(MAKE) rr2-package-check
+	$(MAKE) rr2-rehearsal-check
+	$(MAKE) rr2-regression-check
+	$(MAKE) rr2-release-artifacts
+	PYTHONPATH=src $(VENV_PYTHON) scripts/rr2_release_status.py --automated $(if $(OPERATOR_EVIDENCE),--operator-evidence "$(OPERATOR_EVIDENCE)",)
+
+rr2-alpha-check: rr2-release-check
+	PYTHONPATH=src $(VENV_PYTHON) scripts/rr2_release_status.py --automated --require alpha $(if $(OPERATOR_EVIDENCE),--operator-evidence "$(OPERATOR_EVIDENCE)",)
+
+rr2-beta-check: rr2-release-check
+	PYTHONPATH=src $(VENV_PYTHON) scripts/rr2_release_status.py --automated --require beta $(if $(OPERATOR_EVIDENCE),--operator-evidence "$(OPERATOR_EVIDENCE)",)
+
+rr2-stable-check: rr2-release-check
+	PYTHONPATH=src $(VENV_PYTHON) scripts/rr2_release_status.py --automated --require stable $(if $(OPERATOR_EVIDENCE),--operator-evidence "$(OPERATOR_EVIDENCE)",)
 
 workflow-check: install
 	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_http_e2e.py

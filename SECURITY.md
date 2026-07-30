@@ -101,6 +101,26 @@ does not follow corpus URLs, and rejects files larger than 5 MiB or corpora with
 more than 5,000 documents or 5,000 cases. Private evaluation corpora should
 remain outside the repository and under normal host access controls.
 
+`eval-known-answers`, `eval-comparative`, and `metrics --local` are also local
+operator commands. Known-answer output omits queries and notes but retains
+record/evidence IDs for diagnosis, so it remains private. The comparative
+harness scores recorded observations and never starts an agent or performs
+research. Metrics return aggregate health only and explicitly report historical
+operation metrics as unavailable when they are not stored.
+
+The release security suite covers SSRF and redirect policy, proxy neutrality,
+bounded fetch/parser work, malformed contracts, private namespace access, Git
+containment and credential neutrality, deposit fault injection, and sensitive
+log scanning. The log scanner returns only finding type, line number, and a
+one-way fingerprint; it never returns the matched credential or private
+sentinel.
+
+GitHub Actions are pinned to immutable commits. Release SBOM, checksums, and
+provenance are generated offline. Local provenance is unsigned and records
+whether the tree was dirty; it is not a release attestation until reviewed and
+signed by a maintainer. Release and image workflows require manual dispatch,
+and no tag-triggered automatic publication is configured.
+
 `research_review` and the write modes of `research_refresh` are explicit MCP
 write operations. Shared HTTP transport requires an authenticated API key with
 admin scope and has no admin/default-key fallback. Local STDIO may use the

@@ -353,6 +353,59 @@ def build_parser() -> argparse.ArgumentParser:
             "when configured."
         ),
     )
+    retrieval_eval.add_argument(
+        "--release-level",
+        choices=("phase3", "beta", "stable"),
+        default="phase3",
+        help="Apply the fixed packet threshold for the selected gate.",
+    )
+
+    known_answers = subparsers.add_parser(
+        "eval-known-answers",
+        help="Evaluate an operator-local corpus against an existing registry.",
+    )
+    known_answers.add_argument(
+        "--corpus",
+        type=Path,
+        required=True,
+        help="Private known-answer JSON kept outside the repository.",
+    )
+    known_answers.add_argument(
+        "--database",
+        default=None,
+        help="Existing local SQLite path/URL or Postgres URL.",
+    )
+
+    comparative = subparsers.add_parser(
+        "eval-comparative",
+        help="Score recorded memory/registry/research-again outcomes.",
+    )
+    comparative.add_argument(
+        "--corpus",
+        type=Path,
+        required=True,
+        help="Recorded four-mode comparative corpus JSON.",
+    )
+
+    metrics = subparsers.add_parser(
+        "metrics",
+        help="Compute content-free local registry health metrics.",
+    )
+    metrics.add_argument(
+        "--local",
+        action="store_true",
+        help="Confirm that metrics are computed locally without telemetry.",
+    )
+    metrics.add_argument(
+        "--since",
+        default="30d",
+        help="Requested observation window, for example 30d.",
+    )
+    metrics.add_argument(
+        "--database",
+        default=None,
+        help="Existing local SQLite path/URL or Postgres URL.",
+    )
     return parser
 
 
@@ -696,8 +749,19 @@ def main() -> None:
             postgres_url=postgres_url,
         )
         print(json.dumps(result.to_dict(), sort_keys=True))
+        recall_threshold = {
+            "phase3": 0.70,
+            "beta": 0.75,
+            "stable": 0.80,
+        }[args.release_level]
+        evidence_threshold = {
+            "phase3": 0.0,
+            "beta": 0.90,
+            "stable": 0.95,
+        }[args.release_level]
         failed = (
-            result.recall_at_5 < 0.70
+            result.recall_at_5 < recall_threshold
+            or result.evidence_resolvability < evidence_threshold
             or result.exact_recall_at_1 < 1.0
             or (
                 result.sqlite_postgres_overlap is not None
@@ -706,6 +770,36 @@ def main() -> None:
         )
         if failed:
             raise SystemExit(1)
+        return
+
+    if args.command == "eval-known-answers":
+        from .config import load_settings
+        from .evaluation.known_answers import run_known_answer_evaluation
+
+        database = args.database or load_settings().database_url
+        result = run_known_answer_evaluation(
+            args.corpus,
+            database=database,
+        )
+        print(json.dumps(result.to_dict(), sort_keys=True))
+        return
+
+    if args.command == "eval-comparative":
+        from .evaluation.comparative import run_comparative_evaluation
+
+        result = run_comparative_evaluation(args.corpus)
+        print(json.dumps(result.to_dict(), sort_keys=True))
+        return
+
+    if args.command == "metrics":
+        from .config import load_settings
+        from .evaluation.registry_metrics import collect_registry_metrics
+
+        if not args.local:
+            parser.error("metrics currently requires --local")
+        database = args.database or load_settings().database_url
+        result = collect_registry_metrics(database, since=args.since)
+        print(json.dumps(result, sort_keys=True))
         return
 
     parser.error(f"unknown command: {args.command}")

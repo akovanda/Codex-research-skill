@@ -139,7 +139,13 @@
       "id": "exact-id",
       "category": "exact_id",
       "query": {"document": "bounded_claim", "field": "id"},
-      "expected_document_keys": ["bounded_claim"]
+      "expected_document_keys": ["bounded_claim"],
+      "expected_evidence_min": 1,
+      "expected_state": {
+        "review": "reviewed",
+        "conflict": "none",
+        "freshness": "fresh"
+      }
     },
     {
       "id": "exact-locator",
@@ -163,37 +169,53 @@
       "id": "exact-canonical",
       "category": "exact_canonical_key",
       "query": {"document": "bounded_claim", "field": "canonical_key"},
-      "expected_document_keys": ["bounded_claim"]
+      "expected_document_keys": ["bounded_claim"],
+      "expected_evidence_min": 1
     },
     {
       "id": "title-phrase",
       "category": "title_phrase",
       "query": "bounded attempt budget",
-      "expected_document_keys": ["bounded_claim"]
+      "expected_document_keys": ["bounded_claim"],
+      "expected_evidence_min": 1
     },
     {
       "id": "reordered-terms",
       "category": "lexical",
       "query": "failure terminal capped retries",
-      "expected_document_keys": ["retry_report"]
+      "expected_document_keys": ["retry_report"],
+      "expected_evidence_min": 1
     },
     {
       "id": "rollback-evidence",
       "category": "lexical",
       "query": "partial records rollback",
-      "expected_document_keys": ["rollback_evidence"]
+      "expected_document_keys": ["rollback_evidence"],
+      "expected_evidence_min": 1
     },
     {
       "id": "stale-visible",
       "category": "stale",
       "query": "versioned cache invalidation",
-      "expected_document_keys": ["stale_claim"]
+      "expected_document_keys": ["stale_claim"],
+      "expected_evidence_min": 1,
+      "expected_state": {
+        "review": "reviewed",
+        "conflict": "none",
+        "freshness": "stale"
+      }
     },
     {
       "id": "contested-visible",
       "category": "contested",
       "query": "sqlite writer contention",
-      "expected_document_keys": ["contested_claim"]
+      "expected_document_keys": ["contested_claim"],
+      "expected_evidence_min": 1,
+      "expected_state": {
+        "review": "flagged",
+        "conflict": "conflicted",
+        "freshness": "needs_refresh"
+      }
     },
     {
       "id": "namespace-auth",

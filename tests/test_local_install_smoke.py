@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import tarfile
+import zipfile
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -77,6 +79,23 @@ else:
         encoding="utf-8",
     )
     path.chmod(0o755)
+
+
+def test_distribution_excludes_operator_local_evaluation_file(
+    distribution_artifacts: tuple[Path, Path],
+) -> None:
+    wheel, sdist = distribution_artifacts
+    with zipfile.ZipFile(wheel) as archive:
+        assert not any(
+            name.endswith("/codex_research_eval.py")
+            or name == "research_registry/codex_research_eval.py"
+            for name in archive.namelist()
+        )
+    with tarfile.open(sdist, "r:gz") as archive:
+        assert not any(
+            name.endswith("/src/research_registry/codex_research_eval.py")
+            for name in archive.getnames()
+        )
 
 
 async def _call_installed_mcp(
@@ -165,6 +184,21 @@ def test_clean_home_package_init_plugin_and_stdio_search(
         [str(cli), "init", "--json"],
         cwd=tmp_path,
         env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        [
+            str(python),
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--upgrade",
+            "--force-reinstall",
+            str(artifact),
+        ],
         check=True,
         capture_output=True,
         text=True,

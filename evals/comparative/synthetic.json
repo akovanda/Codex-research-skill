@@ -1,0 +1,95 @@
+{
+  "protocol": "research-comparative-corpus/v1",
+  "cases": [
+    {
+      "id": "reuse-bounded-retry-finding",
+      "modes": {
+        "memory_only": {
+          "correct_prior_finding": true,
+          "expected_citations": 1,
+          "resolved_citations": 0,
+          "tool_calls": 1,
+          "context_bytes": 1800,
+          "latency_ms": 14.0,
+          "user_corrections": 1,
+          "repeated_research_avoided": true
+        },
+        "registry_only": {
+          "correct_prior_finding": true,
+          "expected_citations": 2,
+          "resolved_citations": 2,
+          "tool_calls": 2,
+          "context_bytes": 3200,
+          "latency_ms": 22.0,
+          "user_corrections": 0,
+          "repeated_research_avoided": true
+        },
+        "both": {
+          "correct_prior_finding": true,
+          "expected_citations": 2,
+          "resolved_citations": 2,
+          "tool_calls": 1,
+          "context_bytes": 2700,
+          "latency_ms": 18.0,
+          "user_corrections": 0,
+          "repeated_research_avoided": true
+        },
+        "research_again": {
+          "correct_prior_finding": true,
+          "expected_citations": 2,
+          "resolved_citations": 2,
+          "tool_calls": 6,
+          "context_bytes": 9400,
+          "latency_ms": 410.0,
+          "user_corrections": 0,
+          "repeated_research_avoided": false
+        }
+      }
+    },
+    {
+      "id": "reuse-stale-state-warning",
+      "modes": {
+        "memory_only": {
+          "correct_prior_finding": false,
+          "expected_citations": 1,
+          "resolved_citations": 0,
+          "tool_calls": 1,
+          "context_bytes": 1500,
+          "latency_ms": 12.0,
+          "user_corrections": 1,
+          "repeated_research_avoided": false
+        },
+        "registry_only": {
+          "correct_prior_finding": true,
+          "expected_citations": 1,
+          "resolved_citations": 1,
+          "tool_calls": 2,
+          "context_bytes": 2900,
+          "latency_ms": 20.0,
+          "user_corrections": 0,
+          "repeated_research_avoided": true
+        },
+        "both": {
+          "correct_prior_finding": true,
+          "expected_citations": 1,
+          "resolved_citations": 1,
+          "tool_calls": 2,
+          "context_bytes": 2500,
+          "latency_ms": 17.0,
+          "user_corrections": 0,
+          "repeated_research_avoided": true
+        },
+        "research_again": {
+          "correct_prior_finding": true,
+          "expected_citations": 1,
+          "resolved_citations": 1,
+          "tool_calls": 5,
+          "context_bytes": 8100,
+          "latency_ms": 360.0,
+          "user_corrections": 0,
+          "repeated_research_avoided": false
+        }
+      }
+    }
+  ]
+}

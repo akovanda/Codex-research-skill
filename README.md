@@ -14,6 +14,11 @@ The future public/shared network is not the current product target. The current 
 
 `v0.1.0` is a **GitHub-first open-source preview**.
 
+The v2 gate currently remains alpha until the operator-only Postgres,
+real-database migration, shared Compose, and security-review evidence is
+complete. See [release status](docs/release-status.md), [evaluation and fixed
+gates](docs/evaluation-and-release-gates.md), and [upgrade/rollback](docs/upgrade-and-rollback.md).
+
 Release-critical supported paths:
 
 - personal SQLite plus filesystem blobs over local STDIO MCP
@@ -76,6 +81,7 @@ If you are deciding whether this preview is even the right shape for you, read [
 - Codex user who wants focused recall and explicit deposit: [docs/codex-plugin.md](docs/codex-plugin.md)
 - Existing user maintaining the legacy implicit capture path: [docs/implicit-research-capture.md](docs/implicit-research-capture.md)
 - Repo-heavy user who wants command routing and triage: [docs/repo-aware-capture.md](docs/repo-aware-capture.md)
+- Release operator validating outcome/security gates: [docs/evaluation-and-release-gates.md](docs/evaluation-and-release-gates.md)
 
 ### Installed CLI
 

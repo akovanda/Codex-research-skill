@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Added deterministic retrieval metrics (Recall@k, MRR, nDCG, Precision@5,
+  evidence/state accuracy, duplicates, no-answer accuracy, latency, bytes, and
+  calls), operator-local known-answer evaluation, and a recorded four-mode
+  native-memory/registry comparison without an agent loop.
+- Added content-free evidence/deposit/migration health metrics, expanded
+  security/fuzz/private-data/log scanning, copied-data SQLite
+  install/upgrade/backup/restore/rollback rehearsal, and fixed
+  alpha/beta/stable release gates.
+- Pinned GitHub Actions to immutable commits, made release workflows
+  manual-only, and added offline checksums, SPDX SBOM, and unsigned provenance
+  generation. No package, image, tag, or artifact is automatically published.
+- Published current alpha limitations, v1 compatibility/deprecation policy,
+  and operator upgrade/rollback instructions.
 - Isolated local heuristic research, repository intelligence, specialist
   routing, and broad capture behind
   `RESEARCH_REGISTRY_LEGACY_HEURISTICS=1`.
