@@ -6,6 +6,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
+from .legacy_feature import require_legacy_heuristics
 from .models import SourceCreate, SourceSelector
 
 
@@ -78,9 +79,10 @@ class MemoryRetrievalSkillHarness:
         self,
         tools: MemoryRetrievalToolSurface,
         *,
-        model_name: str = "gpt-5.4",
-        model_version: str = "2026-04-10",
+        model_name: str = "unknown",
+        model_version: str = "unknown",
     ):
+        require_legacy_heuristics()
         self.tools = tools
         self.model_name = model_name
         self.model_version = model_version

@@ -125,3 +125,6 @@ research_registry = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "legacy: exercises deprecated heuristic research compatibility behavior",
+]

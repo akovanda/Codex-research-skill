@@ -19,7 +19,7 @@ def _call(server, name: str, arguments: dict) -> dict:
     return structured
 
 
-def test_write_tools_are_closed_bounded_and_keep_v1_contracts(
+def test_write_tools_are_closed_bounded_and_hide_v1_contracts_by_default(
     tmp_path: Path,
 ) -> None:
     registry, _ = seed_review_registry(tmp_path, key="mcp-schema")
@@ -27,7 +27,7 @@ def test_write_tools_are_closed_bounded_and_keep_v1_contracts(
     tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
 
     assert {"research_review", "research_refresh"} <= set(tools)
-    assert {"create_claim", "create_research_bundle", "publish"} <= set(tools)
+    assert {"create_claim", "create_research_bundle", "publish"}.isdisjoint(tools)
     for name in ("research_review", "research_refresh"):
         tool = tools[name]
         assert tool.parameters["additionalProperties"] is False

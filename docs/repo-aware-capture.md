@@ -1,6 +1,10 @@
 # Repo-Aware Capture
 
-This document covers the repo-aware extension layer inside implicit capture.
+This document covers the deprecated repo-aware extension layer inside legacy
+capture. It is disabled by default, requires
+`RESEARCH_REGISTRY_LEGACY_HEURISTICS=1`, and must be invoked explicitly. Normal
+Codex repository work should use Codex directly and deposit only durable,
+caller-authored conclusions through the v2 deposit path.
 
 Use this path when Codex is asked to:
 
@@ -64,7 +68,7 @@ Repo-aware reports use these sections:
 Run the repo-aware test slice:
 
 ```bash
-./.venv/bin/pytest -q tests/test_repo_intelligence.py
+./.venv/bin/pytest -q -m legacy tests/test_repo_intelligence.py
 ```
 
 Run the full suite:

@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .legacy_feature import require_legacy_heuristics
 from .managed_config import managed_config_dir
 from .models import ClaimStatus, FocusTuple, SourceCreate, SourceSelector
 
@@ -340,6 +341,7 @@ def run_local_research(
     source_roots: list[Path] | None = None,
     max_hits: int = 10,
 ) -> LocalResearchResult:
+    require_legacy_heuristics()
     source_signals = source_signals or []
     focus = build_focus(prompt, domain=domain, source_signals=source_signals)
     selected_roots = select_source_roots(source_signals=source_signals, source_roots=source_roots)

@@ -25,6 +25,7 @@ from .contracts.v2 import (
     SearchScope,
     SnapshotPolicy,
 )
+from .legacy_feature import legacy_mcp_tools_enabled
 from .mcp.read_runtime import ReadMcpRuntime
 from .mcp.schema import close_tool_input_schema
 from .mcp.write_runtime import WriteMcpRuntime
@@ -50,6 +51,13 @@ _REFRESH_QUEUE_WRITE = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=True,
 )
+
+
+def _unregistered_tool(*_: Any, **__: Any):
+    def decorator(function):
+        return function
+
+    return decorator
 
 
 def _admin_auth() -> AuthContext:
@@ -394,7 +402,10 @@ def create_mcp_server(
     default_api_key: str | None = None,
     allow_admin_fallback: bool = True,
     streamable_http_path: str = "/mcp",
+    legacy_tools_enabled: bool | None = None,
 ) -> FastMCP:
+    if legacy_tools_enabled is None:
+        legacy_tools_enabled = legacy_mcp_tools_enabled()
     runtime = McpToolRuntime(
         backend,
         settings=settings,
@@ -408,7 +419,7 @@ def create_mcp_server(
         service=service,
         default_api_key=default_api_key if allow_admin_fallback else None,
         allow_admin_fallback=allow_admin_fallback,
-        legacy_tools_enabled=True,
+        legacy_tools_enabled=legacy_tools_enabled,
     )
     write_runtime = WriteMcpRuntime(
         backend,
@@ -424,6 +435,7 @@ def create_mcp_server(
         json_response=True,
         streamable_http_path=streamable_http_path,
     )
+    legacy_tool = mcp.tool if legacy_tools_enabled else _unregistered_tool
 
     @mcp.tool(annotations=_READ_ONLY, structured_output=True)
     def research_status(
@@ -550,7 +562,7 @@ def create_mcp_server(
 
     close_tool_input_schema(mcp, "research_refresh")
 
-    @mcp.tool()
+    @legacy_tool()
     def search(
         query: str,
         kind: str | None = None,
@@ -561,92 +573,92 @@ def create_mcp_server(
         """Search questions, excerpts, claims, reports, and sources."""
         return runtime.search(query, kind=kind, include_private=include_private, limit=limit, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def backend_status(ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Return the selected backend URL, namespace, and selection source."""
         return runtime.backend_status(ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_question(payload: QuestionCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create or reuse a research question and its focus label."""
         return runtime.create_question(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_session(payload: ResearchSessionCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a research session for a question."""
         return runtime.create_session(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_question(question_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Fetch a single question by id."""
         return runtime.get_question(question_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_source(source_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Fetch a single source by id."""
         return runtime.get_source(source_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_excerpt(excerpt_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Fetch a single excerpt by id."""
         return runtime.get_excerpt(excerpt_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_annotation(annotation_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Compatibility alias for fetching an excerpt by id."""
         return runtime.get_excerpt(annotation_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_claim(claim_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Fetch a single claim by id."""
         return runtime.get_claim(claim_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_finding(finding_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Compatibility alias for fetching a claim by id."""
         return runtime.get_claim(finding_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_report(report_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Fetch a single report by id."""
         return runtime.get_report(report_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_source(payload: SourceCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create or reuse a source record."""
         return runtime.create_source(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def add_excerpt(payload: ExcerptCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a source-backed evidence excerpt."""
         return runtime.add_excerpt(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def add_annotation(payload: ExcerptCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Compatibility alias for creating an evidence excerpt."""
         return runtime.add_excerpt(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_claim(payload: ClaimCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a claim from one or more excerpt ids."""
         return runtime.create_claim(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_finding(payload: ClaimCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Compatibility alias for creating a claim from excerpt ids."""
         return runtime.create_claim(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_report(payload: ReportCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a report with explicit summary markdown from one or more claim ids."""
         return runtime.create_report(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_research_bundle(payload: dict, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create one question, session, sources, excerpts, claims, and an optional report in one call."""
         return runtime.create_research_bundle(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def publish(
         kind: str,
         record_id: str,

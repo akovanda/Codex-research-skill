@@ -7,6 +7,31 @@ New installs should use [Codex Plugin](codex-plugin.md): `research-recall` may
 invoke implicitly but is read-only, while `research-deposit` requires explicit
 invocation or user approval.
 
+## Explicit compatibility flags
+
+Heuristic local research, repository intelligence, specialist routing, broad
+capture, legacy harnesses, and the heuristic brief/refresh service methods are
+disabled by default. An existing installation may temporarily recover that
+behavior by setting:
+
+```bash
+export RESEARCH_REGISTRY_LEGACY_HEURISTICS=1
+```
+
+The first heuristic use in a process emits one deprecation warning. New code
+should not import these adapters; compatibility imports are also available
+under `research_registry.legacy`.
+
+The low-level v1 MCP tool surface is a separate compatibility contract. It is
+hidden by default and can be restored with:
+
+```bash
+export RESEARCH_REGISTRY_MCP_LEGACY=1
+```
+
+V1 HTTP routes and database tables remain available. The default plugin and
+normal service startup use the v2 surface and do not load heuristic modules.
+
 For first-run local setup, start with [Getting Started](getting-started.md).
 
 For embedded local storage, run `make init` once before relying on this legacy
@@ -89,6 +114,11 @@ research-registry doctor
 
 ## Queue
 
+The capture queue remains supported. New entries should use
+`research-capture-queue/v2` envelopes containing an atomic
+`research-deposit/v2` bundle. Existing legacy queue records remain replayable
+during the compatibility window and are not deleted by this change.
+
 Inspect pending bundles:
 
 ```bash
@@ -112,3 +142,19 @@ Implicit capture summaries should carry:
 - wants
 - follow-up questions
 - registry ids for the stored or reused artifacts
+
+## Removal criteria
+
+Removal is not scheduled. The adapters may be removed only in a future major
+release after all of the following are complete:
+
+- a new accepted ADR explicitly approves removal;
+- a published deprecation period and release notice have elapsed;
+- v1 data export/import and migration verification remain available;
+- legacy queue records have a tested conversion or replay path;
+- the marked legacy regression suite is no longer needed for supported
+  compatibility behavior;
+- no v1 table is deleted as a side effect.
+
+Until then, the adapters remain explicit-only compatibility code. They must not
+return to default startup, the default plugin, or implicit skill routing.

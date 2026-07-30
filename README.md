@@ -376,6 +376,12 @@ API, and HTTP MCP remain available for review/shared deployments:
 - legacy memory/retrieval skill: [`skills/research-memory-retrieval`](skills/research-memory-retrieval/SKILL.md)
 - checked-in repo profile example: [`.codex/repo-profile.toml`](.codex/repo-profile.toml)
 
+The legacy skills are explicit-only and disabled unless
+`RESEARCH_REGISTRY_LEGACY_HEURISTICS=1`. Low-level v1 MCP tools separately
+require `RESEARCH_REGISTRY_MCP_LEGACY=1`. The default plugin loads neither
+legacy surface; removal criteria are documented in
+[Implicit research capture](docs/implicit-research-capture.md).
+
 ## Deployment
 
 - [Getting started](docs/getting-started.md)
@@ -424,7 +430,8 @@ make preview-check
 Run the grounded pass runner:
 
 ```bash
-./.venv/bin/research-registry-pass-runner --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2
+RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 \
+  ./.venv/bin/research-registry-pass-runner --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2
 ```
 
 ## Preview Notes

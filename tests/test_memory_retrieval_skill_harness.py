@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from research_registry.research_capture import run_implicit_research_capture
 from research_registry.service import RegistryService
+
+
+pytestmark = pytest.mark.legacy
 
 
 def test_memory_research_summary_contract_preserves_guidance_sections(tmp_path: Path) -> None:

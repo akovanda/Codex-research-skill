@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from research_registry.repo_intelligence import resolve_repo_capture_request, run_repo_capture
 from research_registry.research_capture import is_research_request, run_implicit_research_capture
 from research_registry.service import RegistryService
+
+
+pytestmark = pytest.mark.legacy
 
 
 def make_service(tmp_path: Path) -> RegistryService:

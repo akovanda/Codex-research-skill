@@ -10,6 +10,7 @@ from typing import Callable
 
 from pydantic import BaseModel, Field
 
+from .legacy_feature import require_legacy_heuristics
 from .research_capture import run_implicit_research_capture
 from .research_pass_suite import ResearchPassSpec, load_research_pass_suite
 from .service import RegistryService
@@ -239,6 +240,7 @@ def render_report_markdown(report: ResearchPassRunReport) -> str:
 
 
 def main() -> None:
+    require_legacy_heuristics()
     parser = argparse.ArgumentParser(description="Run the grounded research pass suite against the local Research Registry.")
     parser.add_argument(
         "--db-path",

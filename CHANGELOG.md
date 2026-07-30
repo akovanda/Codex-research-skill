@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Isolated local heuristic research, repository intelligence, specialist
+  routing, and broad capture behind
+  `RESEARCH_REGISTRY_LEGACY_HEURISTICS=1`.
+- Disabled low-level v1 MCP tools by default while preserving them behind
+  `RESEARCH_REGISTRY_MCP_LEGACY=1`; v1 HTTP and database compatibility remain.
+- Kept the capture queue, including atomic v2 deposit envelopes, and marked
+  legacy regression suites explicitly.
+
 ## v0.1.0
 
 Initial open-source preview release.

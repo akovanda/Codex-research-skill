@@ -116,8 +116,8 @@ rr2-migration-check: install
 
 workflow-check: install
 	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_http_e2e.py
-	RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS=$(CURDIR) PYTHONPATH=src $(VENV_PYTHON) -m research_registry.memory_retrieval_harness --all --reset --db-path .data/memory-retrieval-harness.sqlite3
-	RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS=$(CURDIR) PYTHONPATH=src $(VENV_PYTHON) -m research_registry.domain_research_harness --all --reset --db-path .data/domain-research-harness.sqlite3
+	RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS=$(CURDIR) PYTHONPATH=src $(VENV_PYTHON) -m research_registry.memory_retrieval_harness --all --reset --db-path .data/memory-retrieval-harness.sqlite3
+	RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS=$(CURDIR) PYTHONPATH=src $(VENV_PYTHON) -m research_registry.domain_research_harness --all --reset --db-path .data/domain-research-harness.sqlite3
 
 grounded-pass-check: install
-	PYTHONPATH=src $(VENV_PYTHON) -m research_registry.research_pass_runner --db-path .data/research-pass-runner.sqlite3 --reset --rounds 2 --markdown-out .data/research-pass-runner.md
+	RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 PYTHONPATH=src $(VENV_PYTHON) -m research_registry.research_pass_runner --db-path .data/research-pass-runner.sqlite3 --reset --rounds 2 --markdown-out .data/research-pass-runner.md

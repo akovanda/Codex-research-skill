@@ -1,13 +1,18 @@
 ---
 name: research-capture
-description: Implicitly capture research-oriented work into a Research Registry. Use when Codex is asked to research, investigate, compare, gather sources, survey prior work, review a change, triage a failing repo workflow, or answer repo-specific command questions, and the result should be searched first, stored privately by default, summarized explicitly, and queued for retry if the registry path is temporarily unavailable.
+description: Deprecated compatibility workflow for the former broad research, repository-triage, and review capture behavior. Invoke only when the user explicitly requests the legacy adapter and RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 is enabled. New work should use research-recall and research-deposit.
 ---
 
 # Research Capture
 
+> Deprecated legacy adapter. It is not implicitly invokable and requires
+> `RESEARCH_REGISTRY_LEGACY_HEURISTICS=1`.
+
 ## Overview
 
-Use this skill as the default workflow for research intent and repo-aware triage intent. Search existing registry content first, perform source-backed research when needed, store `Question`, `ResearchSession`, `Excerpt`, `Claim`, and `Report` artifacts privately by default, and tell the user exactly what was reused, stored, or queued.
+Use this skill only to preserve an existing legacy workflow during migration.
+The default v2 path uses the focused `research-recall` and
+`research-deposit` skills.
 
 ## Backend Check
 
@@ -26,7 +31,7 @@ Use this skill as the default workflow for research intent and repo-aware triage
 
 ## Workflow
 
-1. Detect research intent or repo-aware triage intent.
+1. Confirm the user explicitly requested the legacy workflow.
 2. Flush pending queue items first.
 3. For repo-aware prompts, inspect `.codex/repo-profile.toml`, the nearest applicable `AGENTS.md` files, local manifests/configs, targeted `rg` hits, git state, and coverage artifacts before widening the search surface.
 4. Search before adding anything new.
@@ -34,7 +39,7 @@ Use this skill as the default workflow for research intent and repo-aware triage
 6. Create a research session only when real gaps remain.
 7. Add source-backed excerpts before creating claims.
 8. Create claims only after evidence exists.
-9. Always create a guidance report for a new implicit research session.
+9. Always create a guidance report for a new legacy research session.
 10. Summarize what was reused, what was stored, what follow-up questions were created, and what was queued.
 
 ## Queue Fallback
@@ -46,7 +51,7 @@ Use this skill as the default workflow for research intent and repo-aware triage
 ## Notes
 
 - Default all new artifacts to private.
-- Do not publish implicitly.
+- Do not publish or invoke this skill implicitly.
 - Treat localhost as the default backend unless the user or environment points at a shared server.
 - Prefer MCP when available, but preserve queue fallback behavior when storage is temporarily unavailable.
-- When a checked-in repo profile or path-specific `AGENTS.md` files are present, capture repo-aware triage and review work implicitly rather than treating it as generic web research.
+- Do not route repo-aware triage or review work automatically.

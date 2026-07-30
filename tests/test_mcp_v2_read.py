@@ -112,7 +112,7 @@ def _call(server, name: str, arguments: dict) -> dict:
     return structured
 
 
-def test_v2_read_tools_have_closed_structured_schemas_and_keep_legacy_tools(
+def test_v2_read_tools_have_closed_structured_schemas_and_hide_legacy_tools(
     tmp_path: Path,
 ) -> None:
     registry, _ = _seed_v2(tmp_path)
@@ -120,7 +120,7 @@ def test_v2_read_tools_have_closed_structured_schemas_and_keep_legacy_tools(
     tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
 
     assert {"research_status", "research_search", "research_get"} <= set(tools)
-    assert {"search", "create_question", "create_research_bundle", "publish"} <= set(
+    assert {"search", "create_question", "create_research_bundle", "publish"}.isdisjoint(
         tools
     )
     for name in ("research_status", "research_search", "research_get"):
@@ -152,7 +152,7 @@ def test_status_search_cursor_and_bounded_claim_hydration(
     assert status["protocol"] == "research-status-result/v2"
     assert status["database_type"] == "sqlite"
     assert status["migration_state"] == "current"
-    assert status["legacy_tools_enabled"] is True
+    assert status["legacy_tools_enabled"] is False
 
     first = _call(
         server,

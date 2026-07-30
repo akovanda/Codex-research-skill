@@ -14,6 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .legacy_feature import require_legacy_heuristics
 from .local_research import (
     LocalClaimDraft,
     LocalFollowUpDraft,
@@ -294,6 +295,7 @@ TEST_PATH_MARKERS = (
 
 
 def resolve_repo_capture_request(prompt: str, *, source_roots: list[Path] | None = None) -> RepoCaptureRequest | None:
+    require_legacy_heuristics()
     repo_root = discover_repo_root(source_roots=source_roots)
     if repo_root is None:
         return None
@@ -327,6 +329,7 @@ def resolve_repo_capture_request(prompt: str, *, source_roots: list[Path] | None
 
 
 def run_repo_capture(prompt: str, request: RepoCaptureRequest) -> RepoCaptureResult:
+    require_legacy_heuristics()
     repo_root = Path(request.repo_root)
     instructions = resolve_instructions(
         repo_root,

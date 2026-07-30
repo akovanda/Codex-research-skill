@@ -103,6 +103,7 @@ def test_live_http_end_to_end(tmp_path: Path) -> None:
             "RESEARCH_REGISTRY_PORT": str(port),
             "RESEARCH_REGISTRY_PUBLIC_BASE_URL": base_url,
             "RESEARCH_REGISTRY_LOCAL_RESEARCH_ROOTS": str(corpus_dir),
+            "RESEARCH_REGISTRY_LEGACY_HEURISTICS": "1",
         }
     )
     server = subprocess.Popen(
@@ -682,6 +683,7 @@ def test_live_http_mcp_roundtrip(tmp_path: Path) -> None:
             "RESEARCH_REGISTRY_HOST": "127.0.0.1",
             "RESEARCH_REGISTRY_PORT": str(port),
             "RESEARCH_REGISTRY_PUBLIC_BASE_URL": base_url,
+            "RESEARCH_REGISTRY_MCP_LEGACY": "1",
         }
     )
     server = subprocess.Popen(

@@ -18,7 +18,7 @@ from .external_ingest import (
 )
 from .application.source_versions import SourceVersionService
 from .ingestion.blobs import FilesystemBlobStore
-from .local_research import build_focus, run_local_research
+from .legacy_feature import require_legacy_heuristics
 from .migration_runner import MigrationRunner
 from .retrieval.projection import rebuild_search_documents
 from .models import (
@@ -69,6 +69,22 @@ from .models import (
 )
 
 LEGACY_SCHEMA_VERSION = 4
+
+
+def build_focus(*args: Any, **kwargs: Any):
+    """Compatibility seam that keeps legacy heuristics off normal imports."""
+    require_legacy_heuristics()
+    from .local_research import build_focus as legacy_build_focus
+
+    return legacy_build_focus(*args, **kwargs)
+
+
+def run_local_research(*args: Any, **kwargs: Any):
+    """Compatibility seam that keeps legacy heuristics off normal imports."""
+    require_legacy_heuristics()
+    from .local_research import run_local_research as legacy_run_local_research
+
+    return legacy_run_local_research(*args, **kwargs)
 
 
 def utc_now() -> datetime:
@@ -945,8 +961,8 @@ class RegistryService:
             ResearchSessionCreate(
                 question_id=question.id,
                 prompt=question.prompt,
-                model_name="gpt-5.4",
-                model_version="2026-04-10",
+                model_name="unknown",
+                model_version="unknown",
                 mode="live_research" if live_result.hits else "insufficient_evidence",
                 refresh_of_session_id=prior_session_id,
                 source_signals=[f"refresh:{existing.id}"],
@@ -1322,8 +1338,8 @@ class RegistryService:
             ResearchSessionCreate(
                 question_id=question.id,
                 prompt=question.prompt,
-                model_name="gpt-5.4",
-                model_version="2026-04-10",
+                model_name="unknown",
+                model_version="unknown",
                 mode="live_research",
                 notes="demo seed",
             )

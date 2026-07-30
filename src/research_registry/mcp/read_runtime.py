@@ -54,7 +54,7 @@ class ReadMcpRuntime:
         default_api_key: str | None = None,
         allow_admin_fallback: bool = True,
         capture_mode: str | None = None,
-        legacy_tools_enabled: bool = True,
+        legacy_tools_enabled: bool = False,
     ) -> None:
         self.backend = backend
         self.settings = settings

@@ -32,7 +32,8 @@ This gives the skill a shared localhost backend plus a managed MCP endpoint in `
 ## Seed the memory/retrieval corpus
 
 ```bash
-./.venv/bin/research-registry-seed-memory-retrieval
+RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 \
+  ./.venv/bin/research-registry-seed-memory-retrieval
 ```
 
 `make shared-up` already runs this seed step by default. Rerun it manually only

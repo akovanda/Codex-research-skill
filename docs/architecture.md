@@ -19,8 +19,8 @@ Primary surfaces:
 
 Secondary integrations:
 
-- Codex skills for implicit and domain-specific capture
-- local harnesses and pass runners
+- focused Codex recall and explicit deposit skills
+- explicit-only legacy heuristic adapters, harnesses, and pass runners
 
 ## Deployment Modes
 
@@ -76,3 +76,8 @@ Canonical terms are:
 - report
 
 Compatibility aliases such as `annotation` and `finding` remain available for older clients, but new integrations should not depend on them as the primary model.
+
+Normal startup does not import the legacy local-research, repository
+intelligence, broad-capture, or specialist-routing modules. See
+[Implicit research capture](implicit-research-capture.md) for the explicit
+compatibility flags and removal criteria.

@@ -1,13 +1,18 @@
 ---
 name: research-memory-retrieval
-description: Research LLM memory and retrieval topics with a source-backed workflow. Use when Codex needs to investigate agent memory, long-term or cross-session memory, RAG retrieval, recall/precision tradeoffs, reranking, indexing, freshness, provenance, context management, or retrieval failures, and the result should be searched, reused, and optionally deposited into a Research Registry as excerpts, claims, and guidance reports.
+description: Deprecated compatibility workflow for the former memory and retrieval specialist. Invoke only when the user explicitly requests the legacy adapter and RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 is enabled. New work should use research-recall and research-deposit.
 ---
 
 # Research Memory Retrieval
 
+> Deprecated legacy adapter. It is not implicitly invokable and requires
+> `RESEARCH_REGISTRY_LEGACY_HEURISTICS=1`.
+
 ## Overview
 
-Use this skill to research memory and retrieval topics against a Research Registry backend. Search existing registry content first, reuse mature guidance when it already answers the question, add new source-backed excerpts only when the registry is missing evidence, then synthesize claims and a guidance report when the topic is mature enough.
+Use this skill only to preserve an existing specialist workflow during
+migration. The default v2 path uses the focused `research-recall` and
+`research-deposit` skills.
 
 This skill may be invoked directly or delegated to by `$research-capture`.
 

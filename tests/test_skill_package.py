@@ -32,7 +32,8 @@ def test_memory_skill_metadata_has_no_todo_placeholders() -> None:
 
     assert "[TODO:" not in skill_md
     assert "research-memory-retrieval" in skill_md
-    assert 'allow_implicit_invocation: true' in openai_yaml
+    assert 'allow_implicit_invocation: false' in openai_yaml
+    assert "RESEARCH_REGISTRY_LEGACY_HEURISTICS=1" in skill_md
 
 
 def test_capture_skill_package_has_required_files() -> None:
@@ -44,12 +45,13 @@ def test_capture_skill_package_has_required_files() -> None:
     assert (CAPTURE_SKILL_DIR / "references" / "repo-aware.md").exists()
 
 
-def test_capture_skill_instructions_cover_implicit_capture_and_queue() -> None:
+def test_capture_skill_is_explicit_legacy_compatibility_with_queue() -> None:
     content = (CAPTURE_SKILL_DIR / "SKILL.md").read_text()
     openai_yaml = (CAPTURE_SKILL_DIR / "agents" / "openai.yaml").read_text()
     repo_aware = (CAPTURE_SKILL_DIR / "references" / "repo-aware.md").read_text()
 
-    assert "trigger on research intent" in content.lower() or "research intent" in content.lower()
+    assert "Deprecated legacy adapter" in content
+    assert "RESEARCH_REGISTRY_LEGACY_HEURISTICS=1" in content
     assert "Flush pending queue items first" in content
     assert "`$research-memory-retrieval`" in content
     assert "Always create a guidance report" in content
@@ -57,5 +59,5 @@ def test_capture_skill_instructions_cover_implicit_capture_and_queue() -> None:
     assert "AGENTS.md" in content
     assert "research-registry-capture-queue enqueue" in (CAPTURE_SKILL_DIR / "references" / "queue-fallback.md").read_text()
     assert "exact command for a file" in repo_aware
-    assert 'allow_implicit_invocation: true' in openai_yaml
+    assert 'allow_implicit_invocation: false' in openai_yaml
     assert "[TODO:" not in content

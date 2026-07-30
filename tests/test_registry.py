@@ -322,7 +322,10 @@ def test_agent_shaped_create_payloads_normalize() -> None:
 
 
 def test_mcp_write_tools_expose_typed_payload_schema() -> None:
-    mcp = create_mcp_server(object())  # type: ignore[arg-type]
+    mcp = create_mcp_server(  # type: ignore[arg-type]
+        object(),
+        legacy_tools_enabled=True,
+    )
 
     question_schema = mcp._tool_manager._tools["create_question"].parameters
     question_payload = question_schema["properties"]["payload"]
@@ -483,6 +486,7 @@ def test_registry_service_accepts_sqlite_database_url(tmp_path: Path) -> None:
     assert service.database.sqlite_path == db_path.resolve()
 
 
+@pytest.mark.legacy
 def test_import_brief_refresh_follow_up_and_source_review_work(tmp_path: Path, monkeypatch) -> None:
     service = make_service(tmp_path)
     auth = AuthContext(
@@ -668,6 +672,7 @@ def test_publish_blocks_sources_missing_snapshots(tmp_path: Path) -> None:
         service.publish(PublishRequest(kind="source", record_id=source.id))
 
 
+@pytest.mark.legacy
 def test_http_supports_import_brief_follow_up_and_refresh_routes(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
     client = TestClient(app)

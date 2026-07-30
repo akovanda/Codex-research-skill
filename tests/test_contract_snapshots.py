@@ -25,7 +25,9 @@ def test_v1_http_openapi_snapshot_is_stable(tmp_path: Path) -> None:
 
 
 def test_v1_mcp_tool_input_schema_snapshot_is_stable() -> None:
-    current = mcp_tools_snapshot(create_mcp_server(object()))
+    current = mcp_tools_snapshot(
+        create_mcp_server(object(), legacy_tools_enabled=True)
+    )
     expected = json.loads((CONTRACTS / "v1_mcp_tools.json").read_text(encoding="utf-8"))
 
     assert current == expected
