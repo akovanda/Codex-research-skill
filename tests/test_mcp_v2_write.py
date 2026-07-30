@@ -34,10 +34,12 @@ def test_write_tools_are_closed_bounded_and_keep_v1_contracts(
         assert tool.output_schema is not None
         assert tool.annotations.readOnlyHint is False
         assert tool.annotations.idempotentHint is True
-        assert tool.annotations.openWorldHint is False
+        assert tool.annotations.openWorldHint is (name == "research_refresh")
     assert tools["research_refresh"].parameters["properties"]["mode"]["enum"] == [
         "inspect",
         "enqueue",
+        "verify",
+        "capture",
     ]
     assert (
         tools["research_refresh"]

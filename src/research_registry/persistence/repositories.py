@@ -1085,6 +1085,23 @@ class ReviewRefreshRepository:
         if cursor.rowcount != 1:
             raise RuntimeError("idempotency reservation was not completed")
 
+    def release_idempotency(
+        self,
+        *,
+        namespace_id: str,
+        operation: str,
+        key: str,
+        reservation_json: str,
+    ) -> None:
+        self.conn.execute(
+            """
+            DELETE FROM idempotency_keys
+            WHERE namespace_id = ? AND operation = ? AND "key" = ?
+              AND response_json = ?
+            """,
+            (namespace_id, operation, key, reservation_json),
+        )
+
     def get_claim_for_revision(
         self,
         revision_id: str,
@@ -1387,6 +1404,94 @@ class ReviewRefreshRepository:
                 values["actor_type"],
                 values["actor_id"],
                 values["created_at"],
+                values["metadata_json"],
+            ),
+        )
+
+    def get_source_capture_context(
+        self,
+        source_id: str,
+        *,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> tuple[Any, Any | None] | None:
+        source = self.conn.execute(
+            """
+            SELECT * FROM sources
+            WHERE id = ? AND namespace_kind = ? AND namespace_id = ?
+            """,
+            (source_id, namespace_kind, namespace_id),
+        ).fetchone()
+        if source is None:
+            return None
+        version = self.conn.execute(
+            """
+            SELECT * FROM source_versions
+            WHERE source_id = ?
+            ORDER BY retrieved_at DESC, created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (source_id,),
+        ).fetchone()
+        return source, version
+
+    def get_source_id_for_evidence(
+        self,
+        evidence_id: str,
+        *,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> str | None:
+        row = self.conn.execute(
+            """
+            SELECT sv.source_id
+            FROM evidence_spans e
+            JOIN source_versions sv ON sv.id = e.source_version_id
+            JOIN sources s ON s.id = sv.source_id
+            WHERE e.id = ? AND s.namespace_kind = ? AND s.namespace_id = ?
+            """,
+            (evidence_id, namespace_kind, namespace_id),
+        ).fetchone()
+        return row["source_id"] if row is not None else None
+
+    def list_evidence_for_version(self, source_version_id: str) -> list[Any]:
+        return self.conn.execute(
+            """
+            SELECT * FROM evidence_spans
+            WHERE source_version_id = ?
+            ORDER BY id
+            """,
+            (source_version_id,),
+        ).fetchall()
+
+    def insert_reanchored_evidence(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO evidence_spans (
+                id, source_version_id, topic_id, question_id, session_id,
+                quote_text, quote_sha256, selector_type, selector_json, note,
+                confidence, anchor_state, review_state, trust_tier,
+                created_by_model, created_at, last_resolved_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                values["id"],
+                values["source_version_id"],
+                values["topic_id"],
+                values["question_id"],
+                values["session_id"],
+                values["quote_text"],
+                values["quote_sha256"],
+                values["selector_type"],
+                values["selector_json"],
+                values["note"],
+                values["confidence"],
+                values["anchor_state"],
+                values["review_state"],
+                values["trust_tier"],
+                values["created_by_model"],
+                values["created_at"],
+                values["last_resolved_at"],
                 values["metadata_json"],
             ),
         )

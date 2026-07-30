@@ -48,7 +48,7 @@ _REFRESH_QUEUE_WRITE = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=False,
     idempotentHint=True,
-    openWorldHint=False,
+    openWorldHint=True,
 )
 
 
@@ -516,7 +516,7 @@ def create_mcp_server(
 
     @mcp.tool(annotations=_REFRESH_QUEUE_WRITE, structured_output=True)
     def research_refresh(
-        mode: Literal["inspect", "enqueue"],
+        mode: Literal["inspect", "enqueue", "verify", "capture"],
         entities: Annotated[
             list[RefreshEntity], Field(min_length=1, max_length=100)
         ],
@@ -528,7 +528,7 @@ def create_mcp_server(
         priority: Annotated[float, Field(ge=0, le=1)] = 0.5,
         ctx: Context = None,  # type: ignore[assignment]
     ) -> ResearchRefreshResult:
-        """Inspect or enqueue refresh work. No locator access or network capture."""
+        """Inspect, enqueue, or policy-authorized capture; never publishes claims."""
         return write_runtime.research_refresh(
             mode=mode,
             idempotency_key=idempotency_key,

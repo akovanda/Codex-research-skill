@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import secrets
 from typing import Any
@@ -10,10 +11,13 @@ from uuid import uuid4
 
 from .db import DbConnection, resolve_database_target, connect_database
 from .external_ingest import (
+    ImportedSourceCandidate,
     bibtex_candidates,
     fetch_doi_candidate,
     fetch_url_candidate,
 )
+from .application.source_versions import SourceVersionService
+from .ingestion.blobs import FilesystemBlobStore
 from .local_research import build_focus, run_local_research
 from .migration_runner import MigrationRunner
 from .retrieval.projection import rebuild_search_documents
@@ -816,7 +820,7 @@ class RegistryService:
 
     def import_url(self, payload: ImportUrlRequest, auth: AuthContext | None = None) -> ImportResult:
         candidate = fetch_url_candidate(payload.url)
-        return self._materialize_import_candidate(
+        result = self._materialize_import_candidate(
             candidate.source,
             excerpt_text=candidate.excerpt_text,
             question_id=payload.question_id,
@@ -827,10 +831,12 @@ class RegistryService:
             namespace_id=payload.namespace_id,
             auth=auth,
         )
+        self._persist_imported_version(candidate, result.source_ids[0])
+        return result
 
     def import_doi(self, payload: ImportDoiRequest, auth: AuthContext | None = None) -> ImportResult:
         candidate = fetch_doi_candidate(payload.doi)
-        return self._materialize_import_candidate(
+        result = self._materialize_import_candidate(
             candidate.source,
             excerpt_text=candidate.excerpt_text,
             question_id=payload.question_id,
@@ -841,6 +847,8 @@ class RegistryService:
             namespace_id=payload.namespace_id,
             auth=auth,
         )
+        self._persist_imported_version(candidate, result.source_ids[0])
+        return result
 
     def import_bibtex(self, payload: ImportBibtexRequest, auth: AuthContext | None = None) -> ImportResult:
         source_ids: list[str] = []
@@ -1156,6 +1164,27 @@ class RegistryService:
             review_state=source_record.review_state,
             question_id=question_id,
         )
+
+    def _persist_imported_version(
+        self,
+        candidate: ImportedSourceCandidate,
+        source_id: str,
+    ) -> None:
+        if candidate.version is None:
+            return
+        if self.db_path is not None:
+            blob_root = self.db_path.parent / "blobs"
+        else:
+            blob_root = (
+                Path(os.getenv("RESEARCH_REGISTRY_DATA_DIR", ".data"))
+                .expanduser()
+                .resolve()
+                / "blobs"
+            )
+        SourceVersionService(
+            self.database,
+            FilesystemBlobStore(blob_root),
+        ).create_or_reuse(candidate.version.source_version_spec(source_id))
 
     def _create_follow_up_questions(
         self,

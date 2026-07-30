@@ -4,7 +4,12 @@ from typing import Any
 
 from mcp.server.fastmcp import Context
 
-from ..application.refresh import ResearchRefreshService
+from ..application.refresh import (
+    CapturePolicy,
+    ResearchRefreshService,
+    SourceCaptureCoordinator,
+)
+from ..application.source_versions import SourceVersionService
 from ..application.review import ResearchReviewService
 from ..backend_client import RegistryBackend
 from ..config import Settings
@@ -18,6 +23,14 @@ from ..contracts.v2 import (
     ReviewNewRevision,
 )
 from ..models import AuthContext
+from ..ingestion.blobs import FilesystemBlobStore
+from ..ingestion.fetch_policy import FetchPolicy
+from ..ingestion.git import GitIngestionPolicy, GitSourceIngestor
+from ..ingestion.web import (
+    DoiSourceIngestor,
+    HardenedWebFetcher,
+    WebSourceIngestor,
+)
 from ..service import RegistryService
 
 
@@ -41,6 +54,7 @@ class WriteMcpRuntime:
         service: RegistryService | None = None,
         default_api_key: str | None = None,
         allow_admin_fallback: bool = True,
+        capture_coordinator: SourceCaptureCoordinator | None = None,
     ) -> None:
         self.backend = backend
         self.settings = settings
@@ -54,10 +68,55 @@ class WriteMcpRuntime:
             if self.service is not None
             else None
         )
+        configured_capture = capture_coordinator or self._configured_capture()
         self.refreshes = (
-            ResearchRefreshService(self.service.database)
+            ResearchRefreshService(
+                self.service.database,
+                capture_coordinator=configured_capture,
+            )
             if self.service is not None
             else None
+        )
+
+    def _configured_capture(self) -> SourceCaptureCoordinator | None:
+        if (
+            self.service is None
+            or self.settings is None
+            or not self.settings.capture_modes
+        ):
+            return None
+        snapshot_policy = self.settings.capture_snapshot_policy
+        blob_store = FilesystemBlobStore(self.settings.data_dir / "blobs")
+        versions = SourceVersionService(
+            self.service.database,
+            blob_store,
+            max_snapshot_policy=snapshot_policy,  # type: ignore[arg-type]
+        )
+        fetcher = HardenedWebFetcher(
+            FetchPolicy(allow_http=self.settings.capture_allow_http)
+        )
+        git = None
+        if (
+            self.settings.capture_git_roots
+            and self.settings.capture_git_repositories
+        ):
+            git = GitSourceIngestor(
+                GitIngestionPolicy(
+                    allowed_roots=self.settings.capture_git_roots,
+                    repositories=dict(self.settings.capture_git_repositories),
+                ),
+                versions,
+            )
+        return SourceCaptureCoordinator(
+            self.service.database,
+            CapturePolicy(
+                enabled_modes=self.settings.capture_modes,
+                default_snapshot_policy=snapshot_policy,  # type: ignore[arg-type]
+                max_snapshot_policy=snapshot_policy,  # type: ignore[arg-type]
+            ),
+            web=WebSourceIngestor(fetcher, versions),
+            doi=DoiSourceIngestor(fetcher, versions),
+            git=git,
         )
 
     def research_review(

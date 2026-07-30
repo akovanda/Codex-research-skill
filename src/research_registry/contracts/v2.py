@@ -685,11 +685,22 @@ class RefreshPlanItem(ClosedModel):
         "failed",
     ]
     created: bool
+    source_version_id: RecordId | None = None
+    previous_source_version_id: RecordId | None = None
+    evidence_span_id: RecordId | None = None
+    previous_evidence_span_id: RecordId | None = None
+    anchor_state: Literal[
+        "resolved",
+        "relocated",
+        "stale",
+        "invalid",
+        "unverified",
+    ] | None = None
 
 
 class ResearchRefreshResult(ClosedModel):
     protocol: Literal["research-refresh-result/v2"]
-    status: Literal["inspected", "enqueued"]
+    status: Literal["inspected", "enqueued", "captured", "verified"]
     committed: bool
     idempotent_replay: bool
     items: list[RefreshPlanItem] = Field(max_length=500)

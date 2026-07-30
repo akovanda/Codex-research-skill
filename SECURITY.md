@@ -69,13 +69,60 @@ does not follow corpus URLs, and rejects files larger than 5 MiB or corpora with
 more than 5,000 documents or 5,000 cases. Private evaluation corpora should
 remain outside the repository and under normal host access controls.
 
-`research_review` and the enqueue mode of `research_refresh` are explicit MCP
+`research_review` and the write modes of `research_refresh` are explicit MCP
 write operations. Shared HTTP transport requires an authenticated API key with
 admin scope and has no admin/default-key fallback. Local STDIO may use the
-trusted operating-system user boundary. These tools never publish, fetch
-locators, contact a network, or rewrite a claim without an explicit closed
-request. Optimistic revision/state checks and transactional idempotency prevent
-stale or replayed requests from silently overwriting current state.
+trusted operating-system user boundary. Inspect/enqueue never fetch locators;
+capture can contact an external source only under the explicit machine policy
+described below. No refresh mode publishes or rewrites a claim. Optimistic
+revision/state checks and transactional idempotency prevent stale or replayed
+requests from silently overwriting current state.
+
+## External source capture
+
+External capture is disabled unless `RESEARCH_REGISTRY_CAPTURE_MODES=capture`
+is set by the machine operator. The configured snapshot policy is an upper
+retention bound: a request cannot raise it. HTTP is denied by default and can
+only be enabled explicitly; HTTPS remains the default.
+
+Web capture uses a dedicated HTTP/1.1 transport that does not consult proxy
+environment variables or cookie/credential stores. It:
+
+- permits only configured HTTP(S) schemes and ports;
+- rejects embedded credentials, local hostnames, and every non-public resolved
+  IPv4 or IPv6 address (including mapped IPv6);
+- rejects a host if any returned address is prohibited, connects directly to a
+  validated address, and retains the original hostname for TLS certificate/SNI
+  validation;
+- re-resolves and revalidates every bounded redirect before opening its
+  transport;
+- sends no caller credentials across redirects;
+- enforces header, streaming body, extracted-text, connect/read, and total-time
+  limits before creating a source version;
+- rejects compressed transfer bodies, archives, PDF parsing, and unsupported
+  media types.
+
+DOI capture stores a hash of the canonical Crossref metadata message and labels
+that hash accordingly. It never presents a hash of the DOI locator as article
+or metadata content.
+
+Local Git capture requires both explicit allowed roots and an explicit
+repository-ID-to-path map. The reader accepts only full commit IDs and reads
+contained loose or packed Git objects directly. It does not spawn Git or any
+other command, load repository configuration or remotes, consult credential
+helpers, run hooks, execute repository code, or capture working-tree,
+untracked, symlink, or submodule content. Stored repository provenance includes
+the repository ID, commit, blob, normalized path, object type, and file mode;
+filesystem repository paths are not stored as source locators.
+
+Captured source text is always untrusted data. Refresh capture creates immutable
+source versions and, when exact literal selector context has one match, a new
+evidence span. It leaves prior evidence and claim revisions unchanged, appends
+a review event, and queues affected claims/reports. Missing or ambiguous
+matches queue review and never assert that evidence survived. Capture does not
+publish records or rewrite claim text. Capture and verify require an
+idempotency key, which is reserved before external I/O so concurrent requests
+cannot duplicate evidence or review events.
 
 ## Disclosure Expectations
 
