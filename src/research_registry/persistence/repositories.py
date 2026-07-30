@@ -427,6 +427,582 @@ def _optional_row_value(row: Any, field: str) -> Any:
         return None
 
 
+class DepositRepository:
+    """SQL boundary used by the atomic v2 deposit application service."""
+
+    def __init__(self, conn: DbConnection):
+        self.conn = conn
+
+    def get_idempotency(
+        self, namespace_id: str, operation: str, key: str
+    ) -> Any | None:
+        return self.conn.execute(
+            """
+            SELECT * FROM idempotency_keys
+            WHERE namespace_id = ? AND operation = ? AND "key" = ?
+            """,
+            (namespace_id, operation, key),
+        ).fetchone()
+
+    def reserve_idempotency(
+        self,
+        *,
+        namespace_id: str,
+        operation: str,
+        key: str,
+        request_sha256: str,
+        reservation_json: str,
+        created_at: str,
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO idempotency_keys (
+                namespace_id, operation, "key", request_sha256,
+                response_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(namespace_id, operation, "key") DO NOTHING
+            """,
+            (
+                namespace_id,
+                operation,
+                key,
+                request_sha256,
+                reservation_json,
+                created_at,
+            ),
+        )
+
+    def complete_idempotency(
+        self,
+        *,
+        namespace_id: str,
+        operation: str,
+        key: str,
+        reservation_json: str,
+        response_json: str,
+    ) -> None:
+        self.conn.execute(
+            """
+            UPDATE idempotency_keys
+            SET response_json = ?
+            WHERE namespace_id = ? AND operation = ? AND "key" = ?
+              AND response_json = ?
+            """,
+            (
+                response_json,
+                namespace_id,
+                operation,
+                key,
+                reservation_json,
+            ),
+        )
+
+    def find_topic(
+        self, *, slug: str, namespace_kind: str, namespace_id: str
+    ) -> Any | None:
+        return self.conn.execute(
+            """
+            SELECT * FROM topics
+            WHERE slug = ? AND namespace_kind = ? AND namespace_id = ?
+            """,
+            (slug, namespace_kind, namespace_id),
+        ).fetchone()
+
+    def insert_topic(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO topics (
+                id, label, slug, focus_json, namespace_kind, namespace_id,
+                dedupe_key, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                values["id"],
+                values["label"],
+                values["slug"],
+                values["focus_json"],
+                values["namespace_kind"],
+                values["namespace_id"],
+                values["dedupe_key"],
+                values["created_at"],
+            ),
+        )
+
+    def find_question(
+        self,
+        *,
+        topic_id: str,
+        normalized_prompt: str,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> Any | None:
+        return self.conn.execute(
+            """
+            SELECT * FROM questions
+            WHERE topic_id = ? AND normalized_prompt = ?
+              AND namespace_kind = ? AND namespace_id = ?
+            LIMIT 1
+            """,
+            (topic_id, normalized_prompt, namespace_kind, namespace_id),
+        ).fetchone()
+
+    def insert_question(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO questions (
+                id, topic_id, prompt, normalized_prompt, focus_json, status,
+                follow_up_status, priority_score, visibility, author_type,
+                namespace_kind, namespace_id, public_namespace_slug,
+                public_index_state, dedupe_key, human_reviewed, created_at
+            ) VALUES (
+                ?, ?, ?, ?, ?, 'open', 'open', 0, ?, ?, ?, ?, ?, ?, ?, 0, ?
+            )
+            """,
+            (
+                values["id"],
+                values["topic_id"],
+                values["prompt"],
+                values["normalized_prompt"],
+                values["focus_json"],
+                values["visibility"],
+                values["author_type"],
+                values["namespace_kind"],
+                values["namespace_id"],
+                values["namespace_id"],
+                values["public_index_state"],
+                values["dedupe_key"],
+                values["created_at"],
+            ),
+        )
+
+    def insert_session(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO research_sessions (
+                id, question_id, prompt, model_name, model_version, mode,
+                status, source_signals_json, notes, visibility, author_type,
+                namespace_kind, namespace_id, public_namespace_slug,
+                public_index_state, dedupe_key, ttl_days, expires_at,
+                freshness_state, created_at, started_at, finished_at
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                30, ?, 'fresh', ?, ?, ?
+            )
+            """,
+            (
+                values["id"],
+                values["question_id"],
+                values["prompt"],
+                values["model_name"],
+                values["model_version"],
+                values["mode"],
+                values["source_signals_json"],
+                values["notes"],
+                values["visibility"],
+                values["author_type"],
+                values["namespace_kind"],
+                values["namespace_id"],
+                values["namespace_id"],
+                values["public_index_state"],
+                values["dedupe_key"],
+                values["expires_at"],
+                values["created_at"],
+                values["started_at"],
+                values["finished_at"],
+            ),
+        )
+
+    def find_source(
+        self,
+        *,
+        dedupe_key: str | None,
+        locator: str,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> Any | None:
+        if dedupe_key is not None:
+            return self.conn.execute(
+                "SELECT * FROM sources WHERE dedupe_key = ? LIMIT 1",
+                (dedupe_key,),
+            ).fetchone()
+        return self.conn.execute(
+            """
+            SELECT * FROM sources
+            WHERE locator = ? AND namespace_kind = ? AND namespace_id = ?
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            (locator, namespace_kind, namespace_id),
+        ).fetchone()
+
+    def insert_source(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO sources (
+                id, locator, title, source_type, site_name, published_at,
+                accessed_at, author, content_sha256, snapshot_required,
+                snapshot_present, last_verified_at, review_state, trust_tier,
+                conflict_state, visibility, namespace_kind, namespace_id,
+                public_namespace_slug, public_index_state, dedupe_key,
+                created_at
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'unreviewed', ?, 'none',
+                ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                values["id"],
+                values["locator"],
+                values["title"],
+                values["source_type"],
+                values["site_name"],
+                values["published_at"],
+                values["accessed_at"],
+                values["author"],
+                values["content_sha256"],
+                values["snapshot_present"],
+                values["last_verified_at"],
+                values["trust_tier"],
+                values["visibility"],
+                values["namespace_kind"],
+                values["namespace_id"],
+                values["namespace_id"],
+                values["public_index_state"],
+                values["dedupe_key"],
+                values["created_at"],
+            ),
+        )
+
+    def get_source_version_scoped(
+        self,
+        source_version_id: str,
+        *,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> Any | None:
+        return self.conn.execute(
+            """
+            SELECT sv.*, s.namespace_kind, s.namespace_id
+            FROM source_versions sv
+            JOIN sources s ON s.id = sv.source_id
+            WHERE sv.id = ? AND s.namespace_kind = ? AND s.namespace_id = ?
+            """,
+            (source_version_id, namespace_kind, namespace_id),
+        ).fetchone()
+
+    def get_evidence_scoped(
+        self,
+        evidence_id: str,
+        *,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> Any | None:
+        return self.conn.execute(
+            """
+            SELECT e.*, sv.source_id
+            FROM evidence_spans e
+            JOIN source_versions sv ON sv.id = e.source_version_id
+            JOIN sources s ON s.id = sv.source_id
+            WHERE e.id = ? AND s.namespace_kind = ? AND s.namespace_id = ?
+            """,
+            (evidence_id, namespace_kind, namespace_id),
+        ).fetchone()
+
+    def insert_legacy_excerpt(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO excerpts (
+                id, source_id, question_id, session_id, topic_id, focal_label,
+                note, selector_json, quote_text, confidence, tags_json,
+                review_state, trust_tier, conflict_state, visibility,
+                author_type, model_name, model_version, namespace_kind,
+                namespace_id, public_namespace_slug, public_index_state,
+                dedupe_key, human_reviewed, created_at
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 'none', ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                values["id"],
+                values["source_id"],
+                values["question_id"],
+                values["session_id"],
+                values["topic_id"],
+                values["focal_label"],
+                values["note"],
+                values["selector_json"],
+                values["quote_text"],
+                values["confidence"],
+                values["review_state"],
+                values["trust_tier"],
+                values["visibility"],
+                values["author_type"],
+                values["model_name"],
+                values["model_version"],
+                values["namespace_kind"],
+                values["namespace_id"],
+                values["namespace_id"],
+                values["public_index_state"],
+                values["dedupe_key"],
+                values["human_reviewed"],
+                values["created_at"],
+            ),
+        )
+
+    def insert_evidence(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO evidence_spans (
+                id, source_version_id, topic_id, question_id, session_id,
+                quote_text, quote_sha256, selector_type, selector_json, note,
+                confidence, anchor_state, review_state, trust_tier,
+                created_by_model, created_at, metadata_json
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unverified', ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                values["id"],
+                values["source_version_id"],
+                values["topic_id"],
+                values["question_id"],
+                values["session_id"],
+                values["quote_text"],
+                values["quote_sha256"],
+                values["selector_type"],
+                values["selector_json"],
+                values["note"],
+                values["confidence"],
+                values["review_state"],
+                values["trust_tier"],
+                values["created_by_model"],
+                values["created_at"],
+                values["metadata_json"],
+            ),
+        )
+
+    def get_claim_scoped(
+        self,
+        claim_id: str,
+        *,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> Any | None:
+        suffix = " FOR UPDATE" if self.conn.target.kind == "postgres" else ""
+        return self.conn.execute(
+            """
+            SELECT * FROM claims
+            WHERE id = ? AND namespace_kind = ? AND namespace_id = ?
+            """
+            + suffix,
+            (claim_id, namespace_kind, namespace_id),
+        ).fetchone()
+
+    def find_claim_by_canonical(
+        self,
+        canonical_key: str,
+        *,
+        namespace_kind: str,
+        namespace_id: str,
+    ) -> Any | None:
+        suffix = " FOR UPDATE" if self.conn.target.kind == "postgres" else ""
+        return self.conn.execute(
+            """
+            SELECT * FROM claims
+            WHERE canonical_key = ? AND namespace_kind = ? AND namespace_id = ?
+            ORDER BY created_at ASC
+            LIMIT 1
+            """
+            + suffix,
+            (canonical_key, namespace_kind, namespace_id),
+        ).fetchone()
+
+    def insert_claim(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO claims (
+                id, question_id, session_id, topic_id, title, focal_label,
+                statement, status, confidence, review_state, trust_tier,
+                conflict_state, visibility, author_type, model_name,
+                model_version, namespace_kind, namespace_id,
+                public_namespace_slug, public_index_state, dedupe_key,
+                human_reviewed, created_at, canonical_key, scope_json,
+                updated_at
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unreviewed', 'medium', 'none', ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?
+            )
+            """,
+            (
+                values["id"],
+                values["question_id"],
+                values["session_id"],
+                values["topic_id"],
+                values["title"],
+                values["focal_label"],
+                values["statement"],
+                values["legacy_status"],
+                values["confidence"],
+                values["visibility"],
+                values["author_type"],
+                values["model_name"],
+                values["model_version"],
+                values["namespace_kind"],
+                values["namespace_id"],
+                values["namespace_id"],
+                values["public_index_state"],
+                values["dedupe_key"],
+                values["created_at"],
+                values["canonical_key"],
+                values["scope_json"],
+                values["created_at"],
+            ),
+        )
+
+    def next_claim_revision_number(self, claim_id: str) -> int:
+        row = self.conn.execute(
+            """
+            SELECT COALESCE(MAX(revision_number), 0) + 1 AS number
+            FROM claim_revisions WHERE claim_id = ?
+            """,
+            (claim_id,),
+        ).fetchone()
+        return int(row["number"])
+
+    def insert_claim_revision(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO claim_revisions (
+                id, claim_id, revision_number, title, statement, status,
+                confidence, supersedes_revision_id, created_by_model,
+                created_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                values["id"],
+                values["claim_id"],
+                values["revision_number"],
+                values["title"],
+                values["statement"],
+                values["status"],
+                values["confidence"],
+                values["supersedes_revision_id"],
+                values["created_by_model"],
+                values["created_at"],
+                values["metadata_json"],
+            ),
+        )
+
+    def insert_claim_evidence(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO claim_evidence (
+                claim_revision_id, evidence_span_id, relationship, rationale,
+                weight, review_state, created_at
+            ) VALUES (?, ?, ?, ?, ?, 'unreviewed', ?)
+            """,
+            (
+                values["claim_revision_id"],
+                values["evidence_span_id"],
+                values["relationship"],
+                values["rationale"],
+                values["weight"],
+                values["created_at"],
+            ),
+        )
+
+    def update_claim_pointer(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            UPDATE claims
+            SET current_revision_id = ?, title = ?, statement = ?, status = ?,
+                confidence = ?, canonical_key = ?, scope_json = ?,
+                session_id = ?, topic_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                values["revision_id"],
+                values["title"],
+                values["statement"],
+                values["legacy_status"],
+                values["confidence"],
+                values["canonical_key"],
+                values["scope_json"],
+                values["session_id"],
+                values["topic_id"],
+                values["updated_at"],
+                values["claim_id"],
+            ),
+        )
+
+    def replace_claim_excerpts(
+        self, claim_id: str, links: list[tuple[str, str | None, float]]
+    ) -> None:
+        self.conn.execute(
+            "DELETE FROM claim_excerpts WHERE claim_id = ?",
+            (claim_id,),
+        )
+        for excerpt_id, rationale, weight in links:
+            self.conn.execute(
+                """
+                INSERT INTO claim_excerpts (
+                    claim_id, excerpt_id, rationale, weight
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (claim_id, excerpt_id, rationale, weight),
+            )
+
+    def insert_report(self, values: dict[str, Any]) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO reports (
+                id, question_id, session_id, title, focal_label, summary_md,
+                report_kind, guidance_json, review_state, trust_tier,
+                conflict_state, visibility, author_type, model_name,
+                model_version, namespace_kind, namespace_id,
+                public_namespace_slug, public_index_state, dedupe_key,
+                human_reviewed, created_at
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, 'unreviewed', 'medium', 'none', ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, 0, ?
+            )
+            """,
+            (
+                values["id"],
+                values["question_id"],
+                values["session_id"],
+                values["title"],
+                values["focal_label"],
+                values["summary_md"],
+                values["report_kind"],
+                values["guidance_json"],
+                values["visibility"],
+                values["author_type"],
+                values["model_name"],
+                values["model_version"],
+                values["namespace_kind"],
+                values["namespace_id"],
+                values["namespace_id"],
+                values["public_index_state"],
+                values["dedupe_key"],
+                values["created_at"],
+            ),
+        )
+
+    def insert_report_claim(self, report_id: str, claim_id: str) -> None:
+        self.conn.execute(
+            "INSERT INTO report_claims (report_id, claim_id) VALUES (?, ?)",
+            (report_id, claim_id),
+        )
+
+    def mark_question_answered(self, question_id: str) -> None:
+        self.conn.execute(
+            "UPDATE questions SET status = 'answered' WHERE id = ?",
+            (question_id,),
+        )
+
+
 class SourceVersionRepository:
     """SQL boundary for immutable content objects and source versions."""
 

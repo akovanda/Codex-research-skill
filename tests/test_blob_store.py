@@ -83,6 +83,30 @@ def test_discard_removes_only_the_owned_staged_blob(tmp_path: Path) -> None:
     assert store.staged_count() == 0
 
 
+def test_finalize_rollback_removes_only_new_verified_objects(
+    tmp_path: Path,
+) -> None:
+    store = FilesystemBlobStore(tmp_path / "blobs")
+    removed = store.finalize(store.stage_bytes(b"transaction-local"))
+
+    assert store.rollback_finalize(removed) is True
+    assert store.inspect([]).stored_objects == 0
+
+    shared = store.finalize(store.stage_bytes(b"shared"))
+    reused = store.finalize(store.stage_bytes(b"shared"))
+    assert shared.reused is False
+    assert reused.reused is True
+    assert store.rollback_finalize(reused) is False
+    assert store.read(
+        BlobReference(
+            sha256=shared.sha256,
+            storage_key=shared.storage_key,
+            byte_count=shared.byte_count,
+            media_type=shared.media_type,
+        )
+    ) == b"shared"
+
+
 def test_blob_keys_reject_traversal_and_symlink_escape(tmp_path: Path) -> None:
     store = FilesystemBlobStore(tmp_path / "blobs")
     outside = tmp_path / "outside"

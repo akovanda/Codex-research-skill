@@ -106,6 +106,8 @@ class BlobStore(Protocol):
 
     def finalize(self, staged: StagedBlob) -> FinalizedBlob: ...
 
+    def rollback_finalize(self, finalized: FinalizedBlob) -> bool: ...
+
     def discard(self, staged: StagedBlob) -> None: ...
 
     def read(self, reference: BlobReference, *, verify: bool = True) -> bytes: ...
@@ -283,6 +285,40 @@ class FilesystemBlobStore:
             return
         stage_path.unlink(missing_ok=True)
         self._staged.pop(staged.token, None)
+
+    def rollback_finalize(self, finalized: FinalizedBlob) -> bool:
+        """Remove only a new, verified object finalized by this operation."""
+        if not isinstance(finalized, FinalizedBlob):
+            raise BlobValidationError("finalized blob reference is invalid")
+        if finalized.reused:
+            return False
+        reference = BlobReference(
+            sha256=finalized.sha256,
+            storage_key=finalized.storage_key,
+            byte_count=finalized.byte_count,
+            media_type=finalized.media_type,
+        )
+        expected_path = self._path_for_reference(
+            reference,
+            require_exists=True,
+        )
+        if finalized.path != expected_path:
+            raise BlobContainmentError(
+                "finalized blob path does not match its generated storage key"
+            )
+        actual_sha256, actual_byte_count = self._digest_regular_file(
+            expected_path
+        )
+        if (
+            actual_sha256 != finalized.sha256
+            or actual_byte_count != finalized.byte_count
+        ):
+            raise BlobIntegrityError(
+                "finalized blob changed before transaction rollback"
+            )
+        expected_path.unlink()
+        self._fsync_directory(expected_path.parent)
+        return True
 
     def read(self, reference: BlobReference, *, verify: bool = True) -> bytes:
         path = self._path_for_reference(reference, require_exists=True)

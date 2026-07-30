@@ -214,6 +214,19 @@ def _split_postgres_script(script: str) -> list[str]:
 
 @contextmanager
 def connect_database(target: DatabaseTarget) -> Iterator[DbConnection]:
+    connection = open_database(target)
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def open_database(target: DatabaseTarget) -> DbConnection:
+    """Open a connection whose transaction lifecycle is owned by the caller."""
     if target.kind == "sqlite":
         assert target.sqlite_path is not None
         target.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
@@ -224,12 +237,4 @@ def connect_database(target: DatabaseTarget) -> Iterator[DbConnection]:
         if psycopg is None or dict_row is None:  # pragma: no cover - import error path
             raise RuntimeError("psycopg is required for postgres database URLs")
         raw = psycopg.connect(target.url, row_factory=dict_row)
-    connection = DbConnection(target, raw)
-    try:
-        yield connection
-        connection.commit()
-    except Exception:
-        connection.rollback()
-        raise
-    finally:
-        connection.close()
+    return DbConnection(target, raw)

@@ -42,6 +42,12 @@ class SourceVersionCreateResult:
     reused: bool
 
 
+@dataclass(frozen=True)
+class PreparedSourceVersion:
+    result: SourceVersionCreateResult
+    needs_finalize: bool
+
+
 class SourceVersionService:
     """Coordinate immutable database records with finalized filesystem blobs."""
 
@@ -81,47 +87,70 @@ class SourceVersionService:
             result: SourceVersionCreateResult
             with connect_database(self.database) as conn:
                 repository = SourceVersionRepository(conn)
-                assert spec.version_key is not None
-                existing = repository.find_by_source_and_key(
-                    spec.source_id,
-                    spec.version_key,
+                prepared = self.prepare_in_transaction(
+                    repository,
+                    spec,
+                    staged,
                 )
-                if existing is not None:
-                    self._validate_reuse(repository, existing, spec)
-                    if staged is not None:
-                        self.blob_store.discard(staged)
-                        staged = None
-                    result = SourceVersionCreateResult(
-                        record=existing,
-                        reused=True,
-                    )
-                else:
-                    content_object, needs_finalize = self._prepare_content_object(
-                        repository,
-                        spec,
-                        staged,
-                    )
-                    if staged is not None and not needs_finalize:
-                        self.blob_store.discard(staged)
-                        staged = None
-                    record = self._new_source_version(spec, content_object)
-                    repository.insert_source_version(record)
-                    # Finalization is deliberately the final operation before
-                    # commit. SQL failures discard staging; finalize failures
-                    # roll the transaction back; a commit failure can produce
-                    # an inventory-visible orphan but never a dangling DB row.
-                    if staged is not None and needs_finalize:
-                        self.blob_store.finalize(staged)
-                        staged = None
-                    result = SourceVersionCreateResult(
-                        record=record,
-                        reused=False,
-                    )
+                if staged is not None and not prepared.needs_finalize:
+                    self.blob_store.discard(staged)
+                    staged = None
+                # Finalization is deliberately the final operation before
+                # commit. SQL failures discard staging; finalize failures
+                # roll the transaction back; a commit failure can produce
+                # an inventory-visible orphan but never a dangling DB row.
+                if staged is not None and prepared.needs_finalize:
+                    self.blob_store.finalize(staged)
+                    staged = None
+                result = prepared.result
             return result
         except Exception:
             if staged is not None:
                 self.blob_store.discard(staged)
             raise
+
+    def prepare_in_transaction(
+        self,
+        repository: SourceVersionRepository,
+        requested: SourceVersionSpec,
+        staged: StagedBlob | None,
+        *,
+        pending_content_hashes: set[str] | None = None,
+    ) -> PreparedSourceVersion:
+        """Create/reuse records without finalizing or committing the caller's unit."""
+        spec = validate_source_version_spec(
+            requested,
+            max_snapshot_policy=self.max_snapshot_policy,
+        )
+        assert spec.version_key is not None
+        pending = pending_content_hashes or set()
+        existing = repository.find_by_source_and_key(
+            spec.source_id,
+            spec.version_key,
+        )
+        if existing is not None:
+            self._validate_reuse(
+                repository,
+                existing,
+                spec,
+                allow_unfinalized=spec.content_sha256 in pending,
+            )
+            return PreparedSourceVersion(
+                result=SourceVersionCreateResult(record=existing, reused=True),
+                needs_finalize=False,
+            )
+        content_object, needs_finalize = self._prepare_content_object(
+            repository,
+            spec,
+            staged,
+            allow_unfinalized=spec.content_sha256 in pending,
+        )
+        record = self._new_source_version(spec, content_object)
+        repository.insert_source_version(record)
+        return PreparedSourceVersion(
+            result=SourceVersionCreateResult(record=record, reused=False),
+            needs_finalize=needs_finalize,
+        )
 
     def resolve_evidence(
         self,
@@ -177,18 +206,21 @@ class SourceVersionService:
         repository: SourceVersionRepository,
         spec: SourceVersionSpec,
         staged: StagedBlob | None,
+        *,
+        allow_unfinalized: bool = False,
     ) -> tuple[ContentObjectRecord | None, bool]:
         if staged is None:
             return None, False
         existing = repository.find_content_by_sha256(spec.content_sha256)
         if existing is not None:
             self._validate_content_reuse(existing, staged)
-            try:
-                self.blob_store.read(self._blob_reference(existing), verify=True)
-            except (FileNotFoundError, BlobIntegrityError) as exc:
-                raise ContentObjectMissing(
-                    "referenced content object is unavailable"
-                ) from exc
+            if not allow_unfinalized:
+                try:
+                    self.blob_store.read(self._blob_reference(existing), verify=True)
+                except (FileNotFoundError, BlobIntegrityError) as exc:
+                    raise ContentObjectMissing(
+                        "referenced content object is unavailable"
+                    ) from exc
             return existing, False
 
         record = ContentObjectRecord(
@@ -210,6 +242,8 @@ class SourceVersionService:
         repository: SourceVersionRepository,
         existing: SourceVersionRecord,
         spec: SourceVersionSpec,
+        *,
+        allow_unfinalized: bool = False,
     ) -> None:
         expected = (
             spec.version_kind,
@@ -264,15 +298,16 @@ class SourceVersionService:
                 media_type=spec.media_type,
             ),
         )
-        try:
-            self.blob_store.read(
-                self._blob_reference(content_object),
-                verify=True,
-            )
-        except (FileNotFoundError, BlobIntegrityError) as exc:
-            raise ContentObjectMissing(
-                "referenced content object is unavailable"
-            ) from exc
+        if not allow_unfinalized:
+            try:
+                self.blob_store.read(
+                    self._blob_reference(content_object),
+                    verify=True,
+                )
+            except (FileNotFoundError, BlobIntegrityError) as exc:
+                raise ContentObjectMissing(
+                    "referenced content object is unavailable"
+                ) from exc
 
     @staticmethod
     def _validate_content_reuse(
