@@ -29,3 +29,18 @@ def test_cli_up_help_exposes_package_install_options() -> None:
     assert "--image" in result.stdout
     assert "--build-local-image" in result.stdout
     assert "--skip-pull" in result.stdout
+
+
+def test_cli_audit_backup_and_restore_help() -> None:
+    for command, expected in (
+        ("audit-data", "--markdown-out"),
+        ("backup", "--output"),
+        ("restore", "--verify"),
+    ):
+        result = subprocess.run(
+            [sys.executable, "-m", "research_registry", command, "--help"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert expected in result.stdout

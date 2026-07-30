@@ -1,0 +1,2616 @@
+{
+  "contract": "research-registry-mcp-v1",
+  "tools": [
+    {
+      "description": "Compatibility alias for creating an evidence excerpt.",
+      "input_schema": {
+        "$defs": {
+          "ExcerptCreate": {
+            "properties": {
+              "author_type": {
+                "default": "agent",
+                "enum": [
+                  "human",
+                  "agent"
+                ],
+                "title": "Author Type",
+                "type": "string"
+              },
+              "confidence": {
+                "default": 0.75,
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "title": "Confidence",
+                "type": "number"
+              },
+              "conflict_state": {
+                "default": "none",
+                "enum": [
+                  "none",
+                  "conflicted"
+                ],
+                "title": "Conflict State",
+                "type": "string"
+              },
+              "dedupe_key": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Dedupe Key"
+              },
+              "focal_label": {
+                "title": "Focal Label",
+                "type": "string"
+              },
+              "model_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model Name"
+              },
+              "model_version": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model Version"
+              },
+              "namespace_id": {
+                "default": "local",
+                "title": "Namespace Id",
+                "type": "string"
+              },
+              "namespace_kind": {
+                "default": "user",
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "title": "Namespace Kind",
+                "type": "string"
+              },
+              "note": {
+                "title": "Note",
+                "type": "string"
+              },
+              "question_id": {
+                "title": "Question Id",
+                "type": "string"
+              },
+              "quote_text": {
+                "title": "Quote Text",
+                "type": "string"
+              },
+              "refresh_due_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Refresh Due At"
+              },
+              "review_state": {
+                "default": "unreviewed",
+                "enum": [
+                  "unreviewed",
+                  "reviewed",
+                  "flagged"
+                ],
+                "title": "Review State",
+                "type": "string"
+              },
+              "selector": {
+                "$ref": "#/$defs/SourceSelector"
+              },
+              "session_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Session Id"
+              },
+              "source": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SourceCreate"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "source_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Source Id"
+              },
+              "tags": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Tags",
+                "type": "array"
+              },
+              "topic_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Topic Id"
+              },
+              "trust_tier": {
+                "default": "low",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "title": "Trust Tier",
+                "type": "string"
+              },
+              "visibility": {
+                "default": "private",
+                "enum": [
+                  "private",
+                  "public"
+                ],
+                "title": "Visibility",
+                "type": "string"
+              }
+            },
+            "required": [
+              "question_id",
+              "focal_label",
+              "note",
+              "selector",
+              "quote_text"
+            ],
+            "title": "ExcerptCreate",
+            "type": "object"
+          },
+          "SourceCreate": {
+            "properties": {
+              "accessed_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Accessed At"
+              },
+              "author": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Author"
+              },
+              "conflict_state": {
+                "default": "none",
+                "enum": [
+                  "none",
+                  "conflicted"
+                ],
+                "title": "Conflict State",
+                "type": "string"
+              },
+              "content_sha256": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Content Sha256"
+              },
+              "dedupe_key": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Dedupe Key"
+              },
+              "last_verified_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Verified At"
+              },
+              "locator": {
+                "title": "Locator",
+                "type": "string"
+              },
+              "namespace_id": {
+                "default": "local",
+                "title": "Namespace Id",
+                "type": "string"
+              },
+              "namespace_kind": {
+                "default": "user",
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "title": "Namespace Kind",
+                "type": "string"
+              },
+              "published_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Published At"
+              },
+              "refresh_due_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Refresh Due At"
+              },
+              "review_state": {
+                "default": "unreviewed",
+                "enum": [
+                  "unreviewed",
+                  "reviewed",
+                  "flagged"
+                ],
+                "title": "Review State",
+                "type": "string"
+              },
+              "site_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Site Name"
+              },
+              "snapshot_present": {
+                "default": false,
+                "title": "Snapshot Present",
+                "type": "boolean"
+              },
+              "snapshot_required": {
+                "default": false,
+                "title": "Snapshot Required",
+                "type": "boolean"
+              },
+              "snapshot_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Snapshot Url"
+              },
+              "snippet": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Snippet"
+              },
+              "source_type": {
+                "default": "webpage",
+                "title": "Source Type",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "trust_tier": {
+                "default": "low",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "title": "Trust Tier",
+                "type": "string"
+              },
+              "visibility": {
+                "default": "private",
+                "enum": [
+                  "private",
+                  "public"
+                ],
+                "title": "Visibility",
+                "type": "string"
+              }
+            },
+            "required": [
+              "locator",
+              "title"
+            ],
+            "title": "SourceCreate",
+            "type": "object"
+          },
+          "SourceSelector": {
+            "additionalProperties": true,
+            "properties": {
+              "deep_link": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Deep Link"
+              },
+              "end": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "End"
+              },
+              "end_line": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "End Line"
+              },
+              "exact": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Exact"
+              },
+              "prefix": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Prefix"
+              },
+              "start": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Start"
+              },
+              "start_line": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Start Line"
+              },
+              "suffix": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Suffix"
+              },
+              "type": {
+                "default": "TextQuoteSelector",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "title": "SourceSelector",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/ExcerptCreate"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "add_annotationArguments",
+        "type": "object"
+      },
+      "name": "add_annotation"
+    },
+    {
+      "description": "Create a source-backed evidence excerpt.",
+      "input_schema": {
+        "$defs": {
+          "ExcerptCreate": {
+            "properties": {
+              "author_type": {
+                "default": "agent",
+                "enum": [
+                  "human",
+                  "agent"
+                ],
+                "title": "Author Type",
+                "type": "string"
+              },
+              "confidence": {
+                "default": 0.75,
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "title": "Confidence",
+                "type": "number"
+              },
+              "conflict_state": {
+                "default": "none",
+                "enum": [
+                  "none",
+                  "conflicted"
+                ],
+                "title": "Conflict State",
+                "type": "string"
+              },
+              "dedupe_key": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Dedupe Key"
+              },
+              "focal_label": {
+                "title": "Focal Label",
+                "type": "string"
+              },
+              "model_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model Name"
+              },
+              "model_version": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model Version"
+              },
+              "namespace_id": {
+                "default": "local",
+                "title": "Namespace Id",
+                "type": "string"
+              },
+              "namespace_kind": {
+                "default": "user",
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "title": "Namespace Kind",
+                "type": "string"
+              },
+              "note": {
+                "title": "Note",
+                "type": "string"
+              },
+              "question_id": {
+                "title": "Question Id",
+                "type": "string"
+              },
+              "quote_text": {
+                "title": "Quote Text",
+                "type": "string"
+              },
+              "refresh_due_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Refresh Due At"
+              },
+              "review_state": {
+                "default": "unreviewed",
+                "enum": [
+                  "unreviewed",
+                  "reviewed",
+                  "flagged"
+                ],
+                "title": "Review State",
+                "type": "string"
+              },
+              "selector": {
+                "$ref": "#/$defs/SourceSelector"
+              },
+              "session_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Session Id"
+              },
+              "source": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SourceCreate"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "source_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Source Id"
+              },
+              "tags": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Tags",
+                "type": "array"
+              },
+              "topic_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Topic Id"
+              },
+              "trust_tier": {
+                "default": "low",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "title": "Trust Tier",
+                "type": "string"
+              },
+              "visibility": {
+                "default": "private",
+                "enum": [
+                  "private",
+                  "public"
+                ],
+                "title": "Visibility",
+                "type": "string"
+              }
+            },
+            "required": [
+              "question_id",
+              "focal_label",
+              "note",
+              "selector",
+              "quote_text"
+            ],
+            "title": "ExcerptCreate",
+            "type": "object"
+          },
+          "SourceCreate": {
+            "properties": {
+              "accessed_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Accessed At"
+              },
+              "author": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Author"
+              },
+              "conflict_state": {
+                "default": "none",
+                "enum": [
+                  "none",
+                  "conflicted"
+                ],
+                "title": "Conflict State",
+                "type": "string"
+              },
+              "content_sha256": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Content Sha256"
+              },
+              "dedupe_key": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Dedupe Key"
+              },
+              "last_verified_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Verified At"
+              },
+              "locator": {
+                "title": "Locator",
+                "type": "string"
+              },
+              "namespace_id": {
+                "default": "local",
+                "title": "Namespace Id",
+                "type": "string"
+              },
+              "namespace_kind": {
+                "default": "user",
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "title": "Namespace Kind",
+                "type": "string"
+              },
+              "published_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Published At"
+              },
+              "refresh_due_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Refresh Due At"
+              },
+              "review_state": {
+                "default": "unreviewed",
+                "enum": [
+                  "unreviewed",
+                  "reviewed",
+                  "flagged"
+                ],
+                "title": "Review State",
+                "type": "string"
+              },
+              "site_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Site Name"
+              },
+              "snapshot_present": {
+                "default": false,
+                "title": "Snapshot Present",
+                "type": "boolean"
+              },
+              "snapshot_required": {
+                "default": false,
+                "title": "Snapshot Required",
+                "type": "boolean"
+              },
+              "snapshot_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Snapshot Url"
+              },
+              "snippet": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Snippet"
+              },
+              "source_type": {
+                "default": "webpage",
+                "title": "Source Type",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "trust_tier": {
+                "default": "low",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "title": "Trust Tier",
+                "type": "string"
+              },
+              "visibility": {
+                "default": "private",
+                "enum": [
+                  "private",
+                  "public"
+                ],
+                "title": "Visibility",
+                "type": "string"
+              }
+            },
+            "required": [
+              "locator",
+              "title"
+            ],
+            "title": "SourceCreate",
+            "type": "object"
+          },
+          "SourceSelector": {
+            "additionalProperties": true,
+            "properties": {
+              "deep_link": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Deep Link"
+              },
+              "end": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "End"
+              },
+              "end_line": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "End Line"
+              },
+              "exact": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Exact"
+              },
+              "prefix": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Prefix"
+              },
+              "start": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Start"
+              },
+              "start_line": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Start Line"
+              },
+              "suffix": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Suffix"
+              },
+              "type": {
+                "default": "TextQuoteSelector",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "title": "SourceSelector",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/ExcerptCreate"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "add_excerptArguments",
+        "type": "object"
+      },
+      "name": "add_excerpt"
+    },
+    {
+      "description": "Return the selected backend URL, namespace, and selection source.",
+      "input_schema": {
+        "properties": {},
+        "title": "backend_statusArguments",
+        "type": "object"
+      },
+      "name": "backend_status"
+    },
+    {
+      "description": "Create a claim from one or more excerpt ids.",
+      "input_schema": {
+        "$defs": {
+          "ClaimCreate": {
+            "properties": {
+              "author_type": {
+                "default": "agent",
+                "enum": [
+                  "human",
+                  "agent"
+                ],
+                "title": "Author Type",
+                "type": "string"
+              },
+              "confidence": {
+                "default": 0.7,
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "title": "Confidence",
+                "type": "number"
+              },
+              "conflict_state": {
+                "default": "none",
+                "enum": [
+                  "none",
+                  "conflicted"
+                ],
+                "title": "Conflict State",
+                "type": "string"
+              },
+              "dedupe_key": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Dedupe Key"
+              },
+              "excerpt_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "title": "Excerpt Ids",
+                "type": "array"
+              },
+              "focal_label": {
+                "title": "Focal Label",
+                "type": "string"
+              },
+              "model_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model Name"
+              },
+              "model_version": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model Version"
+              },
+              "namespace_id": {
+                "default": "local",
+                "title": "Namespace Id",
+                "type": "string"
+              },
+              "namespace_kind": {
+                "default": "user",
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "title": "Namespace Kind",
+                "type": "string"
+              },
+              "question_id": {
+                "title": "Question Id",
+                "type": "string"
+              },
+              "refresh_due_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Refresh Due At"
+              },
+              "review_state": {
+                "default": "unreviewed",
+                "enum": [
+                  "unreviewed",
+                  "reviewed",
+                  "flagged"
+                ],
+                "title": "Review State",
+                "type": "string"
+              },
+              "session_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Session Id"
+              },
+              "statement": {
+                "title": "Statement",
+                "type": "string"
+              },
+              "status": {
+                "default": "supported",
+                "enum": [
+                  "supported",
+                  "partial",
+                  "conflicted",
+                  "insufficient_evidence"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "topic_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Topic Id"
+              },
+              "trust_tier": {
+                "default": "medium",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "title": "Trust Tier",
+                "type": "string"
+              },
+              "visibility": {
+                "default": "private",
+                "enum": [
+                  "private",
+                  "public"
+                ],
+                "title": "Visibility",
+                "type": "string"
+              }
+            },
+            "required": [
+              "question_id",
+              "title",
+              "focal_label",
+              "statement",
+              "excerpt_ids"
+            ],
+            "title": "ClaimCreate",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/ClaimCreate"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "create_claimArguments",
+        "type": "object"
+      },
+      "name": "create_claim"
+    },
+    {
+      "description": "Compatibility alias for creating a claim from excerpt ids.",
+      "input_schema": {
+        "$defs": {
+          "ClaimCreate": {
+            "properties": {
+              "author_type": {
+                "default": "agent",
+                "enum": [
+                  "human",
+                  "agent"
+                ],
+                "title": "Author Type",
+                "type": "string"
+              },
+              "confidence": {
+                "default": 0.7,
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "title": "Confidence",
+                "type": "number"
+              },
+              "conflict_state": {
+                "default": "none",
+                "enum": [
+                  "none",
+                  "conflicted"
+                ],
+                "title": "Conflict State",
+                "type": "string"
+              },
+              "dedupe_key": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Dedupe Key"
+              },
+              "excerpt_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "title": "Excerpt Ids",
+                "type": "array"
+              },
+              "focal_label": {
+                "title": "Focal Label",
+                "type": "string"
+              },
+              "model_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model Name"
+              },
+              "model_version": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model Version"
+              },
+              "namespace_id": {
+                "default": "local",
+                "title": "Namespace Id",
+                "type": "string"
+              },
+              "namespace_kind": {
+                "default": "user",
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "title": "Namespace Kind",
+                "type": "string"
+              },
+              "question_id": {
+                "title": "Question Id",
+                "type": "string"
+              },
+              "refresh_due_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Refresh Due At"
+              },
+              "review_state": {
+                "default": "unreviewed",
+                "enum": [
+                  "unreviewed",
+                  "reviewed",
+                  "flagged"
+                ],
+                "title": "Review State",
+                "type": "string"
+              },
+              "session_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Session Id"
+              },
+              "statement": {
+                "title": "Statement",
+                "type": "string"
+              },
+              "status": {
+                "default": "supported",
+                "enum": [
+                  "supported",
+                  "partial",
+                  "conflicted",
+                  "insufficient_evidence"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "topic_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Topic Id"
+              },
+              "trust_tier": {
+                "default": "medium",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "title": "Trust Tier",
+                "type": "string"
+              },
+              "visibility": {
+                "default": "private",
+                "enum": [
+                  "private",
+                  "public"
+                ],
+                "title": "Visibility",
+                "type": "string"
+              }
+            },
+            "required": [
+              "question_id",
+              "title",
+              "focal_label",
+              "statement",
+              "excerpt_ids"
+            ],
+            "title": "ClaimCreate",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/ClaimCreate"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "create_findingArguments",
+        "type": "object"
+      },
+      "name": "create_finding"
+    },
+    {
+      "description": "Create or reuse a research question and its focus label.",
+      "input_schema": {
+        "$defs": {
+          "FocusTuple": {
+            "properties": {
+              "concern": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Concern"
+              },
+              "constraint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Constraint"
+              },
+              "context": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Context"
+              },
+              "domain": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Domain"
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Label"
+              },
+              "object": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Object"
+              },
+              "slug": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Slug"
+              }
+            },
+            "title": "FocusTuple",
+            "type": "object"
+          },
+          "QuestionCreate": {
+            "properties": {
+              "author_type": {
+                "default": "agent",
+                "enum": [
+                  "human",
+                  "agent"
+                ],
+                "title": "Author Type",
+                "type": "string"
+              },
+              "dedupe_key": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Dedupe Key"
+              },
+              "focus": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FocusTuple"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "follow_up_status": {
+                "default": "open",
+                "enum": [
+                  "open",
+                  "ready",
+                  "blocked",
+                  "done"
+                ],
+                "title": "Follow Up Status",
+                "type": "string"
+              },
+              "generated_by_session_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Generated By Session Id"
+              },
+              "generation_reason": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Generation Reason"
+              },
+              "namespace_id": {
+                "default": "local",
+                "title": "Namespace Id",
+                "type": "string"
+              },
+              "namespace_kind": {
+                "default": "user",
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "title": "Namespace Kind",
+                "type": "string"
+              },
+              "parent_question_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Parent Question Id"
+              },
+              "priority_score": {
+                "default": 0.0,
+                "title": "Priority Score",
+                "type": "number"
+              },
+              "prompt": {
+                "title": "Prompt",
+                "type": "string"
+              },
+              "status": {
+                "default": "open",
+                "enum": [
+                  "open",
+                  "answered",
+                  "insufficient_evidence"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "topic_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Topic Id"
+              },
+              "visibility": {
+                "default": "private",
+                "enum": [
+                  "private",
+                  "public"
+                ],
+                "title": "Visibility",
+                "type": "string"
+              }
+            },
+            "required": [
+              "prompt"
+            ],
+            "title": "QuestionCreate",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/QuestionCreate"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "create_questionArguments",
+        "type": "object"
+      },
+      "name": "create_question"
+    },
+    {
+      "description": "Create a report with explicit summary markdown from one or more claim ids.",
+      "input_schema": {
+        "$defs": {
+          "GuidancePayload": {
+            "properties": {
+              "current_guidance": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Current Guidance",
+                "type": "array"
+              },
+              "evidence_now": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Evidence Now",
+                "type": "array"
+              },
+              "follow_up_question_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Follow Up Question Ids",
+                "type": "array"
+              },
+              "gaps": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Gaps",
+                "type": "array"
+              },
+              "needs": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Needs",
+                "type": "array"
+              },
+              "wants": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Wants",
+                "type": "array"
+              }
+            },
+            "title": "GuidancePayload",
+            "type": "object"
+          },
+          "ReportCreate": {
+            "properties": {
+              "author_type": {
+                "default": "agent",
+                "enum": [
+                  "human",
+                  "agent"
+                ],
+                "title": "Author Type",
+                "type": "string"
+              },
+              "claim_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "title": "Claim Ids",
+                "type": "array"
+              },
+              "conflict_state": {
+                "default": "none",
+                "enum": [
+                  "none",
+                  "conflicted"
+                ],
+                "title": "Conflict State",
+                "type": "string"
+              },
+              "dedupe_key": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Dedupe Key"
+              },
+              "focal_label": {
+                "title": "Focal Label",
+                "type": "string"
+              },
+              "guidance": {
+                "$ref": "#/$defs/GuidancePayload"
+              },
+              "model_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model Name"
+              },
+              "model_version": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model Version"
+              },
+              "namespace_id": {
+                "default": "local",
+                "title": "Namespace Id",
+                "type": "string"
+              },
+              "namespace_kind": {
+                "default": "user",
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "title": "Namespace Kind",
+                "type": "string"
+              },
+              "question_id": {
+                "title": "Question Id",
+                "type": "string"
+              },
+              "refresh_due_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Refresh Due At"
+              },
+              "refresh_of_report_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Refresh Of Report Id"
+              },
+              "report_kind": {
+                "default": "guidance",
+                "enum": [
+                  "guidance",
+                  "legacy_answer"
+                ],
+                "title": "Report Kind",
+                "type": "string"
+              },
+              "review_state": {
+                "default": "unreviewed",
+                "enum": [
+                  "unreviewed",
+                  "reviewed",
+                  "flagged"
+                ],
+                "title": "Review State",
+                "type": "string"
+              },
+              "session_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Session Id"
+              },
+              "summary_md": {
+                "title": "Summary Md",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "trust_tier": {
+                "default": "medium",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "title": "Trust Tier",
+                "type": "string"
+              },
+              "visibility": {
+                "default": "private",
+                "enum": [
+                  "private",
+                  "public"
+                ],
+                "title": "Visibility",
+                "type": "string"
+              }
+            },
+            "required": [
+              "question_id",
+              "title",
+              "focal_label",
+              "summary_md",
+              "claim_ids"
+            ],
+            "title": "ReportCreate",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/ReportCreate"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "create_reportArguments",
+        "type": "object"
+      },
+      "name": "create_report"
+    },
+    {
+      "description": "Create one question, session, sources, excerpts, claims, and an optional report in one call.",
+      "input_schema": {
+        "properties": {
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "create_research_bundleArguments",
+        "type": "object"
+      },
+      "name": "create_research_bundle"
+    },
+    {
+      "description": "Create a research session for a question.",
+      "input_schema": {
+        "$defs": {
+          "ResearchSessionCreate": {
+            "properties": {
+              "author_type": {
+                "default": "agent",
+                "enum": [
+                  "human",
+                  "agent"
+                ],
+                "title": "Author Type",
+                "type": "string"
+              },
+              "dedupe_key": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Dedupe Key"
+              },
+              "mode": {
+                "default": "live_research",
+                "enum": [
+                  "reuse",
+                  "live_research",
+                  "synthesis",
+                  "insufficient_evidence",
+                  "repo_triage",
+                  "repo_review"
+                ],
+                "title": "Mode",
+                "type": "string"
+              },
+              "model_name": {
+                "default": "unspecified",
+                "title": "Model Name",
+                "type": "string"
+              },
+              "model_version": {
+                "default": "unspecified",
+                "title": "Model Version",
+                "type": "string"
+              },
+              "namespace_id": {
+                "default": "local",
+                "title": "Namespace Id",
+                "type": "string"
+              },
+              "namespace_kind": {
+                "default": "user",
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "title": "Namespace Kind",
+                "type": "string"
+              },
+              "notes": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Notes"
+              },
+              "prompt": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Prompt"
+              },
+              "question_id": {
+                "title": "Question Id",
+                "type": "string"
+              },
+              "refresh_of_session_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Refresh Of Session Id"
+              },
+              "source_signals": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Source Signals",
+                "type": "array"
+              },
+              "ttl_days": {
+                "default": 30,
+                "maximum": 3650,
+                "minimum": 1,
+                "title": "Ttl Days",
+                "type": "integer"
+              },
+              "visibility": {
+                "default": "private",
+                "enum": [
+                  "private",
+                  "public"
+                ],
+                "title": "Visibility",
+                "type": "string"
+              }
+            },
+            "required": [
+              "question_id"
+            ],
+            "title": "ResearchSessionCreate",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/ResearchSessionCreate"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "create_sessionArguments",
+        "type": "object"
+      },
+      "name": "create_session"
+    },
+    {
+      "description": "Create or reuse a source record.",
+      "input_schema": {
+        "$defs": {
+          "SourceCreate": {
+            "properties": {
+              "accessed_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Accessed At"
+              },
+              "author": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Author"
+              },
+              "conflict_state": {
+                "default": "none",
+                "enum": [
+                  "none",
+                  "conflicted"
+                ],
+                "title": "Conflict State",
+                "type": "string"
+              },
+              "content_sha256": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Content Sha256"
+              },
+              "dedupe_key": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Dedupe Key"
+              },
+              "last_verified_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Verified At"
+              },
+              "locator": {
+                "title": "Locator",
+                "type": "string"
+              },
+              "namespace_id": {
+                "default": "local",
+                "title": "Namespace Id",
+                "type": "string"
+              },
+              "namespace_kind": {
+                "default": "user",
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "title": "Namespace Kind",
+                "type": "string"
+              },
+              "published_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Published At"
+              },
+              "refresh_due_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Refresh Due At"
+              },
+              "review_state": {
+                "default": "unreviewed",
+                "enum": [
+                  "unreviewed",
+                  "reviewed",
+                  "flagged"
+                ],
+                "title": "Review State",
+                "type": "string"
+              },
+              "site_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Site Name"
+              },
+              "snapshot_present": {
+                "default": false,
+                "title": "Snapshot Present",
+                "type": "boolean"
+              },
+              "snapshot_required": {
+                "default": false,
+                "title": "Snapshot Required",
+                "type": "boolean"
+              },
+              "snapshot_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Snapshot Url"
+              },
+              "snippet": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Snippet"
+              },
+              "source_type": {
+                "default": "webpage",
+                "title": "Source Type",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "trust_tier": {
+                "default": "low",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "title": "Trust Tier",
+                "type": "string"
+              },
+              "visibility": {
+                "default": "private",
+                "enum": [
+                  "private",
+                  "public"
+                ],
+                "title": "Visibility",
+                "type": "string"
+              }
+            },
+            "required": [
+              "locator",
+              "title"
+            ],
+            "title": "SourceCreate",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/SourceCreate"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "create_sourceArguments",
+        "type": "object"
+      },
+      "name": "create_source"
+    },
+    {
+      "description": "Compatibility alias for fetching an excerpt by id.",
+      "input_schema": {
+        "properties": {
+          "annotation_id": {
+            "title": "Annotation Id",
+            "type": "string"
+          },
+          "include_private": {
+            "default": true,
+            "title": "Include Private",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "annotation_id"
+        ],
+        "title": "get_annotationArguments",
+        "type": "object"
+      },
+      "name": "get_annotation"
+    },
+    {
+      "description": "Fetch a single claim by id.",
+      "input_schema": {
+        "properties": {
+          "claim_id": {
+            "title": "Claim Id",
+            "type": "string"
+          },
+          "include_private": {
+            "default": true,
+            "title": "Include Private",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "claim_id"
+        ],
+        "title": "get_claimArguments",
+        "type": "object"
+      },
+      "name": "get_claim"
+    },
+    {
+      "description": "Fetch a single excerpt by id.",
+      "input_schema": {
+        "properties": {
+          "excerpt_id": {
+            "title": "Excerpt Id",
+            "type": "string"
+          },
+          "include_private": {
+            "default": true,
+            "title": "Include Private",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "excerpt_id"
+        ],
+        "title": "get_excerptArguments",
+        "type": "object"
+      },
+      "name": "get_excerpt"
+    },
+    {
+      "description": "Compatibility alias for fetching a claim by id.",
+      "input_schema": {
+        "properties": {
+          "finding_id": {
+            "title": "Finding Id",
+            "type": "string"
+          },
+          "include_private": {
+            "default": true,
+            "title": "Include Private",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "finding_id"
+        ],
+        "title": "get_findingArguments",
+        "type": "object"
+      },
+      "name": "get_finding"
+    },
+    {
+      "description": "Fetch a single question by id.",
+      "input_schema": {
+        "properties": {
+          "include_private": {
+            "default": true,
+            "title": "Include Private",
+            "type": "boolean"
+          },
+          "question_id": {
+            "title": "Question Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id"
+        ],
+        "title": "get_questionArguments",
+        "type": "object"
+      },
+      "name": "get_question"
+    },
+    {
+      "description": "Fetch a single report by id.",
+      "input_schema": {
+        "properties": {
+          "include_private": {
+            "default": true,
+            "title": "Include Private",
+            "type": "boolean"
+          },
+          "report_id": {
+            "title": "Report Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "report_id"
+        ],
+        "title": "get_reportArguments",
+        "type": "object"
+      },
+      "name": "get_report"
+    },
+    {
+      "description": "Fetch a single source by id.",
+      "input_schema": {
+        "properties": {
+          "include_private": {
+            "default": true,
+            "title": "Include Private",
+            "type": "boolean"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id"
+        ],
+        "title": "get_sourceArguments",
+        "type": "object"
+      },
+      "name": "get_source"
+    },
+    {
+      "description": "Publish a source, question, excerpt, claim, or report.",
+      "input_schema": {
+        "properties": {
+          "cascade_linked_sources": {
+            "default": true,
+            "title": "Cascade Linked Sources",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "record_id"
+        ],
+        "title": "publishArguments",
+        "type": "object"
+      },
+      "name": "publish"
+    },
+    {
+      "description": "Search questions, excerpts, claims, reports, and sources.",
+      "input_schema": {
+        "properties": {
+          "include_private": {
+            "default": true,
+            "title": "Include Private",
+            "type": "boolean"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Kind"
+          },
+          "limit": {
+            "default": 10,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "searchArguments",
+        "type": "object"
+      },
+      "name": "search"
+    }
+  ]
+}

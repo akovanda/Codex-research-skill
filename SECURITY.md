@@ -36,6 +36,26 @@ Helpful extras:
 - Kubernetes manifests are example deployment assets in this preview, not a production-hardening claim.
 - Public-internet exposure is not a supported default operating mode for this release.
 
+## Audit and backup tooling
+
+The `audit-data`, `backup`, and `restore` commands are local operator tools.
+They do not add an HTTP or MCP surface.
+
+- SQLite audit connections use read-only URI mode plus `PRAGMA query_only`.
+- Audit reports contain aggregate counts and health states, not stored content
+  samples, URL query strings, or credentials.
+- SQLite online backups and manifests are mode `0600` on supported POSIX
+  systems and refuse existing destinations.
+- Restore verification checks artifact SHA-256, SQLite integrity, foreign keys,
+  row counts, and deterministic table hashes before accepting the copy.
+- Postgres planning drops usernames, passwords, and URL query strings and
+  returns argv arrays rather than executable shell text.
+- V1 manifests explicitly report that no v2 blob store is configured; they do
+  not imply that future blob content has been backed up.
+
+Treat audit reports, backup artifacts, and manifests as sensitive even though
+default reports omit content. Keep them under normal host access controls.
+
 ## Disclosure Expectations
 
 - Do not publish exploit details before the maintainer has had a reasonable chance to reproduce and mitigate the issue.

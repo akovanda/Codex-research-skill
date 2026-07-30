@@ -7,6 +7,8 @@ import pytest
 
 from research_registry.models import ClaimCreate, ExcerptCreate, FocusTuple, QuestionCreate, ReportCreate, ResearchSessionCreate, SourceCreate, SourceSelector
 from research_registry.service import RegistryService
+from research_registry.data_audit import audit_database
+from tests.fixtures.v1 import populate_v1_fixture
 
 
 @pytest.mark.skipif("TEST_DATABASE_URL" not in os.environ, reason="postgres smoke test requires TEST_DATABASE_URL")
@@ -69,3 +71,18 @@ def test_postgres_backend_smoke() -> None:
     hits = service.search(suffix, kind="report", include_private=True).hits
     assert report.id in [hit.id for hit in hits]
     assert service.database.kind == "postgres"
+
+
+@pytest.mark.skipif("TEST_DATABASE_URL" not in os.environ, reason="postgres fixture requires TEST_DATABASE_URL")
+def test_postgres_representative_v1_fixture_and_read_only_audit() -> None:
+    service = RegistryService(os.environ["TEST_DATABASE_URL"])
+    suffix = f"postgres-fixture-{uuid4().hex[:8]}"
+    ids = populate_v1_fixture(service, suffix=suffix)
+
+    report = audit_database(os.environ["TEST_DATABASE_URL"])
+
+    assert ids.annotation_id == ids.reviewed_excerpt_id
+    assert ids.finding_id == ids.reviewed_claim_id
+    assert report["database"]["kind"] == "postgres"
+    assert report["row_counts"]["sources"] >= 2
+    assert report["source_health"]["required_snapshot_missing"] >= 1

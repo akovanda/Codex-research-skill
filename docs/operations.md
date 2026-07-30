@@ -9,27 +9,76 @@ Supported operator target:
 
 This preview does not claim support for direct public-internet exposure.
 
-## Backup
+## Pre-migration data audit
 
-For any deployment that matters, back up Postgres before upgrades.
+`audit-data` opens SQLite in URI read-only mode with SQLite query-only enabled,
+or starts a read-only Postgres transaction. It does not initialize the service,
+run migrations, or repair records.
 
-Recommended minimum:
-
-- dump the full database with `pg_dump`
-- retain the current app image or checked-out commit
-- retain the current runtime env file and admin token storage
-
-Example:
+Run the real private audit locally and keep its output out of the repository:
 
 ```bash
-pg_dump "$RESEARCH_REGISTRY_DATABASE_URL" > research-registry-backup.sql
+umask 077
+research-registry audit-data \
+  --database "$RESEARCH_REGISTRY_DATABASE_URL" \
+  --json-out ./private-v1-audit.json \
+  --markdown-out ./private-v1-audit.md
 ```
 
-For the managed localhost runtime, also keep a copy of:
+The default reports contain counts, hashes, state distributions, and health
+results only. They omit prompts, quotes, claim/report bodies, source bodies,
+URL query strings, tokens, and sampled content. Stop before migration if the
+report finds foreign-key corruption or records that cannot be represented
+without content loss.
+
+## Backup and verified restore
+
+SQLite backup uses the online SQLite backup API, so it includes committed WAL
+state rather than blindly copying a live database file. The destination and
+manifest must not already exist.
+
+```bash
+research-registry backup \
+  --database ./registry.sqlite3 \
+  --output ./registry-v1.backup.sqlite3 \
+  --manifest ./registry-v1.backup.manifest.json
+
+research-registry restore \
+  --backup ./registry-v1.backup.sqlite3 \
+  --manifest ./registry-v1.backup.manifest.json \
+  --destination ./registry-v1.restore-check.sqlite3 \
+  --verify
+```
+
+The manifest records the database SHA-256, byte count, table row counts,
+deterministic per-table content hashes, integrity result, and v1 blob/config
+status. Restore verification repeats the hash, integrity, foreign-key, row-count,
+and deterministic-content checks against a new destination.
+
+Research Registry v1 has no configured content-addressed blob store. The
+manifest records that fact rather than claiming to include blobs. Back up
+operator configuration separately:
 
 - `~/.config/research-registry/config.toml`
 - `~/.config/research-registry/.env`
 - `~/.codex/config.toml.research-registry.bak`
+
+Postgres support in RR2-000 is a redacted plan, not an automatic dump executor:
+
+```bash
+research-registry backup \
+  --database "$RESEARCH_REGISTRY_DATABASE_URL" \
+  --output ./registry-v1.dump \
+  --restore-database "$DISPOSABLE_RESTORE_DATABASE_URL" \
+  --manifest ./registry-v1.postgres-plan.json
+```
+
+The plan uses custom-format `pg_dump`, `pg_restore --list`, and a
+single-transaction restore to an explicitly disposable database. Commands are
+represented as argument arrays; usernames, passwords, and URL query strings are
+redacted. Supply real credentials directly to a subprocess environment or argv
+when executing the reviewed plan. Do not paste a reconstructed command through
+`shell=True`, and record both client and server versions during the rehearsal.
 
 ## Upgrade
 
@@ -56,7 +105,7 @@ If an upgrade fails:
 
 1. stop the new app
 2. restore the previous image or checkout
-3. restore the previous database backup if the schema or data is no longer usable
+3. restore the previous verified database backup if the schema or data is no longer usable
 4. restart and verify `/readyz`
 
 Managed localhost runtime rollback helpers:

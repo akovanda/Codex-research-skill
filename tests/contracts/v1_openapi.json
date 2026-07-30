@@ -1,0 +1,3745 @@
+{
+  "components": {
+    "schemas": {
+      "ApiKeyCreate": {
+        "properties": {
+          "actor_org_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Org Id"
+          },
+          "actor_user_id": {
+            "title": "Actor User Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "namespace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace Id"
+          },
+          "namespace_kind": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Namespace Kind",
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "enum": [
+                "ingest",
+                "publish",
+                "read_private",
+                "admin"
+              ],
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "label",
+          "actor_user_id"
+        ],
+        "title": "ApiKeyCreate",
+        "type": "object"
+      },
+      "Body_admin_login_submit_admin_login_post": {
+        "properties": {
+          "token": {
+            "default": "",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "title": "Body_admin_login_submit_admin_login_post",
+        "type": "object"
+      },
+      "BriefResolveRequest": {
+        "properties": {
+          "include_private": {
+            "default": true,
+            "title": "Include Private",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 5,
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "title": "BriefResolveRequest",
+        "type": "object"
+      },
+      "ClaimCreate": {
+        "properties": {
+          "author_type": {
+            "default": "agent",
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "title": "Author Type",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 0.7,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "conflict_state": {
+            "default": "none",
+            "enum": [
+              "none",
+              "conflicted"
+            ],
+            "title": "Conflict State",
+            "type": "string"
+          },
+          "dedupe_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedupe Key"
+          },
+          "excerpt_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Excerpt Ids",
+            "type": "array"
+          },
+          "focal_label": {
+            "title": "Focal Label",
+            "type": "string"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "namespace_id": {
+            "default": "local",
+            "title": "Namespace Id",
+            "type": "string"
+          },
+          "namespace_kind": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Namespace Kind",
+            "type": "string"
+          },
+          "question_id": {
+            "title": "Question Id",
+            "type": "string"
+          },
+          "refresh_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Due At"
+          },
+          "review_state": {
+            "default": "unreviewed",
+            "enum": [
+              "unreviewed",
+              "reviewed",
+              "flagged"
+            ],
+            "title": "Review State",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "status": {
+            "default": "supported",
+            "enum": [
+              "supported",
+              "partial",
+              "conflicted",
+              "insufficient_evidence"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Id"
+          },
+          "trust_tier": {
+            "default": "medium",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Trust Tier",
+            "type": "string"
+          },
+          "visibility": {
+            "default": "private",
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id",
+          "title",
+          "focal_label",
+          "statement",
+          "excerpt_ids"
+        ],
+        "title": "ClaimCreate",
+        "type": "object"
+      },
+      "ExcerptCreate": {
+        "properties": {
+          "author_type": {
+            "default": "agent",
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "title": "Author Type",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 0.75,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "conflict_state": {
+            "default": "none",
+            "enum": [
+              "none",
+              "conflicted"
+            ],
+            "title": "Conflict State",
+            "type": "string"
+          },
+          "dedupe_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedupe Key"
+          },
+          "focal_label": {
+            "title": "Focal Label",
+            "type": "string"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "namespace_id": {
+            "default": "local",
+            "title": "Namespace Id",
+            "type": "string"
+          },
+          "namespace_kind": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Namespace Kind",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "question_id": {
+            "title": "Question Id",
+            "type": "string"
+          },
+          "quote_text": {
+            "title": "Quote Text",
+            "type": "string"
+          },
+          "refresh_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Due At"
+          },
+          "review_state": {
+            "default": "unreviewed",
+            "enum": [
+              "unreviewed",
+              "reviewed",
+              "flagged"
+            ],
+            "title": "Review State",
+            "type": "string"
+          },
+          "selector": {
+            "$ref": "#/components/schemas/SourceSelector"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceCreate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Id"
+          },
+          "trust_tier": {
+            "default": "low",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Trust Tier",
+            "type": "string"
+          },
+          "visibility": {
+            "default": "private",
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id",
+          "focal_label",
+          "note",
+          "selector",
+          "quote_text"
+        ],
+        "title": "ExcerptCreate",
+        "type": "object"
+      },
+      "FocusTuple": {
+        "properties": {
+          "concern": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concern"
+          },
+          "constraint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Constraint"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "object": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object"
+          },
+          "slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug"
+          }
+        },
+        "title": "FocusTuple",
+        "type": "object"
+      },
+      "FollowUpStatusUpdate": {
+        "properties": {
+          "follow_up_status": {
+            "enum": [
+              "open",
+              "ready",
+              "blocked",
+              "done"
+            ],
+            "title": "Follow Up Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "follow_up_status"
+        ],
+        "title": "FollowUpStatusUpdate",
+        "type": "object"
+      },
+      "GuidancePayload": {
+        "properties": {
+          "current_guidance": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Current Guidance",
+            "type": "array"
+          },
+          "evidence_now": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Now",
+            "type": "array"
+          },
+          "follow_up_question_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Follow Up Question Ids",
+            "type": "array"
+          },
+          "gaps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "needs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Needs",
+            "type": "array"
+          },
+          "wants": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Wants",
+            "type": "array"
+          }
+        },
+        "title": "GuidancePayload",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ImportBibtexRequest": {
+        "properties": {
+          "bibtex": {
+            "title": "Bibtex",
+            "type": "string"
+          },
+          "focal_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Focal Label"
+          },
+          "namespace_id": {
+            "default": "local",
+            "title": "Namespace Id",
+            "type": "string"
+          },
+          "namespace_kind": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Namespace Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "question_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Id"
+          }
+        },
+        "required": [
+          "bibtex"
+        ],
+        "title": "ImportBibtexRequest",
+        "type": "object"
+      },
+      "ImportDoiRequest": {
+        "properties": {
+          "doi": {
+            "title": "Doi",
+            "type": "string"
+          },
+          "focal_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Focal Label"
+          },
+          "namespace_id": {
+            "default": "local",
+            "title": "Namespace Id",
+            "type": "string"
+          },
+          "namespace_kind": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Namespace Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "question_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Id"
+          }
+        },
+        "required": [
+          "doi"
+        ],
+        "title": "ImportDoiRequest",
+        "type": "object"
+      },
+      "ImportUrlRequest": {
+        "properties": {
+          "focal_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Focal Label"
+          },
+          "namespace_id": {
+            "default": "local",
+            "title": "Namespace Id",
+            "type": "string"
+          },
+          "namespace_kind": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Namespace Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "question_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Id"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "ImportUrlRequest",
+        "type": "object"
+      },
+      "IndexStateRequest": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "source",
+              "question",
+              "excerpt",
+              "claim",
+              "report",
+              "annotation",
+              "finding"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "private",
+              "namespace_only",
+              "included",
+              "suppressed"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "record_id",
+          "state"
+        ],
+        "title": "IndexStateRequest",
+        "type": "object"
+      },
+      "OrganizationBootstrapRequest": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "org_id": {
+            "title": "Org Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_id"
+        ],
+        "title": "OrganizationBootstrapRequest",
+        "type": "object"
+      },
+      "PublishRequest": {
+        "properties": {
+          "cascade_linked_sources": {
+            "default": true,
+            "title": "Cascade Linked Sources",
+            "type": "boolean"
+          },
+          "include_in_global_index": {
+            "default": false,
+            "title": "Include In Global Index",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "source",
+              "question",
+              "excerpt",
+              "claim",
+              "report",
+              "annotation",
+              "finding"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "record_id"
+        ],
+        "title": "PublishRequest",
+        "type": "object"
+      },
+      "QuestionCreate": {
+        "properties": {
+          "author_type": {
+            "default": "agent",
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "title": "Author Type",
+            "type": "string"
+          },
+          "dedupe_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedupe Key"
+          },
+          "focus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FocusTuple"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "follow_up_status": {
+            "default": "open",
+            "enum": [
+              "open",
+              "ready",
+              "blocked",
+              "done"
+            ],
+            "title": "Follow Up Status",
+            "type": "string"
+          },
+          "generated_by_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated By Session Id"
+          },
+          "generation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation Reason"
+          },
+          "namespace_id": {
+            "default": "local",
+            "title": "Namespace Id",
+            "type": "string"
+          },
+          "namespace_kind": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Namespace Kind",
+            "type": "string"
+          },
+          "parent_question_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Question Id"
+          },
+          "priority_score": {
+            "default": 0.0,
+            "title": "Priority Score",
+            "type": "number"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "status": {
+            "default": "open",
+            "enum": [
+              "open",
+              "answered",
+              "insufficient_evidence"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Id"
+          },
+          "visibility": {
+            "default": "private",
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "title": "QuestionCreate",
+        "type": "object"
+      },
+      "QuestionStatusUpdate": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "QuestionStatusUpdate",
+        "type": "object"
+      },
+      "ReportCreate": {
+        "properties": {
+          "author_type": {
+            "default": "agent",
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "title": "Author Type",
+            "type": "string"
+          },
+          "claim_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Claim Ids",
+            "type": "array"
+          },
+          "conflict_state": {
+            "default": "none",
+            "enum": [
+              "none",
+              "conflicted"
+            ],
+            "title": "Conflict State",
+            "type": "string"
+          },
+          "dedupe_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedupe Key"
+          },
+          "focal_label": {
+            "title": "Focal Label",
+            "type": "string"
+          },
+          "guidance": {
+            "$ref": "#/components/schemas/GuidancePayload"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "namespace_id": {
+            "default": "local",
+            "title": "Namespace Id",
+            "type": "string"
+          },
+          "namespace_kind": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Namespace Kind",
+            "type": "string"
+          },
+          "question_id": {
+            "title": "Question Id",
+            "type": "string"
+          },
+          "refresh_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Due At"
+          },
+          "refresh_of_report_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Of Report Id"
+          },
+          "report_kind": {
+            "default": "guidance",
+            "enum": [
+              "guidance",
+              "legacy_answer"
+            ],
+            "title": "Report Kind",
+            "type": "string"
+          },
+          "review_state": {
+            "default": "unreviewed",
+            "enum": [
+              "unreviewed",
+              "reviewed",
+              "flagged"
+            ],
+            "title": "Review State",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "summary_md": {
+            "title": "Summary Md",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trust_tier": {
+            "default": "medium",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Trust Tier",
+            "type": "string"
+          },
+          "visibility": {
+            "default": "private",
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id",
+          "title",
+          "focal_label",
+          "summary_md",
+          "claim_ids"
+        ],
+        "title": "ReportCreate",
+        "type": "object"
+      },
+      "ResearchSessionCreate": {
+        "properties": {
+          "author_type": {
+            "default": "agent",
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "title": "Author Type",
+            "type": "string"
+          },
+          "dedupe_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedupe Key"
+          },
+          "mode": {
+            "default": "live_research",
+            "enum": [
+              "reuse",
+              "live_research",
+              "synthesis",
+              "insufficient_evidence",
+              "repo_triage",
+              "repo_review"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "model_name": {
+            "default": "unspecified",
+            "title": "Model Name",
+            "type": "string"
+          },
+          "model_version": {
+            "default": "unspecified",
+            "title": "Model Version",
+            "type": "string"
+          },
+          "namespace_id": {
+            "default": "local",
+            "title": "Namespace Id",
+            "type": "string"
+          },
+          "namespace_kind": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Namespace Kind",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
+          },
+          "question_id": {
+            "title": "Question Id",
+            "type": "string"
+          },
+          "refresh_of_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Of Session Id"
+          },
+          "source_signals": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Signals",
+            "type": "array"
+          },
+          "ttl_days": {
+            "default": 30,
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Ttl Days",
+            "type": "integer"
+          },
+          "visibility": {
+            "default": "private",
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id"
+        ],
+        "title": "ResearchSessionCreate",
+        "type": "object"
+      },
+      "ReviewRequest": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "source",
+              "question",
+              "excerpt",
+              "claim",
+              "report",
+              "annotation",
+              "finding"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "string"
+          },
+          "reviewed": {
+            "default": true,
+            "title": "Reviewed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "record_id"
+        ],
+        "title": "ReviewRequest",
+        "type": "object"
+      },
+      "SearchHit": {
+        "properties": {
+          "conflict_state": {
+            "default": "none",
+            "enum": [
+              "none",
+              "conflicted"
+            ],
+            "title": "Conflict State",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "freshness_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "fresh",
+                  "needs_refresh"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Freshness State"
+          },
+          "human_reviewed": {
+            "default": false,
+            "title": "Human Reviewed",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_stale": {
+            "default": false,
+            "title": "Is Stale",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "source",
+              "question",
+              "excerpt",
+              "claim",
+              "report",
+              "annotation",
+              "finding"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "namespace_id": {
+            "default": "local",
+            "title": "Namespace Id",
+            "type": "string"
+          },
+          "namespace_kind": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Namespace Kind",
+            "type": "string"
+          },
+          "public_index_state": {
+            "default": "private",
+            "enum": [
+              "private",
+              "namespace_only",
+              "included",
+              "suppressed"
+            ],
+            "title": "Public Index State",
+            "type": "string"
+          },
+          "public_namespace_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Namespace Slug"
+          },
+          "refresh_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Due At"
+          },
+          "review_state": {
+            "default": "unreviewed",
+            "enum": [
+              "unreviewed",
+              "reviewed",
+              "flagged"
+            ],
+            "title": "Review State",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "source_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Title"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trust_tier": {
+            "default": "low",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Trust Tier",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "visibility": {
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "title",
+          "summary",
+          "subject",
+          "visibility",
+          "created_at",
+          "score",
+          "url"
+        ],
+        "title": "SearchHit",
+        "type": "object"
+      },
+      "SearchResponse": {
+        "properties": {
+          "hits": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "title": "Hits",
+            "type": "array"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "hits"
+        ],
+        "title": "SearchResponse",
+        "type": "object"
+      },
+      "SourceCreate": {
+        "properties": {
+          "accessed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accessed At"
+          },
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
+          "conflict_state": {
+            "default": "none",
+            "enum": [
+              "none",
+              "conflicted"
+            ],
+            "title": "Conflict State",
+            "type": "string"
+          },
+          "content_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Sha256"
+          },
+          "dedupe_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedupe Key"
+          },
+          "last_verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Verified At"
+          },
+          "locator": {
+            "title": "Locator",
+            "type": "string"
+          },
+          "namespace_id": {
+            "default": "local",
+            "title": "Namespace Id",
+            "type": "string"
+          },
+          "namespace_kind": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Namespace Kind",
+            "type": "string"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "refresh_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Due At"
+          },
+          "review_state": {
+            "default": "unreviewed",
+            "enum": [
+              "unreviewed",
+              "reviewed",
+              "flagged"
+            ],
+            "title": "Review State",
+            "type": "string"
+          },
+          "site_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Name"
+          },
+          "snapshot_present": {
+            "default": false,
+            "title": "Snapshot Present",
+            "type": "boolean"
+          },
+          "snapshot_required": {
+            "default": false,
+            "title": "Snapshot Required",
+            "type": "boolean"
+          },
+          "snapshot_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Url"
+          },
+          "snippet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snippet"
+          },
+          "source_type": {
+            "default": "webpage",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trust_tier": {
+            "default": "low",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Trust Tier",
+            "type": "string"
+          },
+          "visibility": {
+            "default": "private",
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "locator",
+          "title"
+        ],
+        "title": "SourceCreate",
+        "type": "object"
+      },
+      "SourceSelector": {
+        "additionalProperties": true,
+        "properties": {
+          "deep_link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deep Link"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "end_line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Line"
+          },
+          "exact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exact"
+          },
+          "prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefix"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "start_line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Line"
+          },
+          "suffix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suffix"
+          },
+          "type": {
+            "default": "TextQuoteSelector",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "SourceSelector",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Research Registry",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "home__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Home"
+      }
+    },
+    "/admin": {
+      "get": {
+        "operationId": "admin_dashboard_admin_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Dashboard"
+      }
+    },
+    "/admin/login": {
+      "get": {
+        "operationId": "admin_login_admin_login_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Admin Login"
+      },
+      "post": {
+        "operationId": "admin_login_submit_admin_login_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_admin_login_submit_admin_login_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Login Submit"
+      }
+    },
+    "/admin/logout": {
+      "post": {
+        "operationId": "admin_logout_admin_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Admin Logout"
+      }
+    },
+    "/admin/{kind}/{record_id}/publish": {
+      "post": {
+        "operationId": "admin_publish_admin__kind___record_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "title": "Record Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Publish"
+      }
+    },
+    "/admin/{kind}/{record_id}/review": {
+      "post": {
+        "operationId": "admin_review_admin__kind___record_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "title": "Record Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Review"
+      }
+    },
+    "/annotations/{annotation_id}": {
+      "get": {
+        "operationId": "annotation_detail_annotations__annotation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "annotation_id",
+            "required": true,
+            "schema": {
+              "title": "Annotation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Annotation Detail"
+      }
+    },
+    "/api/admin/api-keys": {
+      "post": {
+        "operationId": "api_admin_issue_key_api_admin_api_keys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiKeyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Admin Issue Key"
+      }
+    },
+    "/api/admin/organizations": {
+      "post": {
+        "operationId": "api_admin_ensure_org_api_admin_organizations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrganizationBootstrapRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Admin Ensure Org"
+      }
+    },
+    "/api/annotations/{annotation_id}": {
+      "get": {
+        "operationId": "api_get_annotation_api_annotations__annotation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "annotation_id",
+            "required": true,
+            "schema": {
+              "title": "Annotation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_private",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Private",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Get Annotation"
+      }
+    },
+    "/api/backend/status": {
+      "get": {
+        "operationId": "api_backend_status_api_backend_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Api Backend Status"
+      }
+    },
+    "/api/briefs/resolve": {
+      "post": {
+        "operationId": "api_resolve_brief_api_briefs_resolve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BriefResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Resolve Brief"
+      }
+    },
+    "/api/claims": {
+      "post": {
+        "operationId": "api_create_claim_api_claims_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Create Claim"
+      }
+    },
+    "/api/claims/{claim_id}": {
+      "get": {
+        "operationId": "api_get_claim_api_claims__claim_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claim_id",
+            "required": true,
+            "schema": {
+              "title": "Claim Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_private",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Private",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Get Claim"
+      }
+    },
+    "/api/excerpts": {
+      "post": {
+        "operationId": "api_create_excerpt_api_excerpts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExcerptCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Create Excerpt"
+      }
+    },
+    "/api/excerpts/{excerpt_id}": {
+      "get": {
+        "operationId": "api_get_excerpt_api_excerpts__excerpt_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "excerpt_id",
+            "required": true,
+            "schema": {
+              "title": "Excerpt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_private",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Private",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Get Excerpt"
+      }
+    },
+    "/api/findings/{finding_id}": {
+      "get": {
+        "operationId": "api_get_finding_api_findings__finding_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "finding_id",
+            "required": true,
+            "schema": {
+              "title": "Finding Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_private",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Private",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Get Finding"
+      }
+    },
+    "/api/follow-ups/{question_id}/status": {
+      "post": {
+        "operationId": "api_set_follow_up_status_api_follow_ups__question_id__status_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "question_id",
+            "required": true,
+            "schema": {
+              "title": "Question Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowUpStatusUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Set Follow Up Status"
+      }
+    },
+    "/api/import/bibtex": {
+      "post": {
+        "operationId": "api_import_bibtex_api_import_bibtex_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportBibtexRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Import Bibtex"
+      }
+    },
+    "/api/import/doi": {
+      "post": {
+        "operationId": "api_import_doi_api_import_doi_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportDoiRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Import Doi"
+      }
+    },
+    "/api/import/url": {
+      "post": {
+        "operationId": "api_import_url_api_import_url_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportUrlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Import Url"
+      }
+    },
+    "/api/index-state": {
+      "post": {
+        "operationId": "api_index_state_api_index_state_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexStateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Index State"
+      }
+    },
+    "/api/publish": {
+      "post": {
+        "operationId": "api_publish_api_publish_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Publish"
+      }
+    },
+    "/api/questions": {
+      "post": {
+        "operationId": "api_create_question_api_questions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Create Question"
+      }
+    },
+    "/api/questions/{question_id}": {
+      "get": {
+        "operationId": "api_get_question_api_questions__question_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "question_id",
+            "required": true,
+            "schema": {
+              "title": "Question Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_private",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Private",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Get Question"
+      }
+    },
+    "/api/questions/{question_id}/status": {
+      "post": {
+        "operationId": "api_set_question_status_api_questions__question_id__status_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "question_id",
+            "required": true,
+            "schema": {
+              "title": "Question Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestionStatusUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Set Question Status"
+      }
+    },
+    "/api/reports": {
+      "post": {
+        "operationId": "api_create_report_api_reports_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Create Report"
+      }
+    },
+    "/api/reports/{report_id}": {
+      "get": {
+        "operationId": "api_get_report_api_reports__report_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "title": "Report Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_private",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Private",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Get Report"
+      }
+    },
+    "/api/reports/{report_id}/refresh": {
+      "post": {
+        "operationId": "api_refresh_report_api_reports__report_id__refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "title": "Report Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Refresh Report"
+      }
+    },
+    "/api/review": {
+      "post": {
+        "operationId": "api_review_api_review_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Review"
+      }
+    },
+    "/api/search": {
+      "get": {
+        "operationId": "api_search_api_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_private",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Private",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "namespace_slug",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Namespace Slug"
+            }
+          },
+          {
+            "in": "query",
+            "name": "global_index_only",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Global Index Only"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Search"
+      }
+    },
+    "/api/sessions": {
+      "post": {
+        "operationId": "api_create_session_api_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchSessionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Create Session"
+      }
+    },
+    "/api/sessions/{session_id}": {
+      "get": {
+        "operationId": "api_get_session_api_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_private",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Private",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Get Session"
+      }
+    },
+    "/api/sources": {
+      "post": {
+        "operationId": "api_create_source_api_sources_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Create Source"
+      }
+    },
+    "/api/sources/{source_id}": {
+      "get": {
+        "operationId": "api_get_source_api_sources__source_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_private",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Private",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Get Source"
+      }
+    },
+    "/claims/{claim_id}": {
+      "get": {
+        "operationId": "claim_detail_claims__claim_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claim_id",
+            "required": true,
+            "schema": {
+              "title": "Claim Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Claim Detail"
+      }
+    },
+    "/excerpts/{excerpt_id}": {
+      "get": {
+        "operationId": "excerpt_detail_excerpts__excerpt_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "excerpt_id",
+            "required": true,
+            "schema": {
+              "title": "Excerpt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Excerpt Detail"
+      }
+    },
+    "/findings/{finding_id}": {
+      "get": {
+        "operationId": "finding_detail_findings__finding_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "finding_id",
+            "required": true,
+            "schema": {
+              "title": "Finding Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finding Detail"
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Healthz Healthz Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Healthz"
+      }
+    },
+    "/public/{namespace_slug}": {
+      "get": {
+        "operationId": "public_namespace_public__namespace_slug__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "namespace_slug",
+            "required": true,
+            "schema": {
+              "title": "Namespace Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Public Namespace"
+      }
+    },
+    "/questions/{question_id}": {
+      "get": {
+        "operationId": "question_detail_questions__question_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "question_id",
+            "required": true,
+            "schema": {
+              "title": "Question Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Question Detail"
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "readyz_readyz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Readyz Readyz Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Readyz"
+      }
+    },
+    "/reports/{report_id}": {
+      "get": {
+        "operationId": "report_detail_reports__report_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "title": "Report Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Report Detail"
+      }
+    },
+    "/sources/{source_id}": {
+      "get": {
+        "operationId": "source_detail_sources__source_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Source Detail"
+      }
+    }
+  }
+}

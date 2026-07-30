@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import argparse
 from importlib.metadata import PackageNotFoundError, version
+import json
+import os
+from pathlib import Path
 
 from .local_manager import (
     diagnose_local_runtime,
@@ -70,6 +73,70 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser("web", help="Run the web app directly from the current environment.")
+
+    audit = subparsers.add_parser(
+        "audit-data",
+        help="Run a read-only, content-free v1 database audit.",
+    )
+    audit.add_argument(
+        "--database",
+        default=None,
+        help="SQLite path/URL or Postgres URL. Defaults to the configured database.",
+    )
+    audit.add_argument("--json-out", type=Path, default=None, help="Write the JSON audit to a new file.")
+    audit.add_argument(
+        "--markdown-out",
+        type=Path,
+        default=None,
+        help="Write the Markdown audit to a new file.",
+    )
+
+    backup = subparsers.add_parser(
+        "backup",
+        help="Create a verified SQLite backup or print a redacted Postgres backup plan.",
+    )
+    backup.add_argument(
+        "--database",
+        default=None,
+        help="SQLite path/URL or Postgres URL. Defaults to the configured database.",
+    )
+    backup.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="New SQLite backup path or planned Postgres dump path.",
+    )
+    backup.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        help="New SQLite manifest path or optional Postgres plan output path.",
+    )
+    backup.add_argument(
+        "--restore-database",
+        default=None,
+        help="Disposable Postgres restore URL used only for a redacted plan.",
+    )
+
+    restore = subparsers.add_parser("restore", help="Restore a SQLite backup to a new path.")
+    restore.add_argument("--backup", type=Path, required=True, help="Verified SQLite backup artifact.")
+    restore.add_argument(
+        "--manifest",
+        type=Path,
+        required=True,
+        help="Backup manifest containing SHA-256 and inventory.",
+    )
+    restore.add_argument(
+        "--destination",
+        type=Path,
+        required=True,
+        help="New restore destination; existing files are refused.",
+    )
+    restore.add_argument(
+        "--verify",
+        action="store_true",
+        help="Verify backup SHA-256, integrity, counts, and hashes before restoring.",
+    )
     return parser
 
 
@@ -136,7 +203,80 @@ def main() -> None:
         web_main()
         return
 
+    if args.command == "audit-data":
+        from .config import load_settings
+        from .data_audit import audit_database, render_audit_markdown
+
+        database = args.database or load_settings().database_url
+        report = audit_database(database)
+        wrote_report = False
+        if args.json_out is not None:
+            _write_new_text(args.json_out, json.dumps(report, indent=2, sort_keys=True) + "\n")
+            wrote_report = True
+        if args.markdown_out is not None:
+            _write_new_text(args.markdown_out, render_audit_markdown(report))
+            wrote_report = True
+        if wrote_report:
+            print("Audit reports written.")
+        else:
+            print(json.dumps(report, indent=2, sort_keys=True))
+        return
+
+    if args.command == "backup":
+        from .backup import backup_sqlite, plan_postgres_backup
+        from .config import load_settings
+        from .db import resolve_database_target
+
+        database = args.database or load_settings().database_url
+        target = resolve_database_target(database)
+        if target.kind == "sqlite":
+            manifest_path = args.manifest or args.output.with_suffix(args.output.suffix + ".manifest.json")
+            manifest = backup_sqlite(target, args.output, manifest_path=manifest_path)
+            print(
+                json.dumps(
+                    {
+                        "status": "verified",
+                        "database_kind": "sqlite",
+                        "sha256": manifest["artifacts"][0]["sha256"],
+                    },
+                    sort_keys=True,
+                )
+            )
+        else:
+            plan = plan_postgres_backup(
+                target.url,
+                dump_path=args.output,
+                restore_database_url=args.restore_database,
+            )
+            if args.manifest is not None:
+                _write_new_text(args.manifest, json.dumps(plan, indent=2, sort_keys=True) + "\n")
+                print("Redacted Postgres backup plan written.")
+            else:
+                print(json.dumps(plan, indent=2, sort_keys=True))
+        return
+
+    if args.command == "restore":
+        from .backup import restore_sqlite_backup
+
+        result = restore_sqlite_backup(
+            args.backup,
+            args.destination,
+            manifest_path=args.manifest,
+            verify=args.verify,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return
+
     parser.error(f"unknown command: {args.command}")
+
+
+def _write_new_text(path: Path, content: str) -> None:
+    path = path.expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x", encoding="utf-8") as stream:
+        stream.write(content)
+    if os.name != "nt":
+        path.chmod(0o600)
 
 
 if __name__ == "__main__":
