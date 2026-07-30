@@ -4,8 +4,12 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import re
+import site
 import stat
 import subprocess
+import sys
+import sysconfig
 import tarfile
 import zipfile
 
@@ -15,9 +19,104 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEPENDENCY_SITE = next(
-    (REPO_ROOT / ".venv" / "lib").glob("python*/site-packages")
+PLUGIN_FILES = (
+    Path(".codex-plugin/plugin.json"),
+    Path(".mcp.json"),
+    Path("skills/research-recall/SKILL.md"),
+    Path("skills/research-recall/agents/openai.yaml"),
+    Path("skills/research-deposit/SKILL.md"),
+    Path("skills/research-deposit/agents/openai.yaml"),
 )
+PLUGIN_TOOLS = {
+    "research_status",
+    "research_search",
+    "research_get",
+    "research_deposit",
+    "research_review",
+    "research_refresh",
+}
+SKILL_TOOLS = {
+    "research-recall": {
+        "research_status",
+        "research_search",
+        "research_get",
+    },
+    "research-deposit": {
+        "research_status",
+        "research_search",
+        "research_deposit",
+    },
+}
+
+
+def _dependency_site_paths() -> str:
+    candidates = [
+        sysconfig.get_path(name)
+        for name in ("purelib", "platlib")
+    ]
+    candidates.extend(site.getsitepackages())
+    user_site = site.getusersitepackages()
+    if isinstance(user_site, str):
+        candidates.append(user_site)
+    else:
+        candidates.extend(user_site)
+
+    existing: list[str] = []
+    for candidate in candidates:
+        if not candidate:
+            continue
+        resolved = str(Path(candidate).resolve())
+        if Path(resolved).is_dir() and resolved not in existing:
+            existing.append(resolved)
+    if not existing:
+        raise RuntimeError(
+            f"no dependency site-packages found for {sys.executable}"
+        )
+    return os.pathsep.join(existing)
+
+
+def _installed_data_root(python: Path) -> Path:
+    result = subprocess.run(
+        [
+            str(python),
+            "-c",
+            "import sysconfig; print(sysconfig.get_path('data'))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return Path(result.stdout.strip()).resolve()
+
+
+def _installed_package_root(
+    python: Path,
+    environment: dict[str, str],
+) -> Path:
+    result = subprocess.run(
+        [
+            str(python),
+            "-c",
+            (
+                "from pathlib import Path; import research_registry; "
+                "print(Path(research_registry.__file__).resolve().parent)"
+            ),
+        ],
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return Path(result.stdout.strip()).resolve()
+
+
+def _documented_tools(skill: Path) -> set[str]:
+    return set(
+        re.findall(
+            r"`(research_[a-z_]+)`",
+            skill.read_text(encoding="utf-8"),
+        )
+    )
 
 
 @pytest.fixture(scope="module")
@@ -27,7 +126,7 @@ def distribution_artifacts(
     output = tmp_path_factory.mktemp("rr2-dist")
     subprocess.run(
         [
-            str(REPO_ROOT / ".venv" / "bin" / "python"),
+            sys.executable,
             "-m",
             "build",
             "--outdir",
@@ -101,7 +200,7 @@ def test_distribution_excludes_operator_local_evaluation_file(
 async def _call_installed_mcp(
     executable: Path,
     environment: dict[str, str],
-) -> tuple[dict[str, object], dict[str, object]]:
+) -> tuple[dict[str, object], dict[str, object], set[str]]:
     parameters = StdioServerParameters(
         command=str(executable),
         args=["mcp"],
@@ -111,6 +210,7 @@ async def _call_installed_mcp(
     async with stdio_client(parameters) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
+            tools = await session.list_tools()
             status = await session.call_tool("research_status", {})
             search = await session.call_tool(
                 "research_search",
@@ -121,7 +221,11 @@ async def _call_installed_mcp(
             )
     assert status.structuredContent is not None
     assert search.structuredContent is not None
-    return status.structuredContent, search.structuredContent
+    return (
+        status.structuredContent,
+        search.structuredContent,
+        {tool.name for tool in tools.tools},
+    )
 
 
 @pytest.mark.parametrize("artifact_index", [0, 1], ids=["wheel", "sdist"])
@@ -134,7 +238,7 @@ def test_clean_home_package_init_plugin_and_stdio_search(
     environment_root = tmp_path / "environment"
     subprocess.run(
         [
-            str(REPO_ROOT / ".venv" / "bin" / "python"),
+            sys.executable,
             "-m",
             "venv",
             str(environment_root),
@@ -173,7 +277,7 @@ def test_clean_home_package_init_plugin_and_stdio_search(
             "XDG_CONFIG_HOME": str(home / ".config"),
             "XDG_DATA_HOME": str(home / ".local" / "share"),
             "PATH": f"{fake_bin}{os.pathsep}{environment['PATH']}",
-            "PYTHONPATH": str(DEPENDENCY_SITE),
+            "PYTHONPATH": _dependency_site_paths(),
         }
     )
     for name in tuple(environment):
@@ -227,22 +331,35 @@ def test_clean_home_package_init_plugin_and_stdio_search(
         capture_output=True,
         text=True,
     )
-    status, search = asyncio.run(
+    status, search, tool_names = asyncio.run(
         _call_installed_mcp(cli, environment)
     )
 
     first_payload = json.loads(initialized.stdout)
     second_payload = json.loads(initialized_again.stdout)
-    database = home / ".local" / "share" / "research-registry" / "registry.sqlite3"
+    packaged_plugin = (
+        _installed_data_root(python)
+        / "share"
+        / "research-registry"
+        / "research-registry-plugin"
+    )
+    package_root = _installed_package_root(python, environment)
+    database = (
+        home
+        / ".local"
+        / "share"
+        / "research-registry"
+        / "registry.sqlite3"
+    )
     config = home / ".config" / "research-registry" / "config.toml"
-    plugin_mcp = (
+    installed_plugin = (
         codex_home
         / "marketplaces"
         / "research-registry-local"
         / "plugins"
         / "research-registry"
-        / ".mcp.json"
     )
+    plugin_mcp = installed_plugin / ".mcp.json"
 
     assert first_payload["status"] == "initialized"
     assert second_payload["status"] == "current"
@@ -256,9 +373,28 @@ def test_clean_home_package_init_plugin_and_stdio_search(
     assert status["database_type"] == "sqlite"
     assert status["migration_state"] == "current"
     assert search["hits"] == []
+    assert package_root.is_relative_to(environment_root.resolve())
     assert database.is_file()
     assert config.is_file()
-    assert plugin_mcp.is_file()
+    for relative in PLUGIN_FILES:
+        packaged = packaged_plugin / relative
+        installed = installed_plugin / relative
+        assert packaged.is_file()
+        assert installed.read_bytes() == packaged.read_bytes()
+    for skill_name, expected_tools in SKILL_TOOLS.items():
+        assert _documented_tools(
+            installed_plugin / "skills" / skill_name / "SKILL.md"
+        ) == expected_tools
+        assert expected_tools <= tool_names
+    assert PLUGIN_TOOLS <= tool_names
+    assert json.loads(plugin_mcp.read_text(encoding="utf-8")) == {
+        "mcpServers": {
+            "researchRegistry": {
+                "command": "research-registry",
+                "args": ["mcp", "--transport", "stdio"],
+            }
+        }
+    }
     assert "x-api-key" not in plugin_mcp.read_text(encoding="utf-8")
     if os.name != "nt":
         assert stat.S_IMODE(database.stat().st_mode) == 0o600

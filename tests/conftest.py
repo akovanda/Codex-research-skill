@@ -1,6 +1,18 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+import tempfile
+
 import pytest
+
+# Importing the ASGI module creates its default app. Keep collection isolated
+# from an operator's live registry and from stale pre-release migration state.
+_TEST_DATA = tempfile.TemporaryDirectory(prefix="research-registry-tests-")
+os.environ.setdefault(
+    "RESEARCH_REGISTRY_DATA_DIR",
+    str(Path(_TEST_DATA.name) / "data"),
+)
 
 from research_registry.legacy_feature import LEGACY_HEURISTICS_ENV
 
