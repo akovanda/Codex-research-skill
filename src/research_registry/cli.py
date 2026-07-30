@@ -6,6 +6,12 @@ import json
 import os
 from pathlib import Path
 
+from .codex_install import (
+    diagnose_codex_install,
+    format_codex_install_report,
+    install_codex,
+    uninstall_codex,
+)
 from .local_manager import (
     diagnose_local_runtime,
     ensure_prerequisites,
@@ -51,7 +57,30 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument("--skip-skill-install", action="store_true", help="Do not install the managed skills into ~/.codex/skills.")
 
     subparsers.add_parser("status", help="Show the current localhost runtime status.")
-    subparsers.add_parser("doctor", help="Check Docker, runtime, Codex MCP config, image, and skills.")
+    subparsers.add_parser(
+        "doctor",
+        help="Check the runtime and installed Codex integration without printing secrets.",
+    )
+
+    install_codex_parser = subparsers.add_parser(
+        "install-codex",
+        help="Install the focused local Research Registry plugin for Codex.",
+    )
+    install_codex_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List exact managed file and Codex registration changes without writing.",
+    )
+
+    uninstall_codex_parser = subparsers.add_parser(
+        "uninstall-codex",
+        help="Remove the managed Research Registry plugin and restore migrated managed state.",
+    )
+    uninstall_codex_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List exact managed file and Codex registration changes without writing.",
+    )
 
     repair = subparsers.add_parser("repair", help="Repair managed config files, Codex MCP config, and skill links.")
     repair.add_argument("--skip-codex-config", action="store_true", help="Do not patch ~/.codex/config.toml.")
@@ -73,6 +102,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser("web", help="Run the web app directly from the current environment.")
+
+    mcp = subparsers.add_parser(
+        "mcp",
+        help="Run the Research Registry MCP server.",
+    )
+    mcp.add_argument(
+        "--transport",
+        choices=("stdio",),
+        default="stdio",
+        help="MCP transport. The local plugin uses stdio.",
+    )
+    mcp.add_argument(
+        "--database",
+        default=None,
+        help=(
+            "SQLite path/URL or Postgres URL. Defaults to the configured "
+            "Research Registry database."
+        ),
+    )
 
     audit = subparsers.add_parser(
         "audit-data",
@@ -298,7 +346,27 @@ def main() -> None:
         return
 
     if args.command == "doctor":
-        print(format_doctor(diagnose_local_runtime()))
+        print(
+            format_doctor(
+                diagnose_local_runtime() + diagnose_codex_install()
+            )
+        )
+        return
+
+    if args.command == "install-codex":
+        print(
+            format_codex_install_report(
+                install_codex(dry_run=args.dry_run)
+            )
+        )
+        return
+
+    if args.command == "uninstall-codex":
+        print(
+            format_codex_install_report(
+                uninstall_codex(dry_run=args.dry_run)
+            )
+        )
         return
 
     if args.command == "repair":
@@ -332,6 +400,10 @@ def main() -> None:
         from .web import main as web_main
 
         web_main()
+        return
+
+    if args.command == "mcp":
+        _run_mcp_stdio(args.database)
         return
 
     if args.command == "audit-data":
@@ -524,6 +596,20 @@ def _write_new_text(path: Path, content: str) -> None:
         stream.write(content)
     if os.name != "nt":
         path.chmod(0o600)
+
+
+def _run_mcp_stdio(database: str | None) -> None:
+    if database:
+        if "://" in database:
+            database_url = database
+        else:
+            database_path = Path(database).expanduser().resolve()
+            database_url = f"sqlite:///{database_path}"
+        os.environ["RESEARCH_REGISTRY_DATABASE_URL"] = database_url
+
+    from .mcp_server import main as mcp_main
+
+    mcp_main()
 
 
 if __name__ == "__main__":

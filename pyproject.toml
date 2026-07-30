@@ -80,6 +80,24 @@ research_registry = [
 ]
 
 [tool.setuptools.data-files]
+"share/research-registry/research-registry-plugin/.codex-plugin" = [
+  "research-registry-plugin/.codex-plugin/plugin.json",
+]
+"share/research-registry/research-registry-plugin" = [
+  "research-registry-plugin/.mcp.json",
+]
+"share/research-registry/research-registry-plugin/skills/research-recall" = [
+  "research-registry-plugin/skills/research-recall/SKILL.md",
+]
+"share/research-registry/research-registry-plugin/skills/research-recall/agents" = [
+  "research-registry-plugin/skills/research-recall/agents/openai.yaml",
+]
+"share/research-registry/research-registry-plugin/skills/research-deposit" = [
+  "research-registry-plugin/skills/research-deposit/SKILL.md",
+]
+"share/research-registry/research-registry-plugin/skills/research-deposit/agents" = [
+  "research-registry-plugin/skills/research-deposit/agents/openai.yaml",
+]
 "share/research-registry/skills/research-capture" = [
   "skills/research-capture/SKILL.md",
 ]

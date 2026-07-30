@@ -1,6 +1,9 @@
 # Memory/Retrieval Skill
 
-This document covers the `research-memory-retrieval` Codex skill and its local validation flow.
+This document covers the legacy `research-memory-retrieval` Codex skill and its
+local validation flow. The default v2 plugin replaces it with focused
+read-only [`research-recall`](../research-registry-plugin/skills/research-recall/SKILL.md);
+see [Codex Plugin](codex-plugin.md).
 
 If you are just trying to get the project running, start with [Getting Started](getting-started.md).
 

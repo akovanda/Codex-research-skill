@@ -7,9 +7,11 @@ If you want a quick answer to "what does this install change?" or "do I need Doc
 The intended first run for a source checkout is:
 
 1. run `make up`
-2. verify the app, MCP wiring, and API docs with `make status`
-3. open the UI or `/docs`
-4. ask Codex to do source-backed research and let the implicit capture flow store it
+2. install the focused Codex plugin with `research-registry install-codex`
+3. verify the app, plugin, MCP wiring, and API docs
+4. open the UI or `/docs`
+5. use read-only recall, then invoke `$research-deposit` explicitly when
+   completed research should be preserved
 
 ## Prerequisites
 
@@ -63,6 +65,22 @@ make up
 ```
 
 `make up` will reuse the precreated `.venv`.
+
+## Install the focused Codex plugin
+
+After the package or editable checkout is installed:
+
+```bash
+research-registry install-codex --dry-run
+research-registry install-codex
+research-registry doctor
+```
+
+The v2 plugin bundles implicit read-only `research-recall` and explicit-only
+`research-deposit` over local STDIO. It does not use remote HTTP by default and
+does not publish. Start a new Codex conversation after installation. See
+[Codex Plugin](codex-plugin.md) for custom `CODEX_HOME`, legacy migration, and
+uninstall details.
 
 If you want the runtime without demo content:
 
@@ -120,7 +138,8 @@ Once the local runtime is working, the normal flow is:
 
 1. Ask Codex to research something that should be source-backed.
 2. Let the registry search existing material first.
-3. Let new research store private questions, sessions, excerpts, claims, and a report when reuse is not enough.
+3. Explicitly invoke `$research-deposit` when completed reusable research
+   should be stored privately and unreviewed.
 4. Open the workspace at `http://127.0.0.1:8010/admin/login`.
 5. Review the private records and publish the reusable ones.
 
@@ -185,6 +204,7 @@ make purge-local
 
 ## Next docs
 
+- [Codex plugin](codex-plugin.md)
 - [Local deployment](deploy-local.md)
 - [Implicit research capture](implicit-research-capture.md)
 - [Memory/retrieval skill](memory-retrieval-skill.md)

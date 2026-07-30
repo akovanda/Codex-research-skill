@@ -1,0 +1,6 @@
+interface:
+  display_name: "Research Deposit"
+  short_description: "Explicitly preserve durable research"
+  default_prompt: "Use $research-deposit to validate and privately preserve completed source-backed research."
+policy:
+  allow_implicit_invocation: false

@@ -8,7 +8,8 @@ Research Registry is in developer preview. Support is intentionally narrow.
 - If you want the managed localhost install, read [docs/deploy-local.md](docs/deploy-local.md).
 - If you want a shared self-hosted setup, read [docs/deploy-shared-compose.md](docs/deploy-shared-compose.md).
 - If you want the API flow, read [docs/api-quickstart.md](docs/api-quickstart.md).
-- If you want Codex-specific behavior, read [docs/implicit-research-capture.md](docs/implicit-research-capture.md) and [docs/repo-aware-capture.md](docs/repo-aware-capture.md).
+- If you want the default Codex integration, read [docs/codex-plugin.md](docs/codex-plugin.md).
+- If you maintain the legacy implicit-capture path, read [docs/implicit-research-capture.md](docs/implicit-research-capture.md) and [docs/repo-aware-capture.md](docs/repo-aware-capture.md).
 
 ## Supported Preview Paths
 

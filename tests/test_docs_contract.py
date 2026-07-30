@@ -15,6 +15,7 @@ PRIMARY_DOCS = [
     REPO_ROOT / "docs" / "deploy-shared-compose.md",
     REPO_ROOT / "docs" / "deploy-kubernetes.md",
     REPO_ROOT / "docs" / "operations.md",
+    REPO_ROOT / "docs" / "codex-plugin.md",
     REPO_ROOT / "docs" / "implicit-research-capture.md",
     REPO_ROOT / "docs" / "repo-aware-capture.md",
     REPO_ROOT / "docs" / "memory-retrieval-skill.md",
@@ -212,3 +213,25 @@ def test_packaged_distribution_declares_skill_assets() -> None:
         "skills/research-memory-retrieval/references/topic-taxonomy.md",
     ]:
         assert path in packaged_files
+
+
+def test_codex_plugin_docs_state_safe_v2_policy_and_legacy_boundary() -> None:
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    guide = (REPO_ROOT / "docs" / "codex-plugin.md").read_text(
+        encoding="utf-8"
+    )
+    security = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
+
+    for term in (
+        "research-registry install-codex --dry-run",
+        "research-registry uninstall-codex --dry-run",
+        "CODEX_HOME",
+        "local STDIO",
+        "allow_implicit_invocation: false",
+        "never publishes",
+        "untrusted data",
+    ):
+        assert term in guide
+    assert "docs/codex-plugin.md" in readme
+    assert "remote HTTP" in guide
+    assert "raw Codex subprocess output" in security

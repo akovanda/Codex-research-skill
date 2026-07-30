@@ -1,6 +1,11 @@
 # Implicit Research Capture
 
-This document describes the default Codex workflow for research intent.
+This document describes the legacy broad implicit-capture compatibility
+workflow. It is no longer installed by the default v2 Codex plugin.
+
+New installs should use [Codex Plugin](codex-plugin.md): `research-recall` may
+invoke implicitly but is read-only, while `research-deposit` requires explicit
+invocation or user approval.
 
 For first-run local setup, start with [Getting Started](getting-started.md).
 

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Research Recall"
+  short_description: "Recall durable source-backed research"
+  default_prompt: "Use $research-recall to retrieve relevant prior research with provenance and freshness state."
+policy:
+  allow_implicit_invocation: true

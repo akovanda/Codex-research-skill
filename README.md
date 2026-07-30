@@ -72,7 +72,8 @@ If you are deciding whether this preview is even the right shape for you, read [
 - Operator who wants a local shared runtime: [docs/deploy-local.md](docs/deploy-local.md)
 - Operator who wants a shared internal deployment: [docs/deploy-shared-compose.md](docs/deploy-shared-compose.md)
 - API user who wants a copy-paste HTTP flow: [docs/api-quickstart.md](docs/api-quickstart.md)
-- Codex user who wants implicit capture behavior: [docs/implicit-research-capture.md](docs/implicit-research-capture.md)
+- Codex user who wants focused recall and explicit deposit: [docs/codex-plugin.md](docs/codex-plugin.md)
+- Existing user maintaining the legacy implicit capture path: [docs/implicit-research-capture.md](docs/implicit-research-capture.md)
 - Repo-heavy user who wants command routing and triage: [docs/repo-aware-capture.md](docs/repo-aware-capture.md)
 
 ### Installed CLI
@@ -91,6 +92,18 @@ research-registry up
 ```
 
 This path requires Docker with Compose support. It uses the published `ghcr.io/akovanda/codex-research-skill:0.1.0` runtime image by default. Override it with `--image` or `RESEARCH_REGISTRY_IMAGE` for forks, corporate mirrors, or local test images.
+
+Install the focused v2 Codex plugin separately:
+
+```bash
+research-registry install-codex --dry-run
+research-registry install-codex
+research-registry doctor
+```
+
+The plugin uses local STDIO, allows implicit read-only recall, and requires
+explicit invocation for deposit. See [Codex Plugin](docs/codex-plugin.md) for
+custom `CODEX_HOME`, migration, uninstall, and security behavior.
 
 Verify:
 
@@ -381,10 +394,14 @@ Artifacts:
 
 The web app and API are the primary product surface. MCP and Codex skills sit on top of that:
 
+- v2 Codex plugin: [`research-registry-plugin`](research-registry-plugin)
+- focused read-only recall: [`research-recall`](research-registry-plugin/skills/research-recall/SKILL.md)
+- explicit-only deposit: [`research-deposit`](research-registry-plugin/skills/research-deposit/SKILL.md)
+- bundled local MCP launcher: `research-registry mcp --transport stdio`
 - HTTP MCP endpoint: `http://127.0.0.1:8010/mcp/` after `research-registry up` or `make up`
 - stdio MCP server: `research-registry-mcp`
-- implicit capture skill: [`skills/research-capture`](skills/research-capture/SKILL.md)
-- memory/retrieval skill: [`skills/research-memory-retrieval`](skills/research-memory-retrieval/SKILL.md)
+- legacy implicit capture skill: [`skills/research-capture`](skills/research-capture/SKILL.md)
+- legacy memory/retrieval skill: [`skills/research-memory-retrieval`](skills/research-memory-retrieval/SKILL.md)
 - checked-in repo profile example: [`.codex/repo-profile.toml`](.codex/repo-profile.toml)
 
 ## Deployment
@@ -397,6 +414,7 @@ The web app and API are the primary product surface. MCP and Codex skills sit on
 - [Shared Compose deployment](docs/deploy-shared-compose.md)
 - [Kubernetes deployment](docs/deploy-kubernetes.md)
 - [Operations](docs/operations.md)
+- [Codex plugin](docs/codex-plugin.md)
 - [Implicit research capture](docs/implicit-research-capture.md)
 - [Repo-aware capture](docs/repo-aware-capture.md)
 - [Memory/retrieval skill](docs/memory-retrieval-skill.md)
