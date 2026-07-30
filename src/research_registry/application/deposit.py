@@ -27,6 +27,7 @@ from ..ingestion.blobs import (
 from ..models import slugify
 from ..persistence.repositories import canonical_json
 from ..persistence.unit_of_work import UnitOfWork
+from ..retrieval.projection import rebuild_search_documents
 from .source_versions import SourceVersionConflict, SourceVersionService
 
 
@@ -504,6 +505,10 @@ class ResearchDepositService:
                     plan.claim_id, claim_links[plan.claim_id]
                 )
             self._fault("after_current_pointer")
+
+            if not bundle.validate_only:
+                assert uow.connection is not None
+                rebuild_search_documents(uow.connection)
 
             committed_records = DepositRecordIds(
                 question_id=question_id,

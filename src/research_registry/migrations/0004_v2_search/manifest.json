@@ -1,0 +1,5 @@
+{
+  "description": "Add the canonical v2 search projection and dialect full-text indexes",
+  "migration_id": "0004_v2_search",
+  "transactional": true
+}

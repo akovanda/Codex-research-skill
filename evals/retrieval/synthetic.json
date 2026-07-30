@@ -1,0 +1,223 @@
+{
+  "protocol": "research-retrieval-corpus/v1",
+  "ranking_profile": "lexical-v1",
+  "documents": [
+    {
+      "key": "bounded_claim",
+      "kind": "claim",
+      "title": "Publisher retries use a bounded attempt budget",
+      "summary": "EventPublisher caps transient delivery retries.",
+      "body": "The delivery loop retries failed publishes only up to max_attempts.",
+      "canonical_key": "artifact:event-publisher:bounded-retries",
+      "repository": "artifact",
+      "path": "src/events/publisher.py",
+      "review_state": "reviewed",
+      "trust_tier": "high",
+      "conflict_state": "none",
+      "freshness": "fresh",
+      "status": "supported",
+      "evidence_count": 2
+    },
+    {
+      "key": "retry_report",
+      "kind": "report",
+      "title": "Delivery resilience guidance",
+      "summary": "Use capped retries and surface the terminal failure.",
+      "body": "A bounded retry budget prevents an endless publisher loop.",
+      "review_state": "reviewed",
+      "trust_tier": "high",
+      "conflict_state": "none",
+      "freshness": "fresh",
+      "evidence_count": 2
+    },
+    {
+      "key": "doi_source",
+      "kind": "source",
+      "title": "Deterministic retrieval benchmark",
+      "summary": "A synthetic benchmark source.",
+      "body": "Lexical evaluation data for registry retrieval.",
+      "locator": "https://doi.org/10.5555/retrieval.2026",
+      "doi": "10.5555/retrieval.2026",
+      "review_state": "reviewed",
+      "trust_tier": "high",
+      "conflict_state": "none",
+      "freshness": "fresh",
+      "source_type": "paper"
+    },
+    {
+      "key": "path_version",
+      "kind": "source_version",
+      "title": "EventPublisher implementation",
+      "summary": "Git source version for the publisher.",
+      "body": "publish_with_retry iterates over a bounded attempt range.",
+      "locator": "git:artifact:src/events/publisher.py",
+      "repository": "artifact",
+      "path": "src/events/publisher.py",
+      "review_state": "reviewed",
+      "trust_tier": "high",
+      "conflict_state": "none",
+      "freshness": "fresh",
+      "source_type": "git_file"
+    },
+    {
+      "key": "rollback_evidence",
+      "kind": "evidence",
+      "title": "Atomic deposit test",
+      "summary": "Injected failure leaves zero partial records.",
+      "body": "Database rollback and blob cleanup preserve atomicity after failure.",
+      "review_state": "reviewed",
+      "trust_tier": "high",
+      "conflict_state": "none",
+      "freshness": "fresh",
+      "evidence_count": 1
+    },
+    {
+      "key": "stale_claim",
+      "kind": "claim",
+      "title": "Cache invalidation uses versioned keys",
+      "summary": "The old cache guidance is stale but remains searchable.",
+      "body": "Versioned cache keys invalidate superseded entries.",
+      "review_state": "reviewed",
+      "trust_tier": "medium",
+      "conflict_state": "none",
+      "freshness": "stale",
+      "status": "supported",
+      "evidence_count": 1
+    },
+    {
+      "key": "contested_claim",
+      "kind": "claim",
+      "title": "SQLite writers never contend",
+      "summary": "The absolute concurrency statement is contested.",
+      "body": "Writer serialization can cause lock contention.",
+      "review_state": "flagged",
+      "trust_tier": "medium",
+      "conflict_state": "conflicted",
+      "freshness": "needs_refresh",
+      "status": "contested",
+      "evidence_count": 2
+    },
+    {
+      "key": "rejected_claim",
+      "kind": "claim",
+      "title": "Unlimited retry storms are acceptable",
+      "summary": "Rejected guidance must be excluded by default.",
+      "body": "Endless retries should continue forever.",
+      "review_state": "flagged",
+      "trust_tier": "low",
+      "conflict_state": "conflicted",
+      "freshness": "stale",
+      "status": "rejected",
+      "evidence_count": 1
+    },
+    {
+      "key": "question",
+      "kind": "question",
+      "title": "How are private results authorized?",
+      "summary": "Research namespace authorization before retrieval.",
+      "body": "Private records require namespace membership and read scope.",
+      "review_state": "reviewed",
+      "conflict_state": "none",
+      "freshness": "fresh"
+    },
+    {
+      "key": "selector_source",
+      "kind": "source",
+      "title": "Evidence selector specification",
+      "summary": "Selectors preserve exact quote provenance.",
+      "body": "Text quote selectors include exact prefix and suffix context.",
+      "locator": "https://example.test/evidence-selectors",
+      "review_state": "reviewed",
+      "trust_tier": "medium",
+      "conflict_state": "none",
+      "freshness": "fresh",
+      "source_type": "official-docs"
+    }
+  ],
+  "cases": [
+    {
+      "id": "exact-id",
+      "category": "exact_id",
+      "query": {"document": "bounded_claim", "field": "id"},
+      "expected_document_keys": ["bounded_claim"]
+    },
+    {
+      "id": "exact-locator",
+      "category": "exact_locator",
+      "query": {"document": "doi_source", "field": "locator"},
+      "expected_document_keys": ["doi_source"]
+    },
+    {
+      "id": "exact-doi",
+      "category": "exact_doi",
+      "query": {"document": "doi_source", "field": "doi"},
+      "expected_document_keys": ["doi_source"]
+    },
+    {
+      "id": "exact-path",
+      "category": "exact_path",
+      "query": {"document": "path_version", "field": "path"},
+      "expected_document_keys": ["path_version"]
+    },
+    {
+      "id": "exact-canonical",
+      "category": "exact_canonical_key",
+      "query": {"document": "bounded_claim", "field": "canonical_key"},
+      "expected_document_keys": ["bounded_claim"]
+    },
+    {
+      "id": "title-phrase",
+      "category": "title_phrase",
+      "query": "bounded attempt budget",
+      "expected_document_keys": ["bounded_claim"]
+    },
+    {
+      "id": "reordered-terms",
+      "category": "lexical",
+      "query": "failure terminal capped retries",
+      "expected_document_keys": ["retry_report"]
+    },
+    {
+      "id": "rollback-evidence",
+      "category": "lexical",
+      "query": "partial records rollback",
+      "expected_document_keys": ["rollback_evidence"]
+    },
+    {
+      "id": "stale-visible",
+      "category": "stale",
+      "query": "versioned cache invalidation",
+      "expected_document_keys": ["stale_claim"]
+    },
+    {
+      "id": "contested-visible",
+      "category": "contested",
+      "query": "sqlite writer contention",
+      "expected_document_keys": ["contested_claim"]
+    },
+    {
+      "id": "namespace-auth",
+      "category": "lexical",
+      "query": "private namespace authorization",
+      "expected_document_keys": ["question"]
+    },
+    {
+      "id": "selector-provenance",
+      "category": "lexical",
+      "query": "exact quote selector provenance",
+      "expected_document_keys": ["selector_source"]
+    },
+    {
+      "id": "rejected-default",
+      "category": "no_answer",
+      "query": "unlimited retry storms acceptable",
+      "expected_document_keys": []
+    },
+    {
+      "id": "bounded-no-result",
+      "category": "no_answer",
+      "query": "nonexistent frobnicator quux",
+      "expected_document_keys": []
+    }
+  ]
+}

@@ -44,7 +44,10 @@ V2_MANAGED_TABLES = {
     "migration_backfill_warnings",
     "migration_backfill_errors",
 }
-MANAGED_TABLES = V1_MANAGED_TABLES | V2_MANAGED_TABLES
+V2_SEARCH_MANAGED_TABLES = {"search_documents"}
+MANAGED_TABLES = (
+    V1_MANAGED_TABLES | V2_MANAGED_TABLES | V2_SEARCH_MANAGED_TABLES
+)
 V2_CLAIM_COLUMNS = {
     "canonical_key",
     "current_revision_id",
@@ -619,6 +622,13 @@ class MigrationRunner:
                 raise RuntimeError(
                     "v2 claim compatibility invariant failed; missing columns: "
                     + ", ".join(sorted(missing_columns))
+                )
+        if "0004_v2_search" in applied:
+            missing_tables = V2_SEARCH_MANAGED_TABLES - tables
+            if missing_tables:
+                raise RuntimeError(
+                    "v2 search schema invariant failed; missing tables: "
+                    + ", ".join(sorted(missing_tables))
                 )
 
     def _ensure_schema_migrations_table(self, conn: DbConnection) -> None:

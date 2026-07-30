@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
 import json
-import re
-from typing import Any
 
 from ..contracts.v2 import ResearchSearchRequest, ResearchSearchResponse, SearchHitV2
 from ..persistence.read_adapter import (
@@ -15,18 +13,18 @@ from ..persistence.read_adapter import (
     ReadAccess,
     RetrievalCandidate,
 )
+from ..retrieval.ranking import rank_result
 
 
 MAX_SEARCH_RESPONSE_BYTES = 131_072
 _MAX_CANDIDATES = 1_001
 _MAX_TOTAL_CANDIDATES = _MAX_CANDIDATES * 6
-_TOKEN = re.compile(r"[\w./:-]+", re.UNICODE)
 
 
 @dataclass(frozen=True)
 class SearchResultDTO:
     hit: SearchHitV2
-    sort_key: tuple[float, str, str]
+    sort_key: tuple[float, float, str, str]
 
 
 class ResearchSearchService:
@@ -41,10 +39,10 @@ class ResearchSearchService:
     ) -> ResearchSearchResponse:
         fingerprint = self._fingerprint(request)
         offset = self._decode_cursor(request.cursor, fingerprint)
-        candidates = self.retrieval.list_candidates(
-            kinds=request.kinds,
+        candidates = self.retrieval.search_candidates(
+            request.query,
             access=access,
-            max_per_kind=_MAX_CANDIDATES,
+            max_candidates=_MAX_TOTAL_CANDIDATES,
         )
         results = [
             result
@@ -84,6 +82,8 @@ class ResearchSearchService:
         candidate: RetrievalCandidate,
         request: ResearchSearchRequest,
     ) -> SearchResultDTO | None:
+        if request.kinds and candidate.kind not in request.kinds:
+            return None
         if not request.include_rejected and candidate.status in {
             "rejected",
             "superseded",
@@ -99,6 +99,7 @@ class ResearchSearchService:
         if request.freshness and candidate.freshness not in request.freshness:
             return None
         scope = request.scope
+        scope_score = 0.0
         if scope is not None:
             if scope.repository and candidate.repository != scope.repository:
                 return None
@@ -120,66 +121,35 @@ class ResearchSearchService:
                 created is None or created > scope.created_before
             ):
                 return None
+            scope_score = 1.0
 
-        query = " ".join(request.query.casefold().split())
-        haystack = " ".join(candidate.search_text.casefold().split())
-        title = " ".join(candidate.title.casefold().split())
-        tokens = list(dict.fromkeys(_TOKEN.findall(query)))[:20]
-        matched_by: list[str] = []
-        exact = 0.0
-        lexical = 0.0
-        if query == candidate.id.casefold():
-            exact = 1.0
-            matched_by.append("exact registry id")
-        if candidate.url and query == candidate.url.casefold():
-            exact = 1.0
-            matched_by.append("exact source locator")
-        if query == title:
-            exact = max(exact, 0.95)
-            matched_by.append("exact title")
-        if query in haystack:
-            lexical = 1.0
-            matched_by.append("exact phrase")
-        elif tokens:
-            matched = sum(token in haystack for token in tokens)
-            lexical = matched / len(tokens)
-            if matched:
-                matched_by.append(f"current substring retrieval ({matched}/{len(tokens)})")
-        if exact == 0 and lexical == 0:
+        if (
+            candidate.exact_score == 0
+            and candidate.lexical_score == 0
+            and candidate.relationship_score == 0
+        ):
             return None
 
-        review = 0.05 if candidate.review_state == "reviewed" else 0.0
-        freshness = (
-            0.03
-            if candidate.freshness == "fresh"
-            else -0.03
-            if candidate.freshness in {"stale", "needs_refresh"}
-            else 0.0
-        )
-        conflict = -0.02 if candidate.conflict_state == "conflicted" else 0.0
-        score = min(
-            1.0,
-            max(0.0, 0.55 * max(exact, lexical) + 0.35 * lexical + review + freshness + conflict),
-        )
-        components = (
-            {
-                "exact": round(exact, 6),
-                "lexical": round(lexical, 6),
-                "review": review,
-                "freshness": freshness,
-                "conflict": conflict,
-            }
-            if request.explain
-            else {}
+        ranking = rank_result(
+            exact=candidate.exact_score,
+            lexical=candidate.lexical_score,
+            scope=scope_score,
+            relationship=candidate.relationship_score,
+            review_state=candidate.review_state,
+            trust_tier=candidate.trust_tier,
+            freshness=candidate.freshness,
+            conflict_state=candidate.conflict_state,
+            status=candidate.status,
+            matched_by=candidate.matched_by,
         )
         hit = SearchHitV2(
             id=candidate.id,
             kind=candidate.kind,  # type: ignore[arg-type]
             title=candidate.title[:500],
             summary=candidate.summary[:1_500],
-            score=round(score, 6),
-            score_components=components,
-            matched_by=matched_by if request.explain else [],
+            score=ranking.score,
+            score_components=ranking.components if request.explain else {},
+            matched_by=list(ranking.matched_by) if request.explain else [],
             review_state=candidate.review_state,  # type: ignore[arg-type]
             conflict_state=candidate.conflict_state,  # type: ignore[arg-type]
             freshness=candidate.freshness,  # type: ignore[arg-type]
@@ -189,7 +159,12 @@ class ResearchSearchService:
         )
         return SearchResultDTO(
             hit=hit,
-            sort_key=(score, candidate.updated_at or "", candidate.id),
+            sort_key=(
+                candidate.exact_score,
+                ranking.score,
+                candidate.updated_at or "",
+                candidate.id,
+            ),
         )
 
     @staticmethod

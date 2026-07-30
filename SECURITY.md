@@ -56,6 +56,19 @@ They do not add an HTTP or MCP surface.
 Treat audit reports, backup artifacts, and manifests as sensitive even though
 default reports omit content. Keep them under normal host access controls.
 
+## Retrieval and evaluation tooling
+
+Full-text retrieval applies namespace and visibility filtering to exact,
+lexical, and relationship-expanded results before returning content. Stored
+research remains untrusted input and search responses stay bounded; raw queries
+and source bodies are not added to logs.
+
+`eval-retrieval` and `rebuild-search` are local operator commands, not HTTP or
+MCP write surfaces. Evaluation reads only the explicitly selected JSON corpus,
+does not follow corpus URLs, and rejects files larger than 5 MiB or corpora with
+more than 5,000 documents or 5,000 cases. Private evaluation corpora should
+remain outside the repository and under normal host access controls.
+
 ## Disclosure Expectations
 
 - Do not publish exploit details before the maintainer has had a reasonable chance to reproduce and mitigate the issue.

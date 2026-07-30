@@ -16,6 +16,7 @@ from .external_ingest import (
 )
 from .local_research import build_focus, run_local_research
 from .migration_runner import MigrationRunner
+from .retrieval.projection import rebuild_search_documents
 from .models import (
     ApiKeyCreate,
     ApiKeyRecord,
@@ -262,6 +263,7 @@ class RegistryService:
                 ),
             )
             row = conn.execute("SELECT * FROM questions WHERE id = ?", (question_id,)).fetchone()
+            rebuild_search_documents(conn)
         return self._question_from_row(row)
 
     def get_question(
@@ -280,6 +282,7 @@ class RegistryService:
     def set_question_status(self, question_id: str, status: QuestionStatus) -> None:
         with self.connect() as conn:
             conn.execute("UPDATE questions SET status = ? WHERE id = ?", (status, question_id))
+            rebuild_search_documents(conn)
 
     def set_follow_up_status(self, question_id: str, follow_up_status: FollowUpStatus) -> None:
         with self.connect() as conn:
@@ -336,6 +339,7 @@ class RegistryService:
                 ),
             )
             row = conn.execute("SELECT * FROM research_sessions WHERE id = ?", (session_id,)).fetchone()
+            rebuild_search_documents(conn)
         return self._session_from_row(row)
 
     def get_session(
@@ -414,6 +418,7 @@ class RegistryService:
                 ),
             )
             row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+            rebuild_search_documents(conn)
         return self._source_from_row(row)
 
     def get_source(
@@ -563,6 +568,7 @@ class RegistryService:
                     (claim_id, excerpt_id, None, 1.0),
                 )
             row = conn.execute("SELECT * FROM claims WHERE id = ?", (claim_id,)).fetchone()
+            rebuild_search_documents(conn)
         return self._claim_from_row(row)
 
     def get_claim(
@@ -635,6 +641,7 @@ class RegistryService:
                     (report_id, claim_id),
                 )
             row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
+            rebuild_search_documents(conn)
         self.set_question_status(question.id, "answered")
         return self._report_from_row(row)
 

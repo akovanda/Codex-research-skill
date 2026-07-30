@@ -96,6 +96,8 @@ class ReadMcpRuntime:
             capabilities=[
                 "v2-read",
                 "current-retrieval-adapter",
+                "full-text-retrieval",
+                "explained-ranking",
                 "cursor-pagination",
                 "bounded-hydration",
                 "deep-research-read-only",

@@ -10,6 +10,7 @@ from ..persistence.repositories import (
     V2BackfillRepository,
     V2_MIGRATION_ID,
 )
+from ..retrieval.projection import rebuild_search_documents
 from ..service import RegistryService
 
 
@@ -176,6 +177,9 @@ def run_v2_backfill(
                         "injected v2 backfill interruption"
                     )
 
+    with service.connect() as conn:
+        if "search_documents" in service._list_tables(conn):
+            rebuild_search_documents(conn)
     return _result(service)
 
 

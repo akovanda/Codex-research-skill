@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..db import DatabaseTarget, connect_database, resolve_database_target
+from ..retrieval.lexical import create_lexical_adapter
+from ..retrieval.models import SearchDocument
+from ..retrieval.relationships import expand_relationships
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,11 @@ class RetrievalCandidate:
     path: str | None = None
     topic_id: str | None = None
     source_type: str | None = None
+    trust_tier: str | None = None
+    exact_score: float = 0.0
+    lexical_score: float = 0.0
+    relationship_score: float = 0.0
+    matched_by: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -53,7 +61,7 @@ class ReadRecord:
 
 
 class CurrentRetrievalAdapter:
-    """Portable LIKE-era retrieval and hydration SQL for RR2-006."""
+    """V2 read adapter with dialect-owned FTS and portable hydration."""
 
     def __init__(self, database: str | Path | DatabaseTarget):
         self.database = (
@@ -61,10 +69,64 @@ class CurrentRetrievalAdapter:
             if isinstance(database, DatabaseTarget)
             else resolve_database_target(database)
         )
+        self.lexical = create_lexical_adapter(self.database)
 
     @property
     def database_type(self) -> str:
         return self.database.kind
+
+    def search_candidates(
+        self,
+        query: str,
+        *,
+        access: ReadAccess,
+        max_candidates: int = 6_006,
+    ) -> list[RetrievalCandidate]:
+        matches = self.lexical.search(
+            query,
+            access=access,
+            limit=max_candidates,
+        )
+        relationships = expand_relationships(self.database, matches)
+        related_documents = {
+            document.id: document
+            for document in self.lexical.fetch(
+                relationships,
+                access=access,
+            )
+        }
+        candidates: dict[str, RetrievalCandidate] = {}
+        for match in matches:
+            relationship = relationships.get(match.document.id)
+            candidates[match.document.id] = self._candidate_from_document(
+                match.document,
+                exact_score=match.exact,
+                lexical_score=match.lexical,
+                relationship_score=(
+                    relationship.score if relationship is not None else 0.0
+                ),
+                matched_by=(
+                    tuple(
+                        dict.fromkeys(
+                            (*match.matched_by, *relationship.matched_by)
+                        )
+                    )
+                    if relationship is not None
+                    else match.matched_by
+                ),
+            )
+        for document_id, relationship in relationships.items():
+            if document_id in candidates:
+                continue
+            document = related_documents.get(document_id)
+            if document is None:
+                continue
+            candidates[document_id] = self._candidate_from_document(
+                document,
+                relationship_score=relationship.score,
+                matched_by=relationship.matched_by,
+            )
+        return list(candidates.values())[:max_candidates]
 
     def list_candidates(
         self,
@@ -703,6 +765,40 @@ class CurrentRetrievalAdapter:
             path=row["path"],
             topic_id=row["topic_id"],
             source_type=row["source_type"],
+        )
+
+    @staticmethod
+    def _candidate_from_document(
+        document: SearchDocument,
+        *,
+        exact_score: float = 0.0,
+        lexical_score: float = 0.0,
+        relationship_score: float = 0.0,
+        matched_by: tuple[str, ...] = (),
+    ) -> RetrievalCandidate:
+        return RetrievalCandidate(
+            id=document.id,
+            kind=document.kind,
+            title=document.title,
+            summary=document.summary,
+            search_text=document.search_text,
+            review_state=document.review_state,
+            conflict_state=document.conflict_state,
+            freshness=document.freshness,
+            evidence_count=document.evidence_count,
+            updated_at=document.updated_at,
+            created_at=document.created_at,
+            url=document.url,
+            status=document.status,
+            repository=document.repository,
+            path=document.path,
+            topic_id=document.topic_id,
+            source_type=document.source_type,
+            trust_tier=document.trust_tier,
+            exact_score=exact_score,
+            lexical_score=lexical_score,
+            relationship_score=relationship_score,
+            matched_by=matched_by,
         )
 
     @classmethod

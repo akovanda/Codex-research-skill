@@ -32,6 +32,9 @@ V2_EVIDENCE_CHECKSUM = (
 V2_EVIDENCE_INVARIANTS_CHECKSUM = (
     "d984570d25da485b6ddee72b252c256d141d5fb3b51e88b4f9250fa4968cd306"
 )
+V2_SEARCH_CHECKSUM = (
+    "8cd49d7445b6a2e173e7cdf889eacaf47c4adc62d350687b085c09f171e9685e"
+)
 
 
 def test_initialize_applies_sql_migrations_and_records_checksums(tmp_path: Path) -> None:
@@ -82,6 +85,18 @@ def test_existing_flat_migration_checksums_are_stable() -> None:
     )
     assert invariants.source_kind == "bundle"
     assert invariants.checksum_sha256 == V2_EVIDENCE_INVARIANTS_CHECKSUM
+    search = next(
+        migration
+        for migration in migrations
+        if migration.migration_id == "0004_v2_search"
+    )
+    assert search.source_kind == "bundle"
+    assert search.checksum_sha256 == V2_SEARCH_CHECKSUM
+    assert search.selected_files("sqlite") == ("common.sql", "sqlite.sql")
+    assert search.selected_files("postgres") == (
+        "common.sql",
+        "postgres.sql",
+    )
 
 
 def test_loads_dialect_bundle_with_one_logical_checksum() -> None:
@@ -436,6 +451,7 @@ def test_initialize_adopts_existing_legacy_schema(tmp_path: Path) -> None:
         "0002_workflows_and_trust",
         "0003_v2_evidence",
         "0003_v2_evidence_invariants",
+        "0004_v2_search",
     ]
     assert schema_meta["version"] == 4
 

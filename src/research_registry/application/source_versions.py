@@ -26,6 +26,7 @@ from ..persistence.repositories import (
     SourceVersionRecord,
     SourceVersionRepository,
 )
+from ..retrieval.projection import rebuild_search_documents
 
 
 class SourceVersionConflict(RuntimeError):
@@ -92,6 +93,7 @@ class SourceVersionService:
                     spec,
                     staged,
                 )
+                rebuild_search_documents(conn)
                 if staged is not None and not prepared.needs_finalize:
                     self.blob_store.discard(staged)
                     staged = None

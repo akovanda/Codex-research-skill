@@ -228,6 +228,46 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit content-free structured counts and phase states as JSON.",
     )
+
+    rebuild_search = subparsers.add_parser(
+        "rebuild-search",
+        aliases=["rebuild-search-index"],
+        help="Transactionally rebuild and verify the canonical search projection.",
+    )
+    rebuild_search.add_argument(
+        "--database",
+        default=None,
+        help="SQLite path/URL or Postgres URL. Defaults to the configured database.",
+    )
+    rebuild_search.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="Skip the dialect full-text index integrity check.",
+    )
+    rebuild_search.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the content-free rebuild result as JSON.",
+    )
+
+    retrieval_eval = subparsers.add_parser(
+        "eval-retrieval",
+        help="Run the deterministic retrieval corpus and parity evaluation.",
+    )
+    retrieval_eval.add_argument(
+        "--corpus",
+        type=Path,
+        required=True,
+        help="Synthetic or private local retrieval corpus JSON.",
+    )
+    retrieval_eval.add_argument(
+        "--postgres-database",
+        default=None,
+        help=(
+            "Optional Postgres URL for parity. Defaults to TEST_DATABASE_URL "
+            "when configured."
+        ),
+    )
     return parser
 
 
@@ -429,6 +469,49 @@ def main() -> None:
                 f"warnings={result.warning_count} "
                 f"errors={result.error_count}"
             )
+        return
+
+    if args.command in {"rebuild-search", "rebuild-search-index"}:
+        from .config import load_settings
+        from .retrieval.projection import SearchIndexService
+
+        database = args.database or load_settings().database_url
+        result = SearchIndexService(database).rebuild(
+            verify=not args.no_verify
+        )
+        if args.json:
+            print(json.dumps(result.to_dict(), sort_keys=True))
+        else:
+            print(
+                "search index rebuild: "
+                f"database_kind={result.database_kind} "
+                f"documents={result.document_count} "
+                f"verified={str(result.verified).lower()} "
+                f"projection_sha256={result.projection_sha256}"
+            )
+        return
+
+    if args.command == "eval-retrieval":
+        from .retrieval.evaluation import run_retrieval_evaluation
+
+        postgres_url = (
+            args.postgres_database or os.environ.get("TEST_DATABASE_URL")
+        )
+        result = run_retrieval_evaluation(
+            args.corpus,
+            postgres_url=postgres_url,
+        )
+        print(json.dumps(result.to_dict(), sort_keys=True))
+        failed = (
+            result.recall_at_5 < 0.70
+            or result.exact_recall_at_1 < 1.0
+            or (
+                result.sqlite_postgres_overlap is not None
+                and result.sqlite_postgres_overlap < 0.90
+            )
+        )
+        if failed:
+            raise SystemExit(1)
         return
 
     parser.error(f"unknown command: {args.command}")
