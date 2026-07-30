@@ -19,6 +19,7 @@ from research_registry.local_research import (
 )
 from research_registry.mcp_tools import create_mcp_server
 from research_registry.application.migrate_v2 import run_v2_backfill
+from research_registry.application.review import ResearchReviewService
 from research_registry.persistence.read_adapter import CurrentRetrievalAdapter, ReadAccess
 from research_registry.models import (
     ApiKeyCreate,
@@ -196,6 +197,89 @@ def test_retained_http_review_appends_one_attributed_v2_event(
     assert audit is not None and audit["api_key_id"] == issued.record.id
     assert report_event is not None
     assert report_event["actor_id"] == issued.record.id
+
+
+def test_retained_review_can_approve_a_later_contested_revision(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    app = create_app(settings)
+    client = TestClient(app)
+    service = app.state.service
+    _, ids = seed_review_registry(
+        tmp_path,
+        key="retained-review-after-contest",
+        database=service.database.url,
+    )
+    issued = service.issue_api_key(
+        ApiKeyCreate(
+            label="revision-aware-review-admin",
+            actor_user_id="reviewer",
+            scopes=["admin", "read_private"],
+        )
+    )
+    headers = {"x-api-key": issued.token}
+    retained_payload = {
+        "kind": "claim",
+        "record_id": ids["claim"],
+        "reviewed": True,
+    }
+
+    first = client.post("/api/review", headers=headers, json=retained_payload)
+    assert first.status_code == 200
+    contested = ResearchReviewService(service.database).review(
+        {
+            "protocol": "research-review/v2",
+            "idempotency_key": "contest-after-retained-approve",
+            "entity": {
+                "kind": "claim_revision",
+                "id": ids["revision"],
+            },
+            "action": "contest",
+            "expected_revision_id": ids["revision"],
+            "expected_state": "reviewed",
+        }
+    )
+    assert contested.current_revision_id != ids["revision"]
+
+    second = client.post("/api/review", headers=headers, json=retained_payload)
+    replay = client.post("/api/review", headers=headers, json=retained_payload)
+    reversal = client.post(
+        "/api/review",
+        headers=headers,
+        json={**retained_payload, "reviewed": False},
+    )
+
+    assert second.status_code == 200
+    assert replay.status_code == 200
+    assert reversal.status_code == 403
+    with service.connect() as conn:
+        events = conn.execute(
+            """
+            SELECT entity_id, action
+            FROM review_events
+            WHERE entity_kind = 'claim_revision'
+            ORDER BY created_at, id
+            """
+        ).fetchall()
+        current = conn.execute(
+            """
+            SELECT current_revision_id, review_state
+            FROM claims WHERE id = ?
+            """,
+            (ids["claim"],),
+        ).fetchone()
+    assert sorted(
+        (row["entity_id"], row["action"]) for row in events
+    ) == sorted(
+        [
+            (ids["revision"], "approve"),
+            (contested.current_revision_id, "contest"),
+            (contested.current_revision_id, "approve"),
+        ]
+    )
+    assert current["current_revision_id"] == contested.current_revision_id
+    assert current["review_state"] == "reviewed"
 
 
 def test_api_key_isolation_and_public_namespace_vs_global_index(tmp_path: Path) -> None:

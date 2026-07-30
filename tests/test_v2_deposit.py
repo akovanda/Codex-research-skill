@@ -19,6 +19,7 @@ from research_registry.application.deposit import (
     ResearchDepositService,
 )
 from research_registry.application.migrate_v2 import run_v2_backfill
+from research_registry.application.review import ResearchReviewService
 from research_registry.contracts.v2 import ResearchDepositRequest
 from research_registry.ingestion.blobs import FilesystemBlobStore
 from research_registry.models import (
@@ -338,6 +339,97 @@ def test_native_deposit_backfill_identity_is_stable_and_new_v1_writes_project(
 
     run_v2_backfill(registry.database_url)
     assert _counts(registry) == counts_after_v1
+
+
+def test_pre_0006_adoption_preserves_review_current_and_historical_links(
+    tmp_path: Path,
+) -> None:
+    registry, _, deposits = _service(tmp_path)
+    first = deposits.deposit(_bundle(key="pre-0006-first"))
+    claim_id = first.records.claim_ids["claim"]
+    first_revision = first.records.claim_revision_ids["claim"]
+    second = deposits.deposit(
+        _bundle(
+            key="pre-0006-second",
+            claim_id=claim_id,
+            expected_revision_id=first_revision,
+            title="Second native deposit revision",
+        )
+    )
+    second_revision = second.records.claim_revision_ids["claim"]
+    contested = ResearchReviewService(registry.database).review(
+        {
+            "protocol": "research-review/v2",
+            "idempotency_key": "pre-0006-review-current",
+            "entity": {
+                "kind": "claim_revision",
+                "id": second_revision,
+            },
+            "action": "contest",
+            "expected_revision_id": second_revision,
+            "expected_state": "unreviewed",
+        }
+    )
+    review_revision = contested.current_revision_id
+    assert review_revision not in {first_revision, second_revision}
+
+    def snapshot() -> tuple[str, dict[str, list[tuple[str, str]]]]:
+        with registry.connect() as conn:
+            current = conn.execute(
+                """
+                SELECT current_revision_id FROM claims WHERE id = ?
+                """,
+                (claim_id,),
+            ).fetchone()["current_revision_id"]
+            relationships = {
+                revision_id: [
+                    (row["evidence_span_id"], row["relationship"])
+                    for row in conn.execute(
+                        """
+                        SELECT evidence_span_id, relationship
+                        FROM claim_evidence
+                        WHERE claim_revision_id = ?
+                        ORDER BY evidence_span_id, relationship
+                        """,
+                        (revision_id,),
+                    ).fetchall()
+                ]
+                for revision_id in (
+                    first_revision,
+                    second_revision,
+                    review_revision,
+                )
+            }
+        return current, relationships
+
+    expected = snapshot()
+    assert expected[0] == review_revision
+    assert all(expected[1].values())
+
+    with registry.connect() as conn:
+        conn.execute("DROP TABLE legacy_projection_identity")
+        conn.execute(
+            """
+            DELETE FROM schema_migrations
+            WHERE migration_id = '0006_v2_legacy_projection_identity'
+            """
+        )
+    registry.initialize()
+
+    for _ in range(2):
+        result = run_v2_backfill(registry.database_url)
+        assert result.status == "completed"
+        assert snapshot() == expected
+        with registry.connect() as conn:
+            mapping = conn.execute(
+                """
+                SELECT v2_id FROM legacy_projection_identity
+                WHERE legacy_kind = 'claim' AND legacy_id = ?
+                  AND v2_kind = 'claim_revision'
+                """,
+                (claim_id,),
+            ).fetchone()
+        assert mapping["v2_id"] == review_revision
 
 
 @pytest.mark.skipif(

@@ -571,6 +571,32 @@
             ],
             "title": "Follow Up Status",
             "type": "string"
+          },
+          "namespace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace Id"
+          },
+          "namespace_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace Kind"
           }
         },
         "required": [
@@ -907,6 +933,32 @@
             "title": "Kind",
             "type": "string"
           },
+          "namespace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace Id"
+          },
+          "namespace_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace Kind"
+          },
           "record_id": {
             "title": "Record Id",
             "type": "string"
@@ -1057,6 +1109,32 @@
       },
       "QuestionStatusUpdate": {
         "properties": {
+          "namespace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace Id"
+          },
+          "namespace_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "org"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace Kind"
+          },
           "status": {
             "title": "Status",
             "type": "string"

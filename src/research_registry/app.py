@@ -35,6 +35,7 @@ from .models import (
     ImportDoiRequest,
     ImportUrlRequest,
     IndexStateRequest,
+    NamespaceKind,
     PublishRequest,
     QuestionCreate,
     ReportCreate,
@@ -52,6 +53,8 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "tem
 
 class QuestionStatusUpdate(BaseModel):
     status: str
+    namespace_kind: NamespaceKind | None = None
+    namespace_id: str | None = None
 
 
 class OrganizationBootstrapRequest(BaseModel):
@@ -699,11 +702,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/questions/{question_id}/status")
     def api_set_question_status(question_id: str, payload: QuestionStatusUpdate, auth: AuthContext = Depends(_ingest_guard)):
-        return _safe_mutation(lambda: _status_ok(service.set_question_status(question_id, payload.status)))
+        return _safe_mutation(lambda: _status_ok(service.set_question_status(
+            question_id,
+            payload.status,
+            auth=auth,
+            namespace_kind=payload.namespace_kind,
+            namespace_id=payload.namespace_id,
+        )))
 
     @app.post("/api/follow-ups/{question_id}/status")
     def api_set_follow_up_status(question_id: str, payload: FollowUpStatusUpdate, auth: AuthContext = Depends(_ingest_guard)):
-        return _safe_mutation(lambda: _status_ok(service.set_follow_up_status(question_id, payload.follow_up_status)))
+        return _safe_mutation(lambda: _status_ok(service.set_follow_up_status(
+            question_id,
+            payload.follow_up_status,
+            auth=auth,
+            namespace_kind=payload.namespace_kind,
+            namespace_id=payload.namespace_id,
+        )))
 
     @app.get("/api/sessions/{session_id}")
     def api_get_session(session_id: str, request: Request, include_private: bool = False):

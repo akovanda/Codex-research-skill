@@ -2322,6 +2322,7 @@ class V2BackfillRepository:
             target = self.conn.execute(
                 f"""
                 SELECT metadata_json
+                    {", revision_number" if legacy_kind == "claim" else ""}
                 FROM {target_table}
                 WHERE id = ? AND {target_parent_column} = ?
                 """,
@@ -2329,33 +2330,52 @@ class V2BackfillRepository:
             ).fetchone()
             if target is None:
                 continue
-            self.record_projection_identity(
-                legacy_kind,
-                legacy_id,
-                v2_kind,
-                v2_id,
-                update_existing=True,
-            )
             if legacy_kind != "claim":
+                self.record_projection_identity(
+                    legacy_kind,
+                    legacy_id,
+                    v2_kind,
+                    v2_id,
+                    update_existing=True,
+                )
                 continue
             current = self.conn.execute(
                 """
-                SELECT c.current_revision_id, cr.metadata_json
+                SELECT c.current_revision_id, cr.metadata_json,
+                       cr.revision_number
                 FROM claims c
                 LEFT JOIN claim_revisions cr ON cr.id = c.current_revision_id
                 WHERE c.id = ?
                 """,
                 (legacy_id,),
             ).fetchone()
+            chosen_id = v2_id
+            if current is not None and current["current_revision_id"] is not None:
+                current_metadata = _json_object(current["metadata_json"])
+                if current_metadata.get("review_action") is not None:
+                    chosen_id = current["current_revision_id"]
+                elif (
+                    current_metadata.get("migration_id") != V2_MIGRATION_ID
+                    and int(current["revision_number"] or 0)
+                    >= int(target["revision_number"])
+                ):
+                    chosen_id = current["current_revision_id"]
+            self.record_projection_identity(
+                legacy_kind,
+                legacy_id,
+                v2_kind,
+                chosen_id,
+                update_existing=True,
+            )
             if (
                 current is not None
-                and current["current_revision_id"] != v2_id
-                and _json_object(current["metadata_json"]).get("migration_id")
-                == V2_MIGRATION_ID
+                and current["current_revision_id"] != chosen_id
+                and _json_object(current["metadata_json"]).get("review_action")
+                is None
             ):
                 self.conn.execute(
                     "UPDATE claims SET current_revision_id = ? WHERE id = ?",
-                    (v2_id, legacy_id),
+                    (chosen_id, legacy_id),
                 )
 
     def record_projection_identity(

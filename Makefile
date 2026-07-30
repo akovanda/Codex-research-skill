@@ -139,7 +139,7 @@ rr2-retrieval-eval: install
 	PYTHONPATH=src $(VENV_PYTHON) -m research_registry eval-comparative --corpus evals/comparative/synthetic.json
 
 rr2-security-check: install
-	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/security tests/test_external_ingest_v2.py tests/test_git_evidence.py tests/test_blob_store.py tests/test_reanchor.py tests/test_v2_deposit.py tests/test_web_v2.py
+	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/security tests/test_external_ingest_v2.py tests/test_git_evidence.py tests/test_blob_store.py tests/test_reanchor.py tests/test_v2_deposit.py tests/test_web_v2.py tests/test_shared_http_authorization.py
 
 rr2-package-check: install
 	PYTHONPATH=src $(VENV_PYTHON) -m build
