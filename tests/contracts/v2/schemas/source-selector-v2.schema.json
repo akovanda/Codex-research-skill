@@ -1,0 +1,534 @@
+{
+  "$defs": {
+    "CharRangeSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "end": {
+          "minimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "exact": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Exact",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "type": {
+          "const": "char_range",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "start",
+        "end",
+        "exact"
+      ],
+      "title": "CharRangeSelector",
+      "type": "object"
+    },
+    "DomTextSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "css_selector": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Css Selector"
+        },
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "exact": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Exact",
+          "type": "string"
+        },
+        "prefix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prefix"
+        },
+        "suffix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suffix"
+        },
+        "type": {
+          "const": "dom_text",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "exact"
+      ],
+      "title": "DomTextSelector",
+      "type": "object"
+    },
+    "GitLineRangeSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "blob_sha": {
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "title": "Blob Sha",
+          "type": "string"
+        },
+        "commit_sha": {
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "title": "Commit Sha",
+          "type": "string"
+        },
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "end_line": {
+          "minimum": 1,
+          "title": "End Line",
+          "type": "integer"
+        },
+        "exact": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Exact",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+          "title": "Path",
+          "type": "string"
+        },
+        "prefix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prefix"
+        },
+        "start_line": {
+          "minimum": 1,
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "suffix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suffix"
+        },
+        "type": {
+          "const": "git_line_range",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "path",
+        "commit_sha",
+        "blob_sha",
+        "start_line",
+        "end_line",
+        "exact"
+      ],
+      "title": "GitLineRangeSelector",
+      "type": "object"
+    },
+    "JsonPointerSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "exact": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exact"
+        },
+        "pointer": {
+          "maxLength": 4096,
+          "pattern": "^(?:|/.*)$",
+          "title": "Pointer",
+          "type": "string"
+        },
+        "type": {
+          "const": "json_pointer",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "pointer"
+      ],
+      "title": "JsonPointerSelector",
+      "type": "object"
+    },
+    "LineRangeSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "end_line": {
+          "minimum": 1,
+          "title": "End Line",
+          "type": "integer"
+        },
+        "exact": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Exact",
+          "type": "string"
+        },
+        "prefix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prefix"
+        },
+        "start_line": {
+          "minimum": 1,
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "suffix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suffix"
+        },
+        "type": {
+          "const": "line_range",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "start_line",
+        "end_line",
+        "exact"
+      ],
+      "title": "LineRangeSelector",
+      "type": "object"
+    },
+    "PageRangeSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "end_page": {
+          "minimum": 1,
+          "title": "End Page",
+          "type": "integer"
+        },
+        "exact": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Exact",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start"
+        },
+        "start_page": {
+          "minimum": 1,
+          "title": "Start Page",
+          "type": "integer"
+        },
+        "type": {
+          "const": "page_range",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "start_page",
+        "end_page",
+        "exact"
+      ],
+      "title": "PageRangeSelector",
+      "type": "object"
+    },
+    "TextQuoteSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "exact": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Exact",
+          "type": "string"
+        },
+        "prefix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prefix"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start"
+        },
+        "suffix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suffix"
+        },
+        "type": {
+          "const": "text_quote",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "exact"
+      ],
+      "title": "TextQuoteSelector",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "char_range": "#/$defs/CharRangeSelector",
+      "dom_text": "#/$defs/DomTextSelector",
+      "git_line_range": "#/$defs/GitLineRangeSelector",
+      "json_pointer": "#/$defs/JsonPointerSelector",
+      "line_range": "#/$defs/LineRangeSelector",
+      "page_range": "#/$defs/PageRangeSelector",
+      "text_quote": "#/$defs/TextQuoteSelector"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/TextQuoteSelector"
+    },
+    {
+      "$ref": "#/$defs/LineRangeSelector"
+    },
+    {
+      "$ref": "#/$defs/GitLineRangeSelector"
+    },
+    {
+      "$ref": "#/$defs/PageRangeSelector"
+    },
+    {
+      "$ref": "#/$defs/CharRangeSelector"
+    },
+    {
+      "$ref": "#/$defs/JsonPointerSelector"
+    },
+    {
+      "$ref": "#/$defs/DomTextSelector"
+    }
+  ]
+}

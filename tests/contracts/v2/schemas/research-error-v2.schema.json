@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "CompactError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "INVALID_PROTOCOL_VERSION",
+            "INVALID_REQUEST",
+            "UNKNOWN_FIELD",
+            "VALUE_OUT_OF_RANGE",
+            "INVALID_SELECTOR",
+            "INVALID_HASH",
+            "INVALID_RELATIONSHIP",
+            "AUTH_REQUIRED",
+            "INSUFFICIENT_SCOPE",
+            "NAMESPACE_ACCESS_DENIED",
+            "CAPTURE_POLICY_DENIED",
+            "PUBLISH_REQUIRES_EXPLICIT_ACTION",
+            "SNAPSHOT_POLICY_DENIED",
+            "RECORD_NOT_FOUND",
+            "DEPOSIT_REFERENCE_NOT_FOUND",
+            "SOURCE_VERSION_NOT_FOUND",
+            "CURRENT_REVISION_NOT_FOUND",
+            "IDEMPOTENCY_CONFLICT",
+            "EXPECTED_REVISION_MISMATCH",
+            "EXPECTED_STATE_MISMATCH",
+            "DUPLICATE_CLIENT_REFERENCE",
+            "DUPLICATE_PENDING_REFRESH",
+            "MIGRATION_LOCKED",
+            "EVIDENCE_UNRESOLVED",
+            "EVIDENCE_AMBIGUOUS",
+            "SUPPORTED_CLAIM_REQUIRES_EVIDENCE",
+            "INVALID_CLAIM_TRANSITION",
+            "IMMUTABLE_RECORD",
+            "SOURCE_VERSION_HASH_MISMATCH",
+            "CONTENT_OBJECT_MISSING",
+            "MIGRATION_CHECKSUM_MISMATCH",
+            "MIGRATION_PLAN_INVALID",
+            "BACKFILL_INCOMPLETE",
+            "LEGACY_DATA_WARNING",
+            "BACKUP_VERIFICATION_FAILED",
+            "BLOB_FINALIZATION_FAILED",
+            "DATABASE_INTEGRITY_ERROR",
+            "URL_SCHEME_DENIED",
+            "URL_ADDRESS_DENIED",
+            "URL_REDIRECT_DENIED",
+            "FETCH_TIMEOUT",
+            "FETCH_TOO_LARGE",
+            "MEDIA_TYPE_DENIED",
+            "PARSER_FAILED",
+            "GIT_OBJECT_NOT_FOUND",
+            "GIT_CREDENTIAL_LOCATOR_REJECTED",
+            "INVALID_CURSOR",
+            "QUERY_TOO_LARGE",
+            "RETRIEVAL_INDEX_UNAVAILABLE",
+            "SEMANTIC_PROVIDER_DISABLED"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxProperties": 20,
+          "propertyNames": {
+            "maxLength": 100,
+            "minLength": 1
+          },
+          "title": "Details",
+          "type": "object"
+        },
+        "message": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "title": "CompactError",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "$ref": "#/$defs/CompactError"
+    },
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "error",
+    "request_id"
+  ],
+  "title": "ResearchErrorResponse",
+  "type": "object"
+}

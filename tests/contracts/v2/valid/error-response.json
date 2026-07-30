@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "DEPOSIT_REFERENCE_NOT_FOUND",
+    "message": "A referenced local object was not found.",
+    "retryable": false,
+    "details": {
+      "field": "claims[0].evidence[0]"
+    }
+  },
+  "request_id": "req_example"
+}

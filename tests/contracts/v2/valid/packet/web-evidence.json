@@ -1,0 +1,55 @@
+{
+  "source": {
+    "client_ref": "src-doc",
+    "identity": {
+      "locator": "https://docs.example.test/event-publisher",
+      "title": "Event publisher operational guide",
+      "source_type": "official-docs",
+      "site_name": "Example Docs",
+      "author": null,
+      "canonical_key": "https://docs.example.test/event-publisher",
+      "metadata": {}
+    },
+    "version": {
+      "version_key": "web:682a5b6e970579409014e1db7cff14094c666a436ddd9433fab3a70b37cea474",
+      "version_kind": "web",
+      "retrieved_at": "2026-07-29T20:03:00Z",
+      "published_at": null,
+      "content_sha256": "682a5b6e970579409014e1db7cff14094c666a436ddd9433fab3a70b37cea474",
+      "canonical_locator": "https://docs.example.test/event-publisher",
+      "snapshot": {
+        "policy": "extracted_text",
+        "text": "The system retries transient failures up to three times before surfacing an error.",
+        "media_type": "text/plain",
+        "byte_count": 82
+      },
+      "parser_name": "research-registry-html",
+      "parser_version": "2",
+      "repository": null,
+      "metadata": {
+        "http_status": 200
+      }
+    }
+  },
+  "evidence": {
+    "client_ref": "ev-doc",
+    "source_version": {
+      "ref": "src-doc"
+    },
+    "quote_text": "The system retries transient failures up to three times before surfacing an error.",
+    "selector": {
+      "type": "text_quote",
+      "exact": "The system retries transient failures up to three times before surfacing an error.",
+      "prefix": null,
+      "suffix": null,
+      "start": 0,
+      "end": 82,
+      "deep_link": "https://docs.example.test/event-publisher"
+    },
+    "note": "Operational documentation describes the same bound.",
+    "confidence": 0.9,
+    "review_state": "unreviewed",
+    "trust_tier": "high",
+    "metadata": {}
+  }
+}

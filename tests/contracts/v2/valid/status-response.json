@@ -1,0 +1,22 @@
+{
+  "protocol": "research-status-result/v2",
+  "server_version": "0.1.0",
+  "schema_version": "v1",
+  "namespace": {
+    "kind": "user",
+    "id": "local"
+  },
+  "database_type": "sqlite",
+  "capture_mode": "suggest",
+  "capabilities": [
+    "contract-validation"
+  ],
+  "legacy_tools_enabled": true,
+  "embedding_status": "disabled",
+  "refresh_backlog": {
+    "pending": 0,
+    "running": 0,
+    "failed": 0
+  },
+  "migration_state": "current"
+}

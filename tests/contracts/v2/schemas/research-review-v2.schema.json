@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "ReviewEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "minLength": 3,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "claim_revision",
+            "evidence",
+            "source_version",
+            "report",
+            "refresh_item"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "title": "ReviewEntity",
+      "type": "object"
+    },
+    "ReviewNewRevision": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "statement": {
+          "maxLength": 50000,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "partial",
+            "supported",
+            "contested",
+            "rejected",
+            "superseded"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "statement",
+        "status",
+        "confidence"
+      ],
+      "title": "ReviewNewRevision",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "approve",
+        "contest",
+        "reject",
+        "supersede",
+        "request_refresh",
+        "dismiss_refresh"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "entity": {
+      "$ref": "#/$defs/ReviewEntity"
+    },
+    "expected_revision_id": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected Revision Id"
+    },
+    "expected_state": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected State"
+    },
+    "idempotency_key": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "new_revision": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReviewNewRevision"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "note": {
+      "anyOf": [
+        {
+          "maxLength": 20000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "protocol": {
+      "const": "research-review/v2",
+      "title": "Protocol",
+      "type": "string"
+    }
+  },
+  "required": [
+    "protocol",
+    "idempotency_key",
+    "entity",
+    "action"
+  ],
+  "title": "ResearchReviewRequest",
+  "type": "object"
+}

@@ -1,0 +1,144 @@
+{
+  "$defs": {
+    "NamespaceSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "user",
+            "org"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "title": "NamespaceSelector",
+      "type": "object"
+    },
+    "RefreshBacklog": {
+      "additionalProperties": false,
+      "properties": {
+        "failed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "pending": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Pending",
+          "type": "integer"
+        },
+        "running": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Running",
+          "type": "integer"
+        }
+      },
+      "title": "RefreshBacklog",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "capabilities": {
+      "items": {
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "capture_mode": {
+      "enum": [
+        "explicit",
+        "suggest",
+        "automatic"
+      ],
+      "title": "Capture Mode",
+      "type": "string"
+    },
+    "database_type": {
+      "enum": [
+        "sqlite",
+        "postgres"
+      ],
+      "title": "Database Type",
+      "type": "string"
+    },
+    "embedding_status": {
+      "enum": [
+        "disabled",
+        "available",
+        "unavailable"
+      ],
+      "title": "Embedding Status",
+      "type": "string"
+    },
+    "legacy_tools_enabled": {
+      "title": "Legacy Tools Enabled",
+      "type": "boolean"
+    },
+    "migration_state": {
+      "enum": [
+        "current",
+        "pending",
+        "failed"
+      ],
+      "title": "Migration State",
+      "type": "string"
+    },
+    "namespace": {
+      "$ref": "#/$defs/NamespaceSelector"
+    },
+    "protocol": {
+      "const": "research-status-result/v2",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "refresh_backlog": {
+      "$ref": "#/$defs/RefreshBacklog"
+    },
+    "schema_version": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "server_version": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Server Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "protocol",
+    "server_version",
+    "schema_version",
+    "namespace",
+    "database_type",
+    "capture_mode",
+    "capabilities",
+    "legacy_tools_enabled",
+    "embedding_status",
+    "refresh_backlog",
+    "migration_state"
+  ],
+  "title": "ResearchStatusResponse",
+  "type": "object"
+}

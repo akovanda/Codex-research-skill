@@ -1,0 +1,210 @@
+{
+  "protocol": "research-deposit/v2",
+  "idempotency_key": "artifact-event-publisher-retry-2026-07-29",
+  "validate_only": false,
+  "visibility": "private",
+  "namespace": {
+    "kind": "user",
+    "id": "local"
+  },
+  "inquiry": {
+    "client_ref": "q1",
+    "prompt": "How is event publishing retry behavior bounded?",
+    "topic_label": "Event publisher retry behavior",
+    "focus": {
+      "repository": "artifact",
+      "component": "EventPublisher"
+    }
+  },
+  "run": {
+    "client_ref": "run1",
+    "mode": "research",
+    "started_at": "2026-07-29T20:00:00Z",
+    "finished_at": "2026-07-29T20:05:00Z",
+    "notes": "Codex repository investigation followed by source-backed synthesis.",
+    "provenance": {
+      "actor_type": "agent",
+      "actor_id": null,
+      "client_name": "codex",
+      "client_version": "unknown",
+      "provider": "openai",
+      "model": "unknown",
+      "model_version": null,
+      "plugin_version": "2.0.0-alpha",
+      "prompt_sha256": null
+    }
+  },
+  "sources": [
+    {
+      "client_ref": "src-code",
+      "identity": {
+        "locator": "git:artifact:src/events/publisher.py",
+        "title": "Artifact EventPublisher implementation",
+        "source_type": "git_file",
+        "site_name": null,
+        "author": null,
+        "canonical_key": "artifact:src/events/publisher.py",
+        "metadata": {}
+      },
+      "version": {
+        "version_key": "git:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "version_kind": "git_blob",
+        "retrieved_at": "2026-07-29T20:02:00Z",
+        "published_at": null,
+        "content_sha256": "7800f53574345e23f0d86905f1a1bdabcc2860d3954d2400f954a459c900faa0",
+        "canonical_locator": "git:artifact:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:src/events/publisher.py",
+        "snapshot": {
+          "policy": "evidence_only",
+          "text": "for attempt in range(max_attempts):\n    publish_with_retry(event)",
+          "media_type": "text/x-python",
+          "byte_count": 65
+        },
+        "parser_name": "research-registry-git",
+        "parser_version": "2",
+        "repository": {
+          "repository_id": "artifact",
+          "remote_fingerprint": null,
+          "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "blob_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "src/events/publisher.py",
+          "file_mode": "100644"
+        },
+        "metadata": {}
+      }
+    },
+    {
+      "client_ref": "src-doc",
+      "identity": {
+        "locator": "https://docs.example.test/event-publisher",
+        "title": "Event publisher operational guide",
+        "source_type": "official-docs",
+        "site_name": "Example Docs",
+        "author": null,
+        "canonical_key": "https://docs.example.test/event-publisher",
+        "metadata": {}
+      },
+      "version": {
+        "version_key": "web:682a5b6e970579409014e1db7cff14094c666a436ddd9433fab3a70b37cea474",
+        "version_kind": "web",
+        "retrieved_at": "2026-07-29T20:03:00Z",
+        "published_at": null,
+        "content_sha256": "682a5b6e970579409014e1db7cff14094c666a436ddd9433fab3a70b37cea474",
+        "canonical_locator": "https://docs.example.test/event-publisher",
+        "snapshot": {
+          "policy": "extracted_text",
+          "text": "The system retries transient failures up to three times before surfacing an error.",
+          "media_type": "text/plain",
+          "byte_count": 82
+        },
+        "parser_name": "research-registry-html",
+        "parser_version": "2",
+        "repository": null,
+        "metadata": {
+          "http_status": 200
+        }
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "client_ref": "ev-code",
+      "source_version": {
+        "ref": "src-code"
+      },
+      "quote_text": "for attempt in range(max_attempts):\n    publish_with_retry(event)",
+      "selector": {
+        "type": "git_line_range",
+        "path": "src/events/publisher.py",
+        "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "blob_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "start_line": 2,
+        "end_line": 3,
+        "exact": "for attempt in range(max_attempts):\n    publish_with_retry(event)",
+        "prefix": "class EventPublisher:",
+        "suffix": null,
+        "deep_link": "src/events/publisher.py#L2-L3"
+      },
+      "note": "Implementation uses a bounded retry loop.",
+      "confidence": 0.98,
+      "review_state": "unreviewed",
+      "trust_tier": "high",
+      "metadata": {}
+    },
+    {
+      "client_ref": "ev-doc",
+      "source_version": {
+        "ref": "src-doc"
+      },
+      "quote_text": "The system retries transient failures up to three times before surfacing an error.",
+      "selector": {
+        "type": "text_quote",
+        "exact": "The system retries transient failures up to three times before surfacing an error.",
+        "prefix": null,
+        "suffix": null,
+        "start": 0,
+        "end": 82,
+        "deep_link": "https://docs.example.test/event-publisher"
+      },
+      "note": "Operational documentation describes the same bound.",
+      "confidence": 0.9,
+      "review_state": "unreviewed",
+      "trust_tier": "high",
+      "metadata": {}
+    }
+  ],
+  "claims": [
+    {
+      "client_ref": "claim-retry",
+      "claim_id": null,
+      "expected_revision_id": null,
+      "canonical_key": "artifact:event-publisher:bounded-retry",
+      "title": "Event publishing retries are bounded",
+      "statement": "The EventPublisher retries transient failures a bounded number of times before surfacing an error.",
+      "status": "supported",
+      "confidence": 0.94,
+      "scope": {
+        "repository": "artifact",
+        "component": "EventPublisher"
+      },
+      "evidence": [
+        {
+          "evidence": {
+            "ref": "ev-code"
+          },
+          "relationship": "supports",
+          "rationale": "The implementation contains the bounded loop.",
+          "weight": 1.0
+        },
+        {
+          "evidence": {
+            "ref": "ev-doc"
+          },
+          "relationship": "qualifies",
+          "rationale": "The operational guide specifies the intended three-attempt behavior.",
+          "weight": 0.8
+        }
+      ],
+      "metadata": {}
+    }
+  ],
+  "report": {
+    "client_ref": "report1",
+    "title": "Event publisher retry findings",
+    "summary_md": "# Event publisher retry findings\n\nThe implementation and operational guide agree that retries are bounded.",
+    "report_kind": "guidance",
+    "claims": [
+      {
+        "ref": "claim-retry"
+      }
+    ],
+    "guidance": {
+      "current": [
+        "Treat retry count changes as behavior changes requiring tests."
+      ]
+    },
+    "metadata": {}
+  },
+  "metadata": {
+    "packet_example": true
+  }
+}

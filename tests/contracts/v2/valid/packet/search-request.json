@@ -1,0 +1,36 @@
+{
+  "protocol": "research-search/v2",
+  "query": "publisher retries",
+  "kinds": [
+    "claim",
+    "report",
+    "evidence"
+  ],
+  "scope": {
+    "repository": "artifact",
+    "paths": [
+      "src/events/**"
+    ],
+    "topic_ids": [],
+    "source_types": [],
+    "created_after": null,
+    "created_before": null
+  },
+  "review_states": [
+    "reviewed",
+    "unreviewed"
+  ],
+  "conflict_states": [
+    "none",
+    "conflicted"
+  ],
+  "freshness": [
+    "fresh",
+    "needs_refresh"
+  ],
+  "include_private": true,
+  "include_rejected": false,
+  "limit": 10,
+  "cursor": null,
+  "explain": true
+}

@@ -1,0 +1,1637 @@
+{
+  "$defs": {
+    "CharRangeSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "end": {
+          "minimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "exact": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Exact",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "type": {
+          "const": "char_range",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "start",
+        "end",
+        "exact"
+      ],
+      "title": "CharRangeSelector",
+      "type": "object"
+    },
+    "ClaimEvidenceLink": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdReference"
+            },
+            {
+              "$ref": "#/$defs/ClientReference"
+            }
+          ],
+          "title": "Evidence"
+        },
+        "rationale": {
+          "anyOf": [
+            {
+              "maxLength": 10000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rationale"
+        },
+        "relationship": {
+          "enum": [
+            "supports",
+            "refutes",
+            "qualifies",
+            "contextualizes"
+          ],
+          "title": "Relationship",
+          "type": "string"
+        },
+        "weight": {
+          "default": 1.0,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "evidence",
+        "relationship"
+      ],
+      "title": "ClaimEvidenceLink",
+      "type": "object"
+    },
+    "ClientReference": {
+      "additionalProperties": false,
+      "properties": {
+        "ref": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "title": "ClientReference",
+      "type": "object"
+    },
+    "DepositClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_key": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Canonical Key"
+        },
+        "claim_id": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim Id"
+        },
+        "client_ref": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Client Ref",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/ClaimEvidenceLink"
+          },
+          "maxItems": 100,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "expected_revision_id": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Revision Id"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "maxProperties": 50,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "maxProperties": 50,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scope"
+        },
+        "statement": {
+          "maxLength": 50000,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "partial",
+            "supported",
+            "contested",
+            "rejected",
+            "superseded"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "client_ref",
+        "title",
+        "statement",
+        "status",
+        "confidence",
+        "evidence"
+      ],
+      "title": "DepositClaim",
+      "type": "object"
+    },
+    "DepositEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "client_ref": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Client Ref",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 0.75,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "maxProperties": 50,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 10000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "quote_text": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Quote Text",
+          "type": "string"
+        },
+        "review_state": {
+          "default": "unreviewed",
+          "enum": [
+            "unreviewed",
+            "reviewed",
+            "flagged"
+          ],
+          "title": "Review State",
+          "type": "string"
+        },
+        "selector": {
+          "discriminator": {
+            "mapping": {
+              "char_range": "#/$defs/CharRangeSelector",
+              "dom_text": "#/$defs/DomTextSelector",
+              "git_line_range": "#/$defs/GitLineRangeSelector",
+              "json_pointer": "#/$defs/JsonPointerSelector",
+              "line_range": "#/$defs/LineRangeSelector",
+              "page_range": "#/$defs/PageRangeSelector",
+              "text_quote": "#/$defs/TextQuoteSelector"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TextQuoteSelector"
+            },
+            {
+              "$ref": "#/$defs/LineRangeSelector"
+            },
+            {
+              "$ref": "#/$defs/GitLineRangeSelector"
+            },
+            {
+              "$ref": "#/$defs/PageRangeSelector"
+            },
+            {
+              "$ref": "#/$defs/CharRangeSelector"
+            },
+            {
+              "$ref": "#/$defs/JsonPointerSelector"
+            },
+            {
+              "$ref": "#/$defs/DomTextSelector"
+            }
+          ],
+          "title": "Selector"
+        },
+        "source_version": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdReference"
+            },
+            {
+              "$ref": "#/$defs/ClientReference"
+            }
+          ],
+          "title": "Source Version"
+        },
+        "trust_tier": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Trust Tier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "client_ref",
+        "source_version",
+        "quote_text",
+        "selector"
+      ],
+      "title": "DepositEvidence",
+      "type": "object"
+    },
+    "DepositInquiry": {
+      "additionalProperties": false,
+      "properties": {
+        "client_ref": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Client Ref",
+          "type": "string"
+        },
+        "focus": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "maxProperties": 20,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Focus"
+        },
+        "prompt": {
+          "maxLength": 50000,
+          "minLength": 1,
+          "title": "Prompt",
+          "type": "string"
+        },
+        "topic_label": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Topic Label"
+        }
+      },
+      "required": [
+        "client_ref",
+        "prompt"
+      ],
+      "title": "DepositInquiry",
+      "type": "object"
+    },
+    "DepositReport": {
+      "additionalProperties": false,
+      "properties": {
+        "claims": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/IdReference"
+              },
+              {
+                "$ref": "#/$defs/ClientReference"
+              }
+            ]
+          },
+          "maxItems": 100,
+          "title": "Claims",
+          "type": "array"
+        },
+        "client_ref": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Client Ref",
+          "type": "string"
+        },
+        "guidance": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "maxProperties": 50,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guidance"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "maxProperties": 50,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "report_kind": {
+          "default": "guidance",
+          "maxLength": 100,
+          "title": "Report Kind",
+          "type": "string"
+        },
+        "summary_md": {
+          "maxLength": 200000,
+          "minLength": 1,
+          "title": "Summary Md",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "client_ref",
+        "title",
+        "summary_md",
+        "claims"
+      ],
+      "title": "DepositReport",
+      "type": "object"
+    },
+    "DepositRun": {
+      "additionalProperties": false,
+      "properties": {
+        "client_ref": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Client Ref",
+          "type": "string"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "mode": {
+          "enum": [
+            "research",
+            "reuse",
+            "refresh",
+            "import",
+            "migration",
+            "manual"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "maxLength": 10000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "provenance": {
+          "$ref": "#/$defs/RunProvenance"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        }
+      },
+      "required": [
+        "client_ref",
+        "mode",
+        "provenance"
+      ],
+      "title": "DepositRun",
+      "type": "object"
+    },
+    "DepositSource": {
+      "additionalProperties": false,
+      "properties": {
+        "client_ref": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Client Ref",
+          "type": "string"
+        },
+        "identity": {
+          "$ref": "#/$defs/SourceIdentity"
+        },
+        "version": {
+          "$ref": "#/$defs/SourceVersion"
+        }
+      },
+      "required": [
+        "client_ref",
+        "identity",
+        "version"
+      ],
+      "title": "DepositSource",
+      "type": "object"
+    },
+    "DomTextSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "css_selector": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Css Selector"
+        },
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "exact": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Exact",
+          "type": "string"
+        },
+        "prefix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prefix"
+        },
+        "suffix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suffix"
+        },
+        "type": {
+          "const": "dom_text",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "exact"
+      ],
+      "title": "DomTextSelector",
+      "type": "object"
+    },
+    "GitLineRangeSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "blob_sha": {
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "title": "Blob Sha",
+          "type": "string"
+        },
+        "commit_sha": {
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "title": "Commit Sha",
+          "type": "string"
+        },
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "end_line": {
+          "minimum": 1,
+          "title": "End Line",
+          "type": "integer"
+        },
+        "exact": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Exact",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+          "title": "Path",
+          "type": "string"
+        },
+        "prefix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prefix"
+        },
+        "start_line": {
+          "minimum": 1,
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "suffix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suffix"
+        },
+        "type": {
+          "const": "git_line_range",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "path",
+        "commit_sha",
+        "blob_sha",
+        "start_line",
+        "end_line",
+        "exact"
+      ],
+      "title": "GitLineRangeSelector",
+      "type": "object"
+    },
+    "IdReference": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "minLength": 3,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "IdReference",
+      "type": "object"
+    },
+    "JsonPointerSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "exact": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exact"
+        },
+        "pointer": {
+          "maxLength": 4096,
+          "pattern": "^(?:|/.*)$",
+          "title": "Pointer",
+          "type": "string"
+        },
+        "type": {
+          "const": "json_pointer",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "pointer"
+      ],
+      "title": "JsonPointerSelector",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "LineRangeSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "end_line": {
+          "minimum": 1,
+          "title": "End Line",
+          "type": "integer"
+        },
+        "exact": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Exact",
+          "type": "string"
+        },
+        "prefix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prefix"
+        },
+        "start_line": {
+          "minimum": 1,
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "suffix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suffix"
+        },
+        "type": {
+          "const": "line_range",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "start_line",
+        "end_line",
+        "exact"
+      ],
+      "title": "LineRangeSelector",
+      "type": "object"
+    },
+    "NamespaceSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "user",
+            "org"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "title": "NamespaceSelector",
+      "type": "object"
+    },
+    "PageRangeSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "end_page": {
+          "minimum": 1,
+          "title": "End Page",
+          "type": "integer"
+        },
+        "exact": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Exact",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start"
+        },
+        "start_page": {
+          "minimum": 1,
+          "title": "Start Page",
+          "type": "integer"
+        },
+        "type": {
+          "const": "page_range",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "start_page",
+        "end_page",
+        "exact"
+      ],
+      "title": "PageRangeSelector",
+      "type": "object"
+    },
+    "RepositoryVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "blob_sha": {
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "title": "Blob Sha",
+          "type": "string"
+        },
+        "commit_sha": {
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "title": "Commit Sha",
+          "type": "string"
+        },
+        "file_mode": {
+          "anyOf": [
+            {
+              "maxLength": 20,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File Mode"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+          "title": "Path",
+          "type": "string"
+        },
+        "remote_fingerprint": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remote Fingerprint"
+        },
+        "repository_id": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Repository Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository_id",
+        "commit_sha",
+        "blob_sha",
+        "path"
+      ],
+      "title": "RepositoryVersion",
+      "type": "object"
+    },
+    "RunProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id"
+        },
+        "actor_type": {
+          "enum": [
+            "human",
+            "agent",
+            "system",
+            "import",
+            "migration"
+          ],
+          "title": "Actor Type",
+          "type": "string"
+        },
+        "client_name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Name"
+        },
+        "client_version": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Version"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "model_version": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Version"
+        },
+        "plugin_version": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plugin Version"
+        },
+        "prompt_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Sha256"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        }
+      },
+      "title": "RunProvenance",
+      "type": "object"
+    },
+    "SourceIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Author"
+        },
+        "canonical_key": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Canonical Key"
+        },
+        "locator": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "title": "Locator",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "maxProperties": 50,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "site_name": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Site Name"
+        },
+        "source_type": {
+          "enum": [
+            "webpage",
+            "official-docs",
+            "paper",
+            "report",
+            "dataset",
+            "code",
+            "test",
+            "documentation",
+            "script",
+            "local_file",
+            "git_file",
+            "pdf",
+            "api",
+            "note",
+            "other"
+          ],
+          "title": "Source Type",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "locator",
+        "title",
+        "source_type"
+      ],
+      "title": "SourceIdentity",
+      "type": "object"
+    },
+    "SourceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_count": {
+          "anyOf": [
+            {
+              "maximum": 50000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Byte Count"
+        },
+        "media_type": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Type"
+        },
+        "policy": {
+          "enum": [
+            "metadata_only",
+            "evidence_only",
+            "extracted_text",
+            "full_content"
+          ],
+          "title": "Policy",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 5000000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        }
+      },
+      "required": [
+        "policy"
+      ],
+      "title": "SourceSnapshot",
+      "type": "object"
+    },
+    "SourceVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_locator": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "title": "Canonical Locator",
+          "type": "string"
+        },
+        "content_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Sha256",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "maxProperties": 100,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "parser_name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parser Name"
+        },
+        "parser_version": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parser Version"
+        },
+        "published_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Published At"
+        },
+        "repository": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RepositoryVersion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/SourceSnapshot"
+        },
+        "version_key": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Key"
+        },
+        "version_kind": {
+          "enum": [
+            "web",
+            "doi",
+            "file",
+            "git_blob",
+            "pdf",
+            "api",
+            "note",
+            "migration"
+          ],
+          "title": "Version Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version_kind",
+        "retrieved_at",
+        "content_sha256",
+        "canonical_locator",
+        "snapshot"
+      ],
+      "title": "SourceVersion",
+      "type": "object"
+    },
+    "TextQuoteSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "deep_link": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deep Link"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "exact": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Exact",
+          "type": "string"
+        },
+        "prefix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prefix"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start"
+        },
+        "suffix": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suffix"
+        },
+        "type": {
+          "const": "text_quote",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "exact"
+      ],
+      "title": "TextQuoteSelector",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/DepositClaim"
+      },
+      "maxItems": 100,
+      "title": "Claims",
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/DepositEvidence"
+      },
+      "maxItems": 200,
+      "title": "Evidence",
+      "type": "array"
+    },
+    "idempotency_key": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "inquiry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DepositInquiry"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "metadata": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "maxProperties": 50,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "namespace": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NamespaceSelector"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "protocol": {
+      "const": "research-deposit/v2",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "report": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DepositReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "run": {
+      "$ref": "#/$defs/DepositRun"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/DepositSource"
+      },
+      "maxItems": 50,
+      "title": "Sources",
+      "type": "array"
+    },
+    "validate_only": {
+      "default": false,
+      "title": "Validate Only",
+      "type": "boolean"
+    },
+    "visibility": {
+      "default": "private",
+      "enum": [
+        "private",
+        "public"
+      ],
+      "title": "Visibility",
+      "type": "string"
+    }
+  },
+  "required": [
+    "protocol",
+    "idempotency_key",
+    "run",
+    "sources",
+    "evidence",
+    "claims"
+  ],
+  "title": "ResearchDepositRequest",
+  "type": "object"
+}
