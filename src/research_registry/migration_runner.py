@@ -15,7 +15,7 @@ from .db import DbConnection, split_sql_script
 
 
 LEGACY_SCHEMA_VERSION = 4
-MANAGED_TABLES = {
+V1_MANAGED_TABLES = {
     "topics",
     "questions",
     "research_sessions",
@@ -30,6 +30,26 @@ MANAGED_TABLES = {
     "org_memberships",
     "api_keys",
     "audit_log",
+}
+V2_MANAGED_TABLES = {
+    "content_objects",
+    "source_versions",
+    "evidence_spans",
+    "claim_revisions",
+    "claim_evidence",
+    "review_events",
+    "refresh_queue",
+    "idempotency_keys",
+    "migration_backfill_progress",
+    "migration_backfill_warnings",
+    "migration_backfill_errors",
+}
+MANAGED_TABLES = V1_MANAGED_TABLES | V2_MANAGED_TABLES
+V2_CLAIM_COLUMNS = {
+    "canonical_key",
+    "current_revision_id",
+    "scope_json",
+    "updated_at",
 }
 _DIALECTS = ("postgres", "sqlite")
 _BUNDLE_COMPONENTS = ("common.sql", "manifest.json", "postgres.sql", "sqlite.sql")
@@ -577,11 +597,28 @@ class MigrationRunner:
                 )
 
         if "0001_initial" in applied:
-            missing_tables = MANAGED_TABLES - tables
+            missing_tables = V1_MANAGED_TABLES - tables
             if missing_tables:
                 raise RuntimeError(
                     "managed schema invariant failed; missing tables: "
                     + ", ".join(sorted(missing_tables))
+                )
+        if "0003_v2_evidence" in applied:
+            missing_tables = V2_MANAGED_TABLES - tables
+            if missing_tables:
+                raise RuntimeError(
+                    "v2 managed schema invariant failed; missing tables: "
+                    + ", ".join(sorted(missing_tables))
+                )
+            missing_columns = {
+                column
+                for column in V2_CLAIM_COLUMNS
+                if not self.service._column_exists(conn, "claims", column)
+            }
+            if missing_columns:
+                raise RuntimeError(
+                    "v2 claim compatibility invariant failed; missing columns: "
+                    + ", ".join(sorted(missing_columns))
                 )
 
     def _ensure_schema_migrations_table(self, conn: DbConnection) -> None:

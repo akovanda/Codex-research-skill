@@ -1,0 +1,5 @@
+{
+  "description": "Enforce immutable v2 evidence records and append-only review events",
+  "migration_id": "0003_v2_evidence_invariants",
+  "transactional": true
+}

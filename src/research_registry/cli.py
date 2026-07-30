@@ -174,6 +174,32 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit the structured migration result as JSON.",
     )
+
+    migrate_v2_data = subparsers.add_parser(
+        "migrate-v2-data",
+        help="Backfill additive v2 evidence records from v1 data in batches.",
+    )
+    migrate_v2_data.add_argument(
+        "--database",
+        default=None,
+        help="SQLite path/URL or Postgres URL. Defaults to the configured database.",
+    )
+    migrate_v2_data.add_argument(
+        "--batch-size",
+        type=int,
+        default=500,
+        help="Records per transaction (1-10000).",
+    )
+    migrate_v2_data.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume an incomplete backfill from its durable checkpoints.",
+    )
+    migrate_v2_data.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit content-free structured counts and phase states as JSON.",
+    )
     return parser
 
 
@@ -324,6 +350,29 @@ def main() -> None:
             target=args.target,
         )
         print(format_migration_result(result, json_output=args.json))
+        return
+
+    if args.command == "migrate-v2-data":
+        from .application.migrate_v2 import run_v2_backfill
+        from .config import load_settings
+
+        database = args.database or load_settings().database_url
+        result = run_v2_backfill(
+            database,
+            batch_size=args.batch_size,
+            resume=args.resume,
+        )
+        if args.json:
+            print(json.dumps(result.to_dict(), sort_keys=True))
+        else:
+            print(
+                "v2 data backfill: "
+                f"status={result.status} "
+                f"database_kind={result.database_kind} "
+                f"processed={result.processed_count} "
+                f"warnings={result.warning_count} "
+                f"errors={result.error_count}"
+            )
         return
 
     parser.error(f"unknown command: {args.command}")

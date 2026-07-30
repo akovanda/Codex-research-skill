@@ -1,0 +1,5 @@
+{
+  "description": "Add immutable v2 evidence structures and resumable v1 backfill state",
+  "migration_id": "0003_v2_evidence",
+  "transactional": true
+}

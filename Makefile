@@ -88,7 +88,7 @@ preview-check: install
 	RUN_SHARED_COMPOSE_SMOKE=1 PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_shared_compose_smoke.py
 
 rr2-migration-check: install
-	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_migrations.py tests/test_postgres_smoke.py
+	PYTHONPATH=src $(VENV_PYTHON) -m pytest -q tests/test_v2_migration.py tests/test_migrations.py tests/test_postgres_smoke.py
 	PYTHONPATH=src $(VENV_PYTHON) -m research_registry migrate --plan --json
 
 workflow-check: install

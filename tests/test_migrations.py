@@ -26,6 +26,12 @@ LEGACY_CHECKSUMS = {
     "0001_initial": "ea4c8ad9e9773fee7f19adc31a247ddc2aa4cbd14fd544418c80b802c6cf278e",
     "0002_workflows_and_trust": "f360daa9ab2fc3a35b4157ab0766961e7ec7cf1699f4c144a21692f7b5dda54c",
 }
+V2_EVIDENCE_CHECKSUM = (
+    "b36deb7be0d73c96a3a7df3fcf74d9b8974141495fa1d23d970b9a6b8da87f77"
+)
+V2_EVIDENCE_INVARIANTS_CHECKSUM = (
+    "d984570d25da485b6ddee72b252c256d141d5fb3b51e88b4f9250fa4968cd306"
+)
 
 
 def test_initialize_applies_sql_migrations_and_records_checksums(tmp_path: Path) -> None:
@@ -58,7 +64,24 @@ def test_existing_flat_migration_checksums_are_stable() -> None:
     assert {
         migration.migration_id: migration.checksum_sha256
         for migration in migrations
+        if migration.source_kind == "flat"
     } == LEGACY_CHECKSUMS
+    v2 = next(
+        migration
+        for migration in migrations
+        if migration.migration_id == "0003_v2_evidence"
+    )
+    assert v2.source_kind == "bundle"
+    assert v2.checksum_sha256 == V2_EVIDENCE_CHECKSUM
+    assert v2.selected_files("sqlite") == ("common.sql", "sqlite.sql")
+    assert v2.selected_files("postgres") == ("common.sql", "postgres.sql")
+    invariants = next(
+        migration
+        for migration in migrations
+        if migration.migration_id == "0003_v2_evidence_invariants"
+    )
+    assert invariants.source_kind == "bundle"
+    assert invariants.checksum_sha256 == V2_EVIDENCE_INVARIANTS_CHECKSUM
 
 
 def test_loads_dialect_bundle_with_one_logical_checksum() -> None:
@@ -408,7 +431,12 @@ def test_initialize_adopts_existing_legacy_schema(tmp_path: Path) -> None:
         migrations = conn.execute("SELECT migration_id FROM schema_migrations ORDER BY migration_id").fetchall()
         schema_meta = conn.execute("SELECT version FROM schema_meta").fetchone()
 
-    assert [row["migration_id"] for row in migrations] == ["0001_initial", "0002_workflows_and_trust"]
+    assert [row["migration_id"] for row in migrations] == [
+        "0001_initial",
+        "0002_workflows_and_trust",
+        "0003_v2_evidence",
+        "0003_v2_evidence_invariants",
+    ]
     assert schema_meta["version"] == 4
 
 

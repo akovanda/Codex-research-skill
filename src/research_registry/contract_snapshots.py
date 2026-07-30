@@ -11,6 +11,17 @@ from .data_audit import V1_TABLES, connect_database_read_only
 from .db import DatabaseTarget, DbConnection
 
 
+_V1_MIGRATION_IDS = {"0001_initial", "0002_workflows_and_trust"}
+_V2_ADDITIVE_COLUMNS = {
+    "claims": {
+        "canonical_key",
+        "current_revision_id",
+        "scope_json",
+        "updated_at",
+    }
+}
+
+
 def http_openapi_snapshot(app: FastAPI) -> dict[str, Any]:
     """Return the deterministic v1 OpenAPI document for golden comparison."""
     return _sort_mapping(deepcopy(app.openapi()))
@@ -64,6 +75,8 @@ def database_inventory_snapshot(
                         "primary_key_position": int(row["pk"]),
                     }
                     for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+                    if row["name"]
+                    not in _V2_ADDITIVE_COLUMNS.get(table, set())
                 ]
             else:
                 columns = [
@@ -82,10 +95,25 @@ def database_inventory_snapshot(
                         """,
                         (table,),
                     ).fetchall()
+                    if row["column_name"]
+                    not in _V2_ADDITIVE_COLUMNS.get(table, set())
                 ]
             tables[table] = {
                 "columns": columns,
-                "row_count": _row_count(conn, table),
+                "row_count": (
+                    int(
+                        conn.execute(
+                            """
+                            SELECT COUNT(*) AS count
+                            FROM schema_migrations
+                            WHERE migration_id IN (?, ?)
+                            """,
+                            tuple(sorted(_V1_MIGRATION_IDS)),
+                        ).fetchone()["count"]
+                    )
+                    if table == "schema_migrations"
+                    else _row_count(conn, table)
+                ),
             }
         migrations = (
             [
@@ -96,6 +124,7 @@ def database_inventory_snapshot(
                 for row in conn.execute(
                     "SELECT migration_id, checksum_sha256 FROM schema_migrations ORDER BY migration_id"
                 ).fetchall()
+                if row["migration_id"] in _V1_MIGRATION_IDS
             ]
             if "schema_migrations" in present
             else []

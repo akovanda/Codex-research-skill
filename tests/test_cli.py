@@ -89,5 +89,7 @@ def test_cli_migrate_plan_json_does_not_create_schema_history(
     assert payload["pending_ids"] == [
         "0001_initial",
         "0002_workflows_and_trust",
+        "0003_v2_evidence",
+        "0003_v2_evidence_invariants",
     ]
     assert not database.exists()
