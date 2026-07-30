@@ -45,8 +45,12 @@ V2_MANAGED_TABLES = {
     "migration_backfill_errors",
 }
 V2_SEARCH_MANAGED_TABLES = {"search_documents"}
+V2_PROJECTION_MANAGED_TABLES = {"legacy_projection_identity"}
 MANAGED_TABLES = (
-    V1_MANAGED_TABLES | V2_MANAGED_TABLES | V2_SEARCH_MANAGED_TABLES
+    V1_MANAGED_TABLES
+    | V2_MANAGED_TABLES
+    | V2_SEARCH_MANAGED_TABLES
+    | V2_PROJECTION_MANAGED_TABLES
 )
 V2_CLAIM_COLUMNS = {
     "canonical_key",
@@ -628,6 +632,14 @@ class MigrationRunner:
             if missing_tables:
                 raise RuntimeError(
                     "v2 search schema invariant failed; missing tables: "
+                    + ", ".join(sorted(missing_tables))
+                )
+        if "0006_v2_legacy_projection_identity" in applied:
+            missing_tables = V2_PROJECTION_MANAGED_TABLES - tables
+            if missing_tables:
+                raise RuntimeError(
+                    "v2 projection identity schema invariant failed; "
+                    "missing tables: "
                     + ", ".join(sorted(missing_tables))
                 )
 

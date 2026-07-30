@@ -22,7 +22,7 @@ BACKFILL_PHASES = (
     "claim_pointers",
     "report_state",
 )
-V2_SCHEMA_TARGET = "0003_v2_evidence_invariants"
+V2_SCHEMA_TARGET = "0006_v2_legacy_projection_identity"
 
 
 class InjectedBackfillInterruption(RuntimeError):
@@ -101,6 +101,7 @@ def run_v2_backfill(
         )
     with service.connect() as conn:
         repository = V2BackfillRepository(conn)
+        repository.adopt_authoritative_projection_identities()
         repository.initialize_progress(BACKFILL_PHASES, updated_at=utc_now_text())
         progress = repository.progress()
         all_completed = bool(progress) and all(

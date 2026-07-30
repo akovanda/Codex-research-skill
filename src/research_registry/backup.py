@@ -28,6 +28,7 @@ V2_AUTHORITATIVE_TABLES = (
     "content_objects",
     "evidence_spans",
     "idempotency_keys",
+    "legacy_projection_identity",
     "migration_backfill_errors",
     "migration_backfill_progress",
     "migration_backfill_warnings",

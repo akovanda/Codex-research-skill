@@ -1,0 +1,1 @@
+-- Projection identity behavior is shared across supported databases.

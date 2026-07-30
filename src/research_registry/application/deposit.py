@@ -27,7 +27,7 @@ from ..ingestion.blobs import (
 )
 from ..models import slugify
 from ..models import AuthContext
-from ..persistence.repositories import canonical_json
+from ..persistence.repositories import V2BackfillRepository, canonical_json
 from ..persistence.unit_of_work import UnitOfWork
 from ..retrieval.projection import rebuild_search_documents
 from .source_versions import SourceVersionConflict, SourceVersionService
@@ -217,7 +217,12 @@ class ResearchDepositService:
         with UnitOfWork(self.database, immediate_write=True) as uow:
             assert uow.deposit is not None
             assert uow.source_versions is not None
+            assert uow.connection is not None
             repository = uow.deposit
+            projection_repository = V2BackfillRepository(
+                uow.connection,
+                now_text=now_text,
+            )
 
             self._fault("before_idempotency")
             existing_key = repository.get_idempotency(
@@ -305,6 +310,13 @@ class ResearchDepositService:
                     pending_content_hashes=pending_hashes,
                 )
                 version_ids[source.client_ref] = prepared.result.record.id
+                projection_repository.record_projection_identity(
+                    "source",
+                    source_id,
+                    "source_version",
+                    prepared.result.record.id,
+                    update_existing=False,
+                )
                 if prepared.needs_finalize:
                     item = staged[source.client_ref]
                     assert item is not None
@@ -390,6 +402,13 @@ class ResearchDepositService:
                         "metadata_json": canonical_json(metadata),
                     }
                 )
+                projection_repository.record_projection_identity(
+                    "excerpt",
+                    excerpt_id,
+                    "evidence",
+                    evidence_id,
+                    update_existing=False,
+                )
             self._fault("after_evidence")
 
             for evidence_id, row in external_evidence.items():
@@ -440,6 +459,13 @@ class ResearchDepositService:
                         "created_at": now_text,
                         "metadata_json": canonical_json(claim.metadata),
                     }
+                )
+                projection_repository.record_projection_identity(
+                    "claim",
+                    plan.claim_id,
+                    "claim_revision",
+                    plan.revision_id,
+                    update_existing=True,
                 )
             self._fault("after_claim")
 
@@ -523,6 +549,13 @@ class ResearchDepositService:
                     report_claim_ids.add(claim_id)
                     repository.insert_report_claim(report_id, claim_id)
                 repository.mark_question_answered(question_id)
+                projection_repository.record_projection_identity(
+                    "report",
+                    report_id,
+                    "report",
+                    report_id,
+                    update_existing=False,
+                )
             self._fault("after_report")
 
             self._fault("before_current_pointer")

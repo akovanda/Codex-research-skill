@@ -17,11 +17,14 @@ from .external_ingest import (
     fetch_url_candidate,
 )
 from .application.source_versions import SourceVersionService
+from .application.review import ResearchReviewService
+from .contracts.v2 import ResearchReviewRequest
 from .ingestion.blobs import FilesystemBlobStore
 from .legacy_feature import require_legacy_heuristics
 from .migration_runner import MigrationRunner
 from .retrieval.projection import rebuild_search_documents
 from .persistence.repositories import V2BackfillRepository
+from .timestamps import utc_text
 from .models import (
     ApiKeyCreate,
     ApiKeyRecord,
@@ -376,7 +379,13 @@ class RegistryService:
         self._ensure_visible(row, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
         return self._session_from_row(row)
 
-    def create_source(self, payload: SourceCreate, auth: AuthContext | None = None) -> SourceRecord:
+    def create_source(
+        self,
+        payload: SourceCreate,
+        auth: AuthContext | None = None,
+        *,
+        _project_v2: bool = True,
+    ) -> SourceRecord:
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         with self.connect() as conn:
             existing = self._fetch_existing_by_dedupe_key(conn, "sources", payload.dedupe_key)
@@ -439,7 +448,7 @@ class RegistryService:
                 ),
             )
             row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
-            if self._v2_dual_write_ready(conn):
+            if _project_v2 and self._v2_dual_write_ready(conn):
                 V2BackfillRepository(conn).project_legacy_write("source", source_id)
             rebuild_search_documents(conn)
         return self._source_from_row(row)
@@ -457,7 +466,14 @@ class RegistryService:
         self._ensure_visible(row, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
         return self._source_from_row(row)
 
-    def create_excerpt(self, payload: ExcerptCreate, auth: AuthContext | None = None) -> ExcerptRecord:
+    def create_excerpt(
+        self,
+        payload: ExcerptCreate,
+        auth: AuthContext | None = None,
+        *,
+        _project_v2: bool = True,
+        _source_version_id: str | None = None,
+    ) -> ExcerptRecord:
         question = self.get_question(payload.question_id, include_private=True)
         source = self._resolve_source(payload, auth=auth)
         topic_id = payload.topic_id or question.topic_id
@@ -465,6 +481,12 @@ class RegistryService:
         with self.connect() as conn:
             existing = self._fetch_existing_by_dedupe_key(conn, "excerpts", payload.dedupe_key)
             if existing:
+                if _source_version_id is not None:
+                    V2BackfillRepository(conn).project_imported_excerpt(
+                        existing["id"],
+                        source_version_id=_source_version_id,
+                        evidence_id=self._new_id("evd"),
+                    )
                 return self._excerpt_from_row(existing)
             excerpt_id = self._new_id("ex")
             created_at = utc_now()
@@ -512,7 +534,13 @@ class RegistryService:
                 ),
             )
             row = conn.execute("SELECT * FROM excerpts WHERE id = ?", (excerpt_id,)).fetchone()
-            if self._v2_dual_write_ready(conn):
+            if _source_version_id is not None:
+                V2BackfillRepository(conn).project_imported_excerpt(
+                    excerpt_id,
+                    source_version_id=_source_version_id,
+                    evidence_id=self._new_id("evd"),
+                )
+            elif _project_v2 and self._v2_dual_write_ready(conn):
                 V2BackfillRepository(conn).project_legacy_write("excerpt", excerpt_id)
             rebuild_search_documents(conn)
         return self._excerpt_from_row(row)
@@ -846,7 +874,7 @@ class RegistryService:
 
     def import_url(self, payload: ImportUrlRequest, auth: AuthContext | None = None) -> ImportResult:
         candidate = fetch_url_candidate(payload.url)
-        result = self._materialize_import_candidate(
+        return self._materialize_import_candidate(
             candidate.source,
             excerpt_text=candidate.excerpt_text,
             question_id=payload.question_id,
@@ -856,13 +884,12 @@ class RegistryService:
             namespace_kind=payload.namespace_kind,
             namespace_id=payload.namespace_id,
             auth=auth,
+            captured_candidate=candidate,
         )
-        self._persist_imported_version(candidate, result.source_ids[0])
-        return result
 
     def import_doi(self, payload: ImportDoiRequest, auth: AuthContext | None = None) -> ImportResult:
         candidate = fetch_doi_candidate(payload.doi)
-        result = self._materialize_import_candidate(
+        return self._materialize_import_candidate(
             candidate.source,
             excerpt_text=candidate.excerpt_text,
             question_id=payload.question_id,
@@ -872,9 +899,8 @@ class RegistryService:
             namespace_kind=payload.namespace_kind,
             namespace_id=payload.namespace_id,
             auth=auth,
+            captured_candidate=candidate,
         )
-        self._persist_imported_version(candidate, result.source_ids[0])
-        return result
 
     def import_bibtex(self, payload: ImportBibtexRequest, auth: AuthContext | None = None) -> ImportResult:
         source_ids: list[str] = []
@@ -1100,6 +1126,57 @@ class RegistryService:
 
     def review(self, payload: ReviewRequest, auth: AuthContext | None = None) -> None:
         canonical_kind = self._canonical_kind(payload.kind)
+        target = self._v2_review_target(canonical_kind, payload.record_id)
+        if target is not None:
+            if not payload.reviewed:
+                raise PermissionError(
+                    "projected v2 review history is append-only; reviewed=false "
+                    "cannot erase an existing decision"
+                )
+            if target["review_state"] == "reviewed":
+                return
+            actor_id = (
+                auth.api_key_id
+                if auth is not None and auth.api_key_id is not None
+                else auth.actor_user_id
+                if auth is not None and auth.actor_user_id is not None
+                else auth.actor_org_id
+                if auth is not None
+                else None
+            )
+            result = ResearchReviewService(self.database).review(
+                ResearchReviewRequest(
+                    protocol="research-review/v2",
+                    idempotency_key=self._legacy_review_idempotency_key(
+                        canonical_kind, payload.record_id, payload.reviewed
+                    ),
+                    entity={
+                        "kind": target["entity_kind"],
+                        "id": target["entity_id"],
+                    },
+                    action="approve",
+                    expected_revision_id=target["expected_revision_id"],
+                    expected_state=target["review_state"],
+                    note="Retained v1 HTTP review compatibility operation.",
+                ),
+                namespace_kind=target["namespace_kind"],
+                namespace_id=target["namespace_id"],
+                actor_type="human" if auth and auth.actor_user_id else "agent",
+                actor_id=actor_id,
+            )
+            with self.connect() as conn:
+                self._record_audit(
+                    conn,
+                    action="review",
+                    kind=canonical_kind,
+                    record_id=payload.record_id,
+                    auth=auth,
+                    details={
+                        "reviewed": True,
+                        "v2_review_event_id": result.event_id,
+                    },
+                )
+            return
         table_name = self._table_name(canonical_kind)
         with self.connect() as conn:
             if self._column_exists(conn, table_name, "human_reviewed"):
@@ -1120,6 +1197,90 @@ class RegistryService:
                 auth=auth,
                 details={"reviewed": payload.reviewed},
             )
+
+    def _legacy_review_idempotency_key(
+        self, kind: str, record_id: str, reviewed: bool
+    ) -> str:
+        digest = sha256(
+            f"legacy-http-review:{kind}:{record_id}:{int(reviewed)}".encode()
+        ).hexdigest()
+        return f"legacy-http-review-{digest}"
+
+    def _v2_review_target(
+        self, kind: str, record_id: str
+    ) -> dict[str, str | None] | None:
+        with self.connect() as conn:
+            if "review_events" not in self._list_tables(conn):
+                return None
+            if kind == "claim":
+                row = conn.execute(
+                    """
+                    SELECT current_revision_id AS entity_id, review_state,
+                           namespace_kind, namespace_id
+                    FROM claims
+                    WHERE id = ? AND current_revision_id IS NOT NULL
+                    """,
+                    (record_id,),
+                ).fetchone()
+                entity_kind = "claim_revision"
+            elif kind == "source":
+                row = conn.execute(
+                    """
+                    SELECT sv.id AS entity_id, s.review_state,
+                           s.namespace_kind, s.namespace_id
+                    FROM source_versions sv
+                    JOIN sources s ON s.id = sv.source_id
+                    WHERE s.id = ?
+                    ORDER BY sv.retrieved_at DESC, sv.created_at DESC, sv.id DESC
+                    LIMIT 1
+                    """,
+                    (record_id,),
+                ).fetchone()
+                entity_kind = "source_version"
+            elif kind == "excerpt":
+                row = conn.execute(
+                    """
+                    SELECT e.id AS entity_id, e.review_state,
+                           s.namespace_kind, s.namespace_id
+                    FROM legacy_projection_identity lpi
+                    JOIN evidence_spans e
+                      ON e.id = lpi.v2_id AND lpi.v2_kind = 'evidence'
+                    JOIN source_versions sv ON sv.id = e.source_version_id
+                    JOIN sources s ON s.id = sv.source_id
+                    WHERE lpi.legacy_kind = 'excerpt'
+                      AND lpi.legacy_id = ?
+                    """,
+                    (record_id,),
+                ).fetchone()
+                entity_kind = "evidence"
+            elif kind == "report":
+                row = conn.execute(
+                    """
+                    SELECT r.id AS entity_id, r.review_state,
+                           r.namespace_kind, r.namespace_id
+                    FROM legacy_projection_identity lpi
+                    JOIN reports r ON r.id = lpi.v2_id
+                    WHERE lpi.legacy_kind = 'report'
+                      AND lpi.legacy_id = ?
+                      AND lpi.v2_kind = 'report'
+                    """,
+                    (record_id,),
+                ).fetchone()
+                entity_kind = "report"
+            else:
+                return None
+        if row is None:
+            return None
+        return {
+            "entity_kind": entity_kind,
+            "entity_id": row["entity_id"],
+            "expected_revision_id": (
+                row["entity_id"] if entity_kind == "claim_revision" else None
+            ),
+            "review_state": row["review_state"],
+            "namespace_kind": row["namespace_kind"],
+            "namespace_id": row["namespace_id"],
+        }
 
     def set_index_state(self, payload: IndexStateRequest, auth: AuthContext | None = None) -> None:
         if auth is not None and not auth.is_admin:
@@ -1151,7 +1312,12 @@ class RegistryService:
         namespace_kind: str,
         namespace_id: str,
         auth: AuthContext | None,
+        captured_candidate: ImportedSourceCandidate | None = None,
     ) -> ImportResult:
+        has_captured_version = (
+            captured_candidate is not None
+            and captured_candidate.version is not None
+        )
         source_record = self.create_source(
             source.model_copy(
                 update={
@@ -1161,7 +1327,24 @@ class RegistryService:
                 }
             ),
             auth=auth,
+            _project_v2=not has_captured_version,
         )
+        source_version_id: str | None = None
+        if has_captured_version:
+            assert captured_candidate is not None
+            source_version_id = self._persist_imported_version(
+                captured_candidate,
+                source_record.id,
+            )
+            assert source_version_id is not None
+            with self.connect() as conn:
+                V2BackfillRepository(conn).record_projection_identity(
+                    "source",
+                    source_record.id,
+                    "source_version",
+                    source_version_id,
+                    update_existing=True,
+                )
         excerpt_ids: list[str] = []
         if question_id and excerpt_text:
             question = self.get_question(question_id, include_private=True, auth=auth)
@@ -1175,10 +1358,19 @@ class RegistryService:
                     quote_text=excerpt_text,
                     namespace_kind=namespace_kind,
                     namespace_id=namespace_id,
-                    dedupe_key=f"import-excerpt:{question.id}:{source_record.id}",
+                    dedupe_key=(
+                        f"import-excerpt:{question.id}:{source_record.id}"
+                        + (
+                            f":{source_version_id}"
+                            if source_version_id is not None
+                            else ""
+                        )
+                    ),
                     refresh_due_at=source_record.refresh_due_at,
                 ),
                 auth=auth,
+                _project_v2=not has_captured_version,
+                _source_version_id=source_version_id,
             )
             excerpt_ids.append(excerpt.id)
         elif question_id and not excerpt_text:
@@ -1195,9 +1387,9 @@ class RegistryService:
         self,
         candidate: ImportedSourceCandidate,
         source_id: str,
-    ) -> None:
+    ) -> str | None:
         if candidate.version is None:
-            return
+            return None
         if self.db_path is not None:
             blob_root = self.db_path.parent / "blobs"
         else:
@@ -1207,10 +1399,11 @@ class RegistryService:
                 .resolve()
                 / "blobs"
             )
-        SourceVersionService(
+        result = SourceVersionService(
             self.database,
             FilesystemBlobStore(blob_root),
         ).create_or_reuse(candidate.version.source_version_spec(source_id))
+        return result.record.id
 
     def _create_follow_up_questions(
         self,
@@ -1518,13 +1711,15 @@ class RegistryService:
             raise PermissionError("invalid api key")
         if row["status"] != "active":
             raise PermissionError("api key is not active")
+        scopes = json.loads(row["scopes_json"])
         return AuthContext(
             api_key_id=row["id"],
             actor_user_id=row["actor_user_id"],
             actor_org_id=row["actor_org_id"],
             namespace_kind=row["namespace_kind"],
             namespace_id=row["namespace_id"],
-            scopes=json.loads(row["scopes_json"]),
+            scopes=scopes,
+            is_admin="admin" in scopes,
         )
 
     def _create_schema_legacy(self, conn: DbConnection) -> None:
@@ -3189,7 +3384,7 @@ class RegistryService:
         )
 
     def _encode_dt(self, value: datetime | None) -> str | None:
-        return value.isoformat() if value else None
+        return utc_text(value) if value else None
 
     def _decode_dt(self, value: str | None) -> datetime | None:
         return datetime.fromisoformat(value) if value else None

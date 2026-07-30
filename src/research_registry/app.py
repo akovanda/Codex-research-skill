@@ -818,6 +818,8 @@ def _safe_mutation(operation):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ReviewError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _status_ok(_: object = None) -> dict[str, str]:

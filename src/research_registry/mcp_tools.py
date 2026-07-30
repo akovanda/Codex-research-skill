@@ -524,7 +524,10 @@ def create_mcp_server(
         evidence: Annotated[list[DepositEvidence], Field(max_length=200)],
         claims: Annotated[list[DepositClaim], Field(max_length=100)],
         validate_only: bool = False,
-        visibility: Literal["private", "shared", "public"] = "private",
+        visibility: Annotated[
+            Literal["private"],
+            Field(json_schema_extra={"enum": ["private"]}),
+        ] = "private",
         namespace: NamespaceSelector | None = None,
         inquiry: DepositInquiry | None = None,
         report: DepositReport | None = None,

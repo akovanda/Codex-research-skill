@@ -10,6 +10,7 @@ from ..db import DatabaseTarget, connect_database, resolve_database_target
 from ..retrieval.lexical import create_lexical_adapter
 from ..retrieval.models import SearchDocument
 from ..retrieval.relationships import expand_relationships
+from ..timestamps import freshness_case, utc_text
 
 
 @dataclass(frozen=True)
@@ -170,7 +171,7 @@ class CurrentRetrievalAdapter:
                 rows = conn.execute(
                     self._candidate_sql(kind, clause),
                     (
-                        (self.clock().astimezone(timezone.utc).isoformat(),)
+                        (utc_text(self.clock()),)
                         if kind == "source"
                         else ()
                     )
@@ -200,7 +201,7 @@ class CurrentRetrievalAdapter:
                     self._record_sql(kind, clause),
                     (
                         (
-                            self.clock().astimezone(timezone.utc).isoformat(),
+                            utc_text(self.clock()),
                             record_id,
                             *parameters,
                         )
@@ -678,8 +679,10 @@ class CurrentRetrievalAdapter:
             (),
         )
 
-    @staticmethod
-    def _candidate_sql(kind: str, access_clause: str) -> str:
+    def _candidate_sql(self, kind: str, access_clause: str) -> str:
+        source_freshness = freshness_case(
+            "s.refresh_due_at", dialect=self.database.kind
+        )
         sql = {
             "question": f"""
                 SELECT q.id, q.prompt AS title, q.prompt AS summary,
@@ -707,9 +710,7 @@ class CurrentRetrievalAdapter:
                     (s.title || ' ' || s.locator || ' ' ||
                      COALESCE(s.snippet, '')) AS search_text,
                     s.review_state, s.conflict_state,
-                    CASE WHEN s.refresh_due_at IS NULL THEN 'unknown'
-                         WHEN s.refresh_due_at <= ? THEN 'needs_refresh'
-                         ELSE 'fresh' END AS freshness,
+                    {source_freshness} AS freshness,
                     (SELECT COUNT(*) FROM evidence_spans e
                      JOIN source_versions sv ON sv.id = e.source_version_id
                      WHERE sv.source_id = s.id) AS evidence_count,
@@ -867,8 +868,10 @@ class CurrentRetrievalAdapter:
         }
         return sql[kind]
 
-    @staticmethod
-    def _record_sql(kind: str, access_clause: str) -> str:
+    def _record_sql(self, kind: str, access_clause: str) -> str:
+        source_freshness = freshness_case(
+            "s.refresh_due_at", dialect=self.database.kind
+        )
         sql = {
             "claim": f"""
                 SELECT c.*, COALESCE(cr.title, c.title) AS read_title,
@@ -973,9 +976,7 @@ class CurrentRetrievalAdapter:
             "source": f"""
                 SELECT s.*, s.title AS read_title,
                     COALESCE(s.snippet, s.locator) AS read_text,
-                    CASE WHEN s.refresh_due_at IS NULL THEN 'unknown'
-                         WHEN s.refresh_due_at <= ? THEN 'needs_refresh'
-                         ELSE 'fresh' END AS freshness
+                    {source_freshness} AS freshness
                 FROM sources s
                 WHERE s.id = ? AND {access_clause}
             """,

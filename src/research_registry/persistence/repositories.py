@@ -10,6 +10,7 @@ from uuid import UUID, uuid5
 
 from ..db import DbConnection
 from ..ingestion.blobs import BlobReference
+from ..timestamps import is_due, utc_text
 
 
 V2_MIGRATION_ID = "0003_v2_evidence"
@@ -2153,9 +2154,11 @@ class SourceVersionRepository:
 class V2BackfillRepository:
     def __init__(self, conn: DbConnection, *, now_text: str | None = None):
         self.conn = conn
-        self.now_text = now_text or datetime.now(timezone.utc).replace(
-            microsecond=0
-        ).isoformat()
+        self.now_text = (
+            utc_text(datetime.fromisoformat(now_text.replace("Z", "+00:00")))
+            if now_text is not None
+            else utc_text(datetime.now(timezone.utc).replace(microsecond=0))
+        )
 
     def initialize_progress(
         self, phases: Iterable[str], *, updated_at: str
@@ -2171,6 +2174,241 @@ class V2BackfillRepository:
                 """,
                 (V2_MIGRATION_ID, phase, updated_at),
             )
+
+    def adopt_authoritative_projection_identities(self) -> None:
+        """Persist explicit identities for v2-alpha rows created before 0006."""
+        sources = self.conn.execute(
+            """
+            SELECT s.id
+            FROM sources s
+            WHERE EXISTS (
+                SELECT 1
+                FROM source_versions sv
+                WHERE sv.source_id = s.id
+                  AND sv.version_kind <> 'migration'
+            )
+            ORDER BY s.id
+            """
+        ).fetchall()
+        for source in sources:
+            version = self.conn.execute(
+                """
+                SELECT id
+                FROM source_versions
+                WHERE source_id = ? AND version_kind <> 'migration'
+                ORDER BY created_at, id
+                LIMIT 1
+                """,
+                (source["id"],),
+            ).fetchone()
+            assert version is not None
+            self.record_projection_identity(
+                "source",
+                source["id"],
+                "source_version",
+                version["id"],
+                update_existing=False,
+            )
+
+        evidence_rows = self.conn.execute(
+            """
+            SELECT id, metadata_json
+            FROM evidence_spans
+            ORDER BY created_at, id
+            """
+        ).fetchall()
+        for evidence in evidence_rows:
+            legacy_excerpt_id = _json_object(evidence["metadata_json"]).get(
+                "v1_excerpt_id"
+            )
+            if not isinstance(legacy_excerpt_id, str):
+                continue
+            if (
+                self.conn.execute(
+                    "SELECT id FROM excerpts WHERE id = ?",
+                    (legacy_excerpt_id,),
+                ).fetchone()
+                is None
+            ):
+                continue
+            self.record_projection_identity(
+                "excerpt",
+                legacy_excerpt_id,
+                "evidence",
+                evidence["id"],
+                update_existing=False,
+            )
+
+        claims = self.conn.execute(
+            """
+            SELECT id, current_revision_id
+            FROM claims
+            WHERE current_revision_id IS NOT NULL
+            ORDER BY id
+            """
+        ).fetchall()
+        for claim in claims:
+            self.record_projection_identity(
+                "claim",
+                claim["id"],
+                "claim_revision",
+                claim["current_revision_id"],
+                update_existing=False,
+            )
+
+        receipts = self.conn.execute(
+            """
+            SELECT response_json FROM idempotency_keys
+            WHERE operation = 'research_deposit_v2'
+            ORDER BY created_at
+            """
+        ).fetchall()
+        for receipt in receipts:
+            records = _json_object(receipt["response_json"]).get("records")
+            if not isinstance(records, dict):
+                continue
+            self._adopt_receipt_identity_pairs(
+                records.get("source_ids"),
+                records.get("source_version_ids"),
+                legacy_kind="source",
+                v2_kind="source_version",
+                target_table="source_versions",
+                target_parent_column="source_id",
+            )
+            self._adopt_receipt_identity_pairs(
+                records.get("claim_ids"),
+                records.get("claim_revision_ids"),
+                legacy_kind="claim",
+                v2_kind="claim_revision",
+                target_table="claim_revisions",
+                target_parent_column="claim_id",
+            )
+            report_id = (
+                records.get("report_id")
+            )
+            if not isinstance(report_id, str):
+                continue
+            if (
+                self.conn.execute(
+                    "SELECT id FROM reports WHERE id = ?", (report_id,)
+                ).fetchone()
+                is None
+            ):
+                continue
+            self.record_projection_identity(
+                "report",
+                report_id,
+                "report",
+                report_id,
+                update_existing=False,
+            )
+
+    def _adopt_receipt_identity_pairs(
+        self,
+        legacy_ids: Any,
+        v2_ids: Any,
+        *,
+        legacy_kind: str,
+        v2_kind: str,
+        target_table: str,
+        target_parent_column: str,
+    ) -> None:
+        if not isinstance(legacy_ids, dict) or not isinstance(v2_ids, dict):
+            return
+        for client_ref, legacy_id in legacy_ids.items():
+            v2_id = v2_ids.get(client_ref)
+            if not isinstance(legacy_id, str) or not isinstance(v2_id, str):
+                continue
+            target = self.conn.execute(
+                f"""
+                SELECT metadata_json
+                FROM {target_table}
+                WHERE id = ? AND {target_parent_column} = ?
+                """,
+                (v2_id, legacy_id),
+            ).fetchone()
+            if target is None:
+                continue
+            self.record_projection_identity(
+                legacy_kind,
+                legacy_id,
+                v2_kind,
+                v2_id,
+                update_existing=True,
+            )
+            if legacy_kind != "claim":
+                continue
+            current = self.conn.execute(
+                """
+                SELECT c.current_revision_id, cr.metadata_json
+                FROM claims c
+                LEFT JOIN claim_revisions cr ON cr.id = c.current_revision_id
+                WHERE c.id = ?
+                """,
+                (legacy_id,),
+            ).fetchone()
+            if (
+                current is not None
+                and current["current_revision_id"] != v2_id
+                and _json_object(current["metadata_json"]).get("migration_id")
+                == V2_MIGRATION_ID
+            ):
+                self.conn.execute(
+                    "UPDATE claims SET current_revision_id = ? WHERE id = ?",
+                    (v2_id, legacy_id),
+                )
+
+    def record_projection_identity(
+        self,
+        legacy_kind: str,
+        legacy_id: str,
+        v2_kind: str,
+        v2_id: str,
+        *,
+        update_existing: bool,
+    ) -> None:
+        conflict_action = (
+            """
+            DO UPDATE SET
+                v2_kind = excluded.v2_kind,
+                v2_id = excluded.v2_id,
+                updated_at = excluded.updated_at
+            """
+            if update_existing
+            else "DO NOTHING"
+        )
+        self.conn.execute(
+            f"""
+            INSERT INTO legacy_projection_identity (
+                legacy_kind, legacy_id, v2_kind, v2_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(legacy_kind, legacy_id) {conflict_action}
+            """,
+            (
+                legacy_kind,
+                legacy_id,
+                v2_kind,
+                v2_id,
+                self.now_text,
+                self.now_text,
+            ),
+        )
+
+    def projection_target(
+        self,
+        legacy_kind: str,
+        legacy_id: str,
+        v2_kind: str,
+    ) -> str | None:
+        row = self.conn.execute(
+            """
+            SELECT v2_id
+            FROM legacy_projection_identity
+            WHERE legacy_kind = ? AND legacy_id = ? AND v2_kind = ?
+            """,
+            (legacy_kind, legacy_id, v2_kind),
+        ).fetchone()
+        return row["v2_id"] if row is not None else None
 
     def progress(self) -> list[Any]:
         return self.conn.execute(
@@ -2344,6 +2582,87 @@ class V2BackfillRepository:
             return
         raise ValueError(f"unsupported retained v1 write kind: {kind}")
 
+    def project_imported_excerpt(
+        self,
+        excerpt_id: str,
+        *,
+        source_version_id: str,
+        evidence_id: str,
+    ) -> str:
+        existing_id = self.projection_target(
+            "excerpt", excerpt_id, "evidence"
+        )
+        if existing_id is not None:
+            return existing_id
+        row = self.conn.execute(
+            """
+            SELECT e.*, rs.freshness_state AS session_freshness_state
+            FROM excerpts e
+            LEFT JOIN research_sessions rs ON rs.id = e.session_id
+            WHERE e.id = ?
+            """,
+            (excerpt_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"excerpt:{excerpt_id} not found")
+        version = self.conn.execute(
+            "SELECT source_id FROM source_versions WHERE id = ?",
+            (source_version_id,),
+        ).fetchone()
+        if version is None or version["source_id"] != row["source_id"]:
+            raise ValueError(
+                "imported evidence source version must belong to its source"
+            )
+        record = evidence_span_from_legacy(
+            row,
+            source_version_id=source_version_id,
+            persisted=True,
+        )
+        metadata = {
+            **record.metadata,
+            "projection_origin": "import",
+            "v1_excerpt_id": excerpt_id,
+        }
+        metadata.pop("migration_id", None)
+        metadata.pop("migration_warnings", None)
+        self.conn.execute(
+            """
+            INSERT INTO evidence_spans (
+                id, source_version_id, topic_id, question_id, session_id,
+                quote_text, quote_sha256, selector_type, selector_json, note,
+                confidence, anchor_state, review_state, trust_tier,
+                created_by_model, created_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                evidence_id,
+                record.source_version_id,
+                record.topic_id,
+                record.question_id,
+                record.session_id,
+                record.quote_text,
+                record.quote_sha256,
+                record.selector_type,
+                canonical_json(record.selector),
+                record.note,
+                record.confidence,
+                record.anchor_state,
+                record.review_state,
+                record.trust_tier,
+                record.created_by_model,
+                record.created_at,
+                canonical_json(metadata),
+            ),
+        )
+        self.record_projection_identity(
+            "excerpt",
+            excerpt_id,
+            "evidence",
+            evidence_id,
+            update_existing=False,
+        )
+        return evidence_id
+
     def update_progress(
         self,
         phase: str,
@@ -2395,6 +2714,19 @@ class V2BackfillRepository:
         return int(warning_count), int(error_count)
 
     def _process_source(self, row: Any) -> tuple[int, int]:
+        mapped_id = self.projection_target(
+            "source", row["id"], "source_version"
+        )
+        if mapped_id is not None:
+            mapped = self.conn.execute(
+                """
+                SELECT id FROM source_versions
+                WHERE id = ? AND source_id = ?
+                """,
+                (mapped_id, row["id"]),
+            ).fetchone()
+            if mapped is not None:
+                return 0, 0
         record = source_version_from_legacy(row, persisted=True)
         self.conn.execute(
             """
@@ -2418,6 +2750,13 @@ class V2BackfillRepository:
                 record.created_at,
             ),
         )
+        self.record_projection_identity(
+            "source",
+            row["id"],
+            "source_version",
+            record.id,
+            update_existing=False,
+        )
         warnings = record.metadata["migration_warnings"]
         self._record_warnings("source", row["id"], warnings, row["created_at"])
         self._record_legacy_state(
@@ -2430,6 +2769,16 @@ class V2BackfillRepository:
         return len(warnings), 0
 
     def _process_evidence(self, row: Any) -> tuple[int, int]:
+        mapped_id = self.projection_target(
+            "excerpt", row["id"], "evidence"
+        )
+        if mapped_id is not None:
+            mapped = self.conn.execute(
+                "SELECT id FROM evidence_spans WHERE id = ?",
+                (mapped_id,),
+            ).fetchone()
+            if mapped is not None:
+                return 0, 0
         if not row["quote_text"]:
             self._record_error(
                 "excerpt",
@@ -2439,13 +2788,10 @@ class V2BackfillRepository:
                 row["created_at"],
             )
             return 0, 1
-        source_version_id = deterministic_v2_id(
-            "srcv", "source", row["source_id"]
+        source_version_id = self.projection_target(
+            "source", row["source_id"], "source_version"
         )
-        if self.conn.execute(
-            "SELECT id FROM source_versions WHERE id = ?",
-            (source_version_id,),
-        ).fetchone() is None:
+        if source_version_id is None:
             self._record_error(
                 "excerpt",
                 row["id"],
@@ -2489,6 +2835,13 @@ class V2BackfillRepository:
                 canonical_json(record.metadata),
             ),
         )
+        self.record_projection_identity(
+            "excerpt",
+            row["id"],
+            "evidence",
+            record.id,
+            update_existing=False,
+        )
         warnings = record.metadata["migration_warnings"]
         self._record_warnings("excerpt", row["id"], warnings, row["created_at"])
         self._record_legacy_state(
@@ -2501,6 +2854,19 @@ class V2BackfillRepository:
         return len(warnings), 0
 
     def _process_claim(self, row: Any) -> tuple[int, int]:
+        mapped_id = self.projection_target(
+            "claim", row["id"], "claim_revision"
+        )
+        if mapped_id is not None:
+            mapped = self.conn.execute(
+                """
+                SELECT id FROM claim_revisions
+                WHERE id = ? AND claim_id = ?
+                """,
+                (mapped_id, row["id"]),
+            ).fetchone()
+            if mapped is not None:
+                return 0, 0
         record = claim_revision_from_legacy(row, persisted=True)
         if record.status == "supported":
             legacy_links = self.conn.execute(
@@ -2516,8 +2882,8 @@ class V2BackfillRepository:
                 self.conn.execute(
                     "SELECT id FROM evidence_spans WHERE id = ?",
                     (
-                        deterministic_v2_id(
-                            "evd", "excerpt", link["excerpt_id"]
+                        self.projection_target(
+                            "excerpt", link["excerpt_id"], "evidence"
                         ),
                     ),
                 ).fetchone()
@@ -2554,6 +2920,13 @@ class V2BackfillRepository:
                 canonical_json(record.metadata),
             ),
         )
+        self.record_projection_identity(
+            "claim",
+            row["id"],
+            "claim_revision",
+            record.id,
+            update_existing=False,
+        )
         warnings = record.metadata["migration_warnings"]
         self._record_warnings("claim", row["id"], warnings, row["created_at"])
         self._record_legacy_state(
@@ -2566,19 +2939,13 @@ class V2BackfillRepository:
         return len(warnings), 0
 
     def _process_claim_evidence(self, row: Any) -> tuple[int, int]:
-        revision_id = deterministic_v2_id(
-            "clmr", "claim", row["claim_id"]
+        revision_id = self.projection_target(
+            "claim", row["claim_id"], "claim_revision"
         )
-        evidence_id = deterministic_v2_id(
-            "evd", "excerpt", row["excerpt_id"]
+        evidence_id = self.projection_target(
+            "excerpt", row["excerpt_id"], "evidence"
         )
-        revision_exists = self.conn.execute(
-            "SELECT id FROM claim_revisions WHERE id = ?", (revision_id,)
-        ).fetchone()
-        evidence_exists = self.conn.execute(
-            "SELECT id FROM evidence_spans WHERE id = ?", (evidence_id,)
-        ).fetchone()
-        if revision_exists is None or evidence_exists is None:
+        if revision_id is None or evidence_id is None:
             self._record_error(
                 "claim_evidence",
                 f"{row['claim_id']}:{row['excerpt_id']}",
@@ -2606,7 +2973,11 @@ class V2BackfillRepository:
         return 0, 0
 
     def _process_claim_pointer(self, row: Any) -> tuple[int, int]:
-        revision_id = deterministic_v2_id("clmr", "claim", row["id"])
+        revision_id = self.projection_target(
+            "claim", row["id"], "claim_revision"
+        )
+        if row["current_revision_id"] is not None:
+            return 0, 0
         revision = self.conn.execute(
             "SELECT * FROM claim_revisions WHERE id = ?", (revision_id,)
         ).fetchone()
@@ -2630,7 +3001,7 @@ class V2BackfillRepository:
                 status = ?,
                 confidence = ?,
                 updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND current_revision_id IS NULL
             """,
             (
                 revision_id,
@@ -2645,6 +3016,13 @@ class V2BackfillRepository:
         return 0, 0
 
     def _process_report_state(self, row: Any) -> tuple[int, int]:
+        self.record_projection_identity(
+            "report",
+            row["id"],
+            "report",
+            row["id"],
+            update_existing=False,
+        )
         self._record_legacy_state(
             row,
             event_entity_kind="report",
@@ -2804,9 +3182,8 @@ class V2BackfillRepository:
 
         refresh_due_at = row["refresh_due_at"]
         freshness_state = _optional_row_value(row, "session_freshness_state")
-        if (
-            refresh_due_at is not None
-            and refresh_due_at <= self.now_text
+        if is_due(
+            refresh_due_at, now=self.now_text
         ) or freshness_state in {"needs_refresh", "stale"}:
             self._insert_refresh(
                 refresh_entity_kind,
@@ -2907,6 +3284,20 @@ class V2ReadRepository:
         self.conn = conn
 
     def get_source_version(self, source_id: str) -> SourceVersionRecord:
+        mapped = self.conn.execute(
+            """
+            SELECT sv.*
+            FROM legacy_projection_identity lpi
+            JOIN source_versions sv ON sv.id = lpi.v2_id
+            WHERE lpi.legacy_kind = 'source'
+              AND lpi.legacy_id = ?
+              AND lpi.v2_kind = 'source_version'
+              AND sv.source_id = ?
+            """,
+            (source_id, source_id),
+        ).fetchone()
+        if mapped is not None:
+            return self._source_version_from_row(mapped)
         row = self.conn.execute(
             """
             SELECT * FROM source_versions
@@ -2928,6 +3319,19 @@ class V2ReadRepository:
     def get_evidence_for_legacy_excerpt(
         self, excerpt_id: str
     ) -> EvidenceSpanRecord:
+        mapped = self.conn.execute(
+            """
+            SELECT e.*
+            FROM legacy_projection_identity lpi
+            JOIN evidence_spans e ON e.id = lpi.v2_id
+            WHERE lpi.legacy_kind = 'excerpt'
+              AND lpi.legacy_id = ?
+              AND lpi.v2_kind = 'evidence'
+            """,
+            (excerpt_id,),
+        ).fetchone()
+        if mapped is not None:
+            return self._evidence_from_row(mapped)
         evidence_id = deterministic_v2_id("evd", "excerpt", excerpt_id)
         row = self.conn.execute(
             "SELECT * FROM evidence_spans WHERE id = ?", (evidence_id,)
@@ -3016,11 +3420,21 @@ class V2ReadRepository:
         ).fetchall()
         return [
             ClaimEvidenceRecord(
-                claim_revision_id=deterministic_v2_id(
-                    "clmr", "claim", row["claim_id"]
+                claim_revision_id=(
+                    self._projection_target(
+                        "claim", row["claim_id"], "claim_revision"
+                    )
+                    or deterministic_v2_id(
+                        "clmr", "claim", row["claim_id"]
+                    )
                 ),
-                evidence_span_id=deterministic_v2_id(
-                    "evd", "excerpt", row["excerpt_id"]
+                evidence_span_id=(
+                    self._projection_target(
+                        "excerpt", row["excerpt_id"], "evidence"
+                    )
+                    or deterministic_v2_id(
+                        "evd", "excerpt", row["excerpt_id"]
+                    )
                 ),
                 relationship="supports",
                 rationale=row["rationale"],
@@ -3031,6 +3445,22 @@ class V2ReadRepository:
             )
             for row in legacy_rows
         ]
+
+    def _projection_target(
+        self,
+        legacy_kind: str,
+        legacy_id: str,
+        v2_kind: str,
+    ) -> str | None:
+        row = self.conn.execute(
+            """
+            SELECT v2_id
+            FROM legacy_projection_identity
+            WHERE legacy_kind = ? AND legacy_id = ? AND v2_kind = ?
+            """,
+            (legacy_kind, legacy_id, v2_kind),
+        ).fetchone()
+        return row["v2_id"] if row is not None else None
 
     def _source_version_from_row(self, row: Any) -> SourceVersionRecord:
         return SourceVersionRepository._source_version_from_row(row)

@@ -14,6 +14,7 @@ from ..db import (
     connect_database,
     resolve_database_target,
 )
+from ..timestamps import freshness_case
 from .models import SearchDocument
 
 
@@ -131,7 +132,11 @@ def _project_documents(
 ) -> Iterable[SearchDocument]:
     for row in conn.execute(_QUESTION_SQL).fetchall():
         yield _document(row)
-    for row in conn.execute(_SOURCE_SQL, (now_text,)).fetchall():
+    source_sql = _SOURCE_SQL.replace(
+        "__FRESHNESS_CASE__",
+        freshness_case("s.refresh_due_at", dialect=conn.target.kind),
+    )
+    for row in conn.execute(source_sql, (now_text,)).fetchall():
         yield _document(row, doi=normalize_doi(row["locator"]))
     for row in conn.execute(_SOURCE_VERSION_SQL).fetchall():
         yield _document(row, doi=normalize_doi(row["locator"]))
@@ -252,9 +257,7 @@ SELECT
     s.locator, NULL AS doi, NULL AS repository, NULL AS path,
     NULL AS canonical_key, NULL AS topic_slug, NULL AS quote_hash,
     s.dedupe_key, s.review_state, s.trust_tier, s.conflict_state,
-    CASE WHEN s.refresh_due_at IS NULL THEN 'unknown'
-         WHEN s.refresh_due_at <= ? THEN 'needs_refresh'
-         ELSE 'fresh' END AS freshness,
+    __FRESHNESS_CASE__ AS freshness,
     NULL AS status,
     (SELECT COUNT(*) FROM evidence_spans e
      JOIN source_versions sv ON sv.id = e.source_version_id
