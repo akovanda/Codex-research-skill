@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from pathlib import Path
 import sqlite3
 
@@ -13,7 +14,10 @@ from research_registry.backup import (
     restore_sqlite_backup,
     verify_sqlite_backup,
 )
+from research_registry.application.source_versions import SourceVersionService
 from research_registry.data_audit import audit_database
+from research_registry.domain.sources import SourceVersionSpec
+from research_registry.ingestion.blobs import FilesystemBlobStore
 from research_registry.service import RegistryService
 from tests.fixtures.v1 import populate_v1_fixture
 
@@ -110,3 +114,64 @@ def test_postgres_backup_plan_redacts_credentials_and_uses_argv() -> None:
     )
     assert plan["credential_handling"]["executable"] is False
     assert "shell_command" not in rendered
+
+
+def test_sqlite_backup_inventories_referenced_blobs_without_content(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.sqlite3"
+    backup = tmp_path / "backup.sqlite3"
+    manifest = tmp_path / "backup.manifest.json"
+    blob_root = tmp_path / "blobs"
+    service = RegistryService(source)
+    service.initialize()
+    with service.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO sources (
+                id, locator, title, source_type, visibility, created_at
+            ) VALUES ('src_backup_blob', 'note:backup', 'Backup blob', 'note',
+                      'private', '2026-07-30T00:00:00+00:00')
+            """
+        )
+    content = b"private-backup-blob-body-sentinel"
+    digest = sha256(content).hexdigest()
+    SourceVersionService(
+        service.database,
+        FilesystemBlobStore(blob_root),
+    ).create_or_reuse(
+        SourceVersionSpec(
+            source_id="src_backup_blob",
+            version_key=None,
+            version_kind="note",
+            retrieved_at="2026-07-30T00:00:00+00:00",
+            content_sha256=digest,
+            canonical_locator="note:backup",
+            snapshot_policy="full_content",
+            snapshot_bytes=content,
+            media_type="text/plain",
+            byte_count=len(content),
+        )
+    )
+
+    created = backup_sqlite(
+        source,
+        backup,
+        manifest_path=manifest,
+        blob_root=blob_root,
+    )
+    verified = verify_sqlite_backup(backup, manifest, blob_root=blob_root)
+    rendered = manifest.read_text(encoding="utf-8")
+
+    assert created["blob_inventory"]["status"] == "verified"
+    assert created["blob_inventory"]["referenced_objects"] == 1
+    assert created["blob_inventory"]["objects"] == [
+        {
+            "byte_count": len(content),
+            "media_type": "text/plain",
+            "sha256": digest,
+            "storage_key": f"sha256/{digest[:2]}/{digest[2:4]}/{digest}",
+        }
+    ]
+    assert verified["blob_references"] == 1
+    assert "private-backup-blob-body-sentinel" not in rendered

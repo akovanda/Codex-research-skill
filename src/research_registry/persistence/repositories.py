@@ -8,6 +8,7 @@ from typing import Any, Iterable
 from uuid import UUID, uuid5
 
 from ..db import DbConnection
+from ..ingestion.blobs import BlobReference
 
 
 V2_MIGRATION_ID = "0003_v2_evidence"
@@ -69,6 +70,19 @@ def deterministic_v2_id(prefix: str, kind: str, legacy_id: str) -> str:
 
 
 @dataclass(frozen=True)
+class ContentObjectRecord:
+    id: str
+    sha256: str
+    storage_backend: str
+    storage_key: str
+    media_type: str | None
+    byte_count: int
+    compression: str
+    created_at: str
+    metadata: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class SourceVersionRecord:
     id: str
     source_id: str
@@ -80,6 +94,15 @@ class SourceVersionRecord:
     canonical_locator: str
     metadata: dict[str, Any]
     created_at: str
+    content_object_id: str | None = None
+    media_type: str | None = None
+    byte_count: int | None = None
+    parser_name: str | None = None
+    parser_version: str | None = None
+    repository_locator: str | None = None
+    commit_sha: str | None = None
+    blob_sha: str | None = None
+    path: str | None = None
     persisted: bool = True
 
 
@@ -402,6 +425,195 @@ def _optional_row_value(row: Any, field: str) -> Any:
         return row[field]
     except (IndexError, KeyError):
         return None
+
+
+class SourceVersionRepository:
+    """SQL boundary for immutable content objects and source versions."""
+
+    def __init__(self, conn: DbConnection):
+        self.conn = conn
+
+    def find_content_by_sha256(
+        self,
+        content_sha256: str,
+    ) -> ContentObjectRecord | None:
+        row = self.conn.execute(
+            "SELECT * FROM content_objects WHERE sha256 = ?",
+            (content_sha256,),
+        ).fetchone()
+        return self._content_from_row(row) if row is not None else None
+
+    def get_content_object(self, content_object_id: str) -> ContentObjectRecord:
+        row = self.conn.execute(
+            "SELECT * FROM content_objects WHERE id = ?",
+            (content_object_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"content_object:{content_object_id} not found")
+        return self._content_from_row(row)
+
+    def insert_content_object(self, record: ContentObjectRecord) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO content_objects (
+                id, sha256, storage_backend, storage_key, media_type,
+                byte_count, compression, created_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.id,
+                record.sha256,
+                record.storage_backend,
+                record.storage_key,
+                record.media_type,
+                record.byte_count,
+                record.compression,
+                record.created_at,
+                canonical_json(record.metadata),
+            ),
+        )
+
+    def find_by_source_and_key(
+        self,
+        source_id: str,
+        version_key: str,
+    ) -> SourceVersionRecord | None:
+        row = self.conn.execute(
+            """
+            SELECT * FROM source_versions
+            WHERE source_id = ? AND version_key = ?
+            """,
+            (source_id, version_key),
+        ).fetchone()
+        return self._source_version_from_row(row) if row is not None else None
+
+    def get_source_version(self, source_version_id: str) -> SourceVersionRecord:
+        row = self.conn.execute(
+            "SELECT * FROM source_versions WHERE id = ?",
+            (source_version_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"source_version:{source_version_id} not found")
+        return self._source_version_from_row(row)
+
+    def insert_source_version(self, record: SourceVersionRecord) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO source_versions (
+                id, source_id, version_key, version_kind, retrieved_at,
+                published_at, content_sha256, content_object_id, media_type,
+                byte_count, parser_name, parser_version, canonical_locator,
+                repository_locator, commit_sha, blob_sha, path, metadata_json,
+                created_at
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                record.id,
+                record.source_id,
+                record.version_key,
+                record.version_kind,
+                record.retrieved_at,
+                record.published_at,
+                record.content_sha256,
+                record.content_object_id,
+                record.media_type,
+                record.byte_count,
+                record.parser_name,
+                record.parser_version,
+                record.canonical_locator,
+                record.repository_locator,
+                record.commit_sha,
+                record.blob_sha,
+                record.path,
+                canonical_json(record.metadata),
+                record.created_at,
+            ),
+        )
+
+    def list_referenced_blobs(self) -> list[BlobReference]:
+        rows = self.conn.execute(
+            """
+            SELECT DISTINCT
+                co.sha256, co.storage_key, co.byte_count, co.media_type
+            FROM content_objects co
+            JOIN source_versions sv ON sv.content_object_id = co.id
+            WHERE co.storage_backend = 'filesystem'
+            ORDER BY co.storage_key
+            """
+        ).fetchall()
+        return [
+            BlobReference(
+                sha256=row["sha256"],
+                storage_key=row["storage_key"],
+                byte_count=int(row["byte_count"]),
+                media_type=row["media_type"],
+            )
+            for row in rows
+        ]
+
+    def blob_reference_error_count(self) -> int:
+        row = self.conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM source_versions sv
+            LEFT JOIN content_objects co ON co.id = sv.content_object_id
+            WHERE sv.content_object_id IS NOT NULL
+              AND (
+                  co.id IS NULL
+                  OR co.storage_backend <> 'filesystem'
+                  OR co.sha256 <> sv.content_sha256
+                  OR co.byte_count <> sv.byte_count
+                  OR (
+                      co.media_type <> sv.media_type
+                      OR (co.media_type IS NULL AND sv.media_type IS NOT NULL)
+                      OR (co.media_type IS NOT NULL AND sv.media_type IS NULL)
+                  )
+              )
+            """
+        ).fetchone()
+        return int(row["count"])
+
+    @staticmethod
+    def _content_from_row(row: Any) -> ContentObjectRecord:
+        return ContentObjectRecord(
+            id=row["id"],
+            sha256=row["sha256"],
+            storage_backend=row["storage_backend"],
+            storage_key=row["storage_key"],
+            media_type=row["media_type"],
+            byte_count=int(row["byte_count"]),
+            compression=row["compression"],
+            created_at=row["created_at"],
+            metadata=json.loads(row["metadata_json"]),
+        )
+
+    @staticmethod
+    def _source_version_from_row(row: Any) -> SourceVersionRecord:
+        return SourceVersionRecord(
+            id=row["id"],
+            source_id=row["source_id"],
+            version_key=row["version_key"],
+            version_kind=row["version_kind"],
+            retrieved_at=row["retrieved_at"],
+            published_at=row["published_at"],
+            content_sha256=row["content_sha256"],
+            canonical_locator=row["canonical_locator"],
+            metadata=json.loads(row["metadata_json"]),
+            created_at=row["created_at"],
+            content_object_id=row["content_object_id"],
+            media_type=row["media_type"],
+            byte_count=(
+                int(row["byte_count"]) if row["byte_count"] is not None else None
+            ),
+            parser_name=row["parser_name"],
+            parser_version=row["parser_version"],
+            repository_locator=row["repository_locator"],
+            commit_sha=row["commit_sha"],
+            blob_sha=row["blob_sha"],
+            path=row["path"],
+        )
 
 
 class V2BackfillRepository:
@@ -1223,18 +1435,7 @@ class V2ReadRepository:
         ]
 
     def _source_version_from_row(self, row: Any) -> SourceVersionRecord:
-        return SourceVersionRecord(
-            id=row["id"],
-            source_id=row["source_id"],
-            version_key=row["version_key"],
-            version_kind=row["version_kind"],
-            retrieved_at=row["retrieved_at"],
-            published_at=row["published_at"],
-            content_sha256=row["content_sha256"],
-            canonical_locator=row["canonical_locator"],
-            metadata=json.loads(row["metadata_json"]),
-            created_at=row["created_at"],
-        )
+        return SourceVersionRepository._source_version_from_row(row)
 
     def _evidence_from_row(self, row: Any) -> EvidenceSpanRecord:
         return EvidenceSpanRecord(

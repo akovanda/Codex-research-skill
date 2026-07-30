@@ -11,6 +11,14 @@ from urllib.parse import urlsplit
 
 from .data_audit import V1_TABLES, connect_database_read_only
 from .db import DatabaseTarget, resolve_database_target
+from .ingestion.blobs import (
+    BlobReference,
+    BlobValidationError,
+    FilesystemBlobStore,
+    storage_key_for_sha256,
+    validate_media_type,
+    validate_sha256,
+)
 
 
 BACKUP_MANIFEST_VERSION = 1
@@ -25,6 +33,7 @@ def backup_sqlite(
     destination: Path,
     *,
     manifest_path: Path,
+    blob_root: Path | None = None,
 ) -> dict[str, Any]:
     """Create and verify an online SQLite backup without overwriting files."""
     resolved = source if isinstance(source, DatabaseTarget) else resolve_database_target(source)
@@ -42,9 +51,13 @@ def backup_sqlite(
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
     source_inventory: dict[str, dict[str, Any]]
+    source_blob_inventory: list[dict[str, Any]]
     try:
         with connect_database_read_only(resolved) as source_conn:
             source_inventory = sqlite_database_inventory(source_conn.raw_connection)
+            source_blob_inventory = sqlite_blob_inventory(
+                source_conn.raw_connection
+            )
             destination_raw = sqlite3.connect(destination)
             try:
                 source_conn.raw_connection.backup(destination_raw)
@@ -53,11 +66,20 @@ def backup_sqlite(
         if os.name != "nt":
             destination.chmod(0o600)
         backup_inventory = _inventory_from_path(destination)
+        backup_blob_inventory = _blob_inventory_from_path(destination)
         integrity = _sqlite_integrity(destination)
         if source_inventory != backup_inventory:
             raise BackupVerificationError("backup inventory does not match the source database")
+        if source_blob_inventory != backup_blob_inventory:
+            raise BackupVerificationError(
+                "backup blob references do not match the source database"
+            )
         if integrity["integrity_check"] != "ok" or integrity["foreign_key_violations"]:
             raise BackupVerificationError("backup database integrity verification failed")
+        blob_manifest = _build_blob_manifest(
+            backup_blob_inventory,
+            blob_root=blob_root,
+        )
         artifact_sha256 = _file_sha256(destination)
         manifest: dict[str, Any] = {
             "format_version": BACKUP_MANIFEST_VERSION,
@@ -79,18 +101,18 @@ def backup_sqlite(
             "configuration": {
                 "status": "not_included_v1",
             },
-            "blob_inventory": {
-                "status": "not_configured_v1",
-                "referenced_objects": 0,
-                "objects": [],
-            },
+            "blob_inventory": blob_manifest,
             "verification": {
                 **integrity,
                 "source_matches_backup": True,
             },
         }
         _write_json_exclusive(manifest_path, manifest)
-        verify_sqlite_backup(destination, manifest_path)
+        verify_sqlite_backup(
+            destination,
+            manifest_path,
+            blob_root=blob_root,
+        )
         return manifest
     except Exception:
         if destination.exists() and not manifest_path.exists():
@@ -98,7 +120,12 @@ def backup_sqlite(
         raise
 
 
-def verify_sqlite_backup(backup_path: Path, manifest_path: Path) -> dict[str, Any]:
+def verify_sqlite_backup(
+    backup_path: Path,
+    manifest_path: Path,
+    *,
+    blob_root: Path | None = None,
+) -> dict[str, Any]:
     """Verify a SQLite backup artifact against its manifest."""
     backup_path = backup_path.expanduser().resolve()
     manifest_path = manifest_path.expanduser().resolve()
@@ -119,11 +146,21 @@ def verify_sqlite_backup(backup_path: Path, manifest_path: Path) -> dict[str, An
         raise BackupVerificationError(
             "backup row counts or deterministic row hashes differ from the manifest"
         )
+    blob_inventory = _blob_inventory_from_path(backup_path)
+    if blob_inventory != manifest["blob_inventory"]["objects"]:
+        raise BackupVerificationError(
+            "backup blob references differ from the manifest"
+        )
+    _verify_manifest_blobs(
+        manifest["blob_inventory"],
+        blob_root=blob_root,
+    )
     return {
         "verified": True,
         "sha256": actual_sha256,
         **integrity,
         "table_count": len(inventory),
+        "blob_references": len(blob_inventory),
     }
 
 
@@ -133,6 +170,7 @@ def restore_sqlite_backup(
     *,
     manifest_path: Path,
     verify: bool = False,
+    blob_root: Path | None = None,
 ) -> dict[str, Any]:
     """Restore a SQLite backup to a new path and optionally verify all inventory."""
     backup_path = backup_path.expanduser().resolve()
@@ -142,7 +180,11 @@ def restore_sqlite_backup(
         raise FileExistsError(destination)
     manifest = _load_manifest(manifest_path)
     if verify:
-        verify_sqlite_backup(backup_path, manifest_path)
+        verify_sqlite_backup(
+            backup_path,
+            manifest_path,
+            blob_root=blob_root,
+        )
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
         with connect_database_read_only(backup_path) as source_conn:
@@ -161,10 +203,16 @@ def restore_sqlite_backup(
             )
         if integrity["integrity_check"] != "ok" or integrity["foreign_key_violations"]:
             raise BackupVerificationError("restored database integrity verification failed")
+        blob_inventory = _blob_inventory_from_path(destination)
+        if blob_inventory != manifest["blob_inventory"]["objects"]:
+            raise BackupVerificationError(
+                "restored blob references differ from the manifest"
+            )
         return {
             "verified": True,
             **integrity,
             "table_count": len(inventory),
+            "blob_references": len(blob_inventory),
         }
     except Exception:
         if destination.exists():
@@ -198,6 +246,75 @@ def sqlite_database_inventory(raw: sqlite3.Connection) -> dict[str, dict[str, An
             "content_sha256": digest.hexdigest(),
         }
     return inventory
+
+
+def sqlite_blob_inventory(raw: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Inventory referenced filesystem blobs without reading or returning bodies."""
+    raw.row_factory = sqlite3.Row
+    present = {
+        row["name"]
+        for row in raw.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name IN ('content_objects', 'source_versions')"
+        ).fetchall()
+    }
+    if present != {"content_objects", "source_versions"}:
+        return []
+    unsupported = raw.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM content_objects co
+        WHERE co.storage_backend <> 'filesystem'
+          AND EXISTS (
+              SELECT 1
+              FROM source_versions sv
+              WHERE sv.content_object_id = co.id
+          )
+        """
+    ).fetchone()["count"]
+    if unsupported:
+        raise BackupVerificationError(
+            "backup includes an unsupported referenced blob backend"
+        )
+    rows = raw.execute(
+        """
+        SELECT DISTINCT
+            co.sha256, co.storage_key, co.byte_count, co.media_type
+        FROM content_objects co
+        JOIN source_versions sv ON sv.content_object_id = co.id
+        WHERE co.storage_backend = 'filesystem'
+        ORDER BY co.storage_key
+        """
+    ).fetchall()
+    objects: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            digest = validate_sha256(row["sha256"])
+            expected_key = storage_key_for_sha256(digest)
+            media_type = validate_media_type(row["media_type"])
+        except BlobValidationError as exc:
+            raise BackupVerificationError(
+                "database contains invalid referenced blob metadata"
+            ) from exc
+        byte_count = row["byte_count"]
+        if (
+            not isinstance(byte_count, int)
+            or isinstance(byte_count, bool)
+            or byte_count < 0
+            or row["storage_key"] != expected_key
+        ):
+            raise BackupVerificationError(
+                "database contains invalid referenced blob metadata"
+            )
+        objects.append(
+            {
+                "byte_count": byte_count,
+                "media_type": media_type,
+                "sha256": digest,
+                "storage_key": expected_key,
+            }
+        )
+    return objects
 
 
 def plan_postgres_backup(
@@ -317,6 +434,67 @@ def _inventory_from_path(path: Path) -> dict[str, dict[str, Any]]:
         return sqlite_database_inventory(conn.raw_connection)
 
 
+def _blob_inventory_from_path(path: Path) -> list[dict[str, Any]]:
+    with connect_database_read_only(path) as conn:
+        return sqlite_blob_inventory(conn.raw_connection)
+
+
+def _build_blob_manifest(
+    objects: list[dict[str, Any]],
+    *,
+    blob_root: Path | None,
+) -> dict[str, Any]:
+    if blob_root is None and not objects:
+        return {
+            "status": "not_configured_v1",
+            "referenced_objects": 0,
+            "objects": [],
+        }
+    status = "inventory_only"
+    if blob_root is not None:
+        references = [_blob_reference(item) for item in objects]
+        health = FilesystemBlobStore(blob_root).inspect(references)
+        if not health.healthy:
+            raise BackupVerificationError(
+                "referenced blob integrity verification failed"
+            )
+        status = "verified"
+    return {
+        "status": status,
+        "referenced_objects": len(objects),
+        "objects": objects,
+    }
+
+
+def _verify_manifest_blobs(
+    inventory: dict[str, Any],
+    *,
+    blob_root: Path | None,
+) -> None:
+    if inventory["status"] != "verified":
+        return
+    if blob_root is None:
+        raise BackupVerificationError(
+            "verified blob inventory requires the configured blob root"
+        )
+    health = FilesystemBlobStore(blob_root).inspect(
+        [_blob_reference(item) for item in inventory["objects"]]
+    )
+    if not health.healthy:
+        raise BackupVerificationError(
+            "referenced blob integrity verification failed"
+        )
+
+
+def _blob_reference(item: dict[str, Any]) -> BlobReference:
+    return BlobReference(
+        sha256=item["sha256"],
+        storage_key=item["storage_key"],
+        byte_count=item["byte_count"],
+        media_type=item["media_type"],
+    )
+
+
 def _sqlite_integrity(path: Path) -> dict[str, Any]:
     with connect_database_read_only(path) as conn:
         integrity_row = conn.execute("PRAGMA integrity_check").fetchone()
@@ -419,3 +597,47 @@ def _validate_manifest_shape(manifest: Any) -> None:
             )
         ):
             raise BackupVerificationError("backup manifest table inventory is invalid")
+    blob_inventory = manifest.get("blob_inventory")
+    if not isinstance(blob_inventory, dict):
+        raise BackupVerificationError("backup manifest blob inventory is invalid")
+    status = blob_inventory.get("status")
+    objects = blob_inventory.get("objects")
+    referenced_objects = blob_inventory.get("referenced_objects")
+    if (
+        status not in {"not_configured_v1", "inventory_only", "verified"}
+        or not isinstance(objects, list)
+        or not isinstance(referenced_objects, int)
+        or isinstance(referenced_objects, bool)
+        or referenced_objects < 0
+        or referenced_objects != len(objects)
+        or (status == "not_configured_v1" and objects)
+    ):
+        raise BackupVerificationError("backup manifest blob inventory is invalid")
+    previous_key = ""
+    for item in objects:
+        if not isinstance(item, dict) or set(item) != {
+            "byte_count",
+            "media_type",
+            "sha256",
+            "storage_key",
+        }:
+            raise BackupVerificationError("backup manifest blob object is invalid")
+        try:
+            digest = validate_sha256(item["sha256"])
+            media_type = validate_media_type(item["media_type"])
+        except (BlobValidationError, KeyError, TypeError) as exc:
+            raise BackupVerificationError(
+                "backup manifest blob object is invalid"
+            ) from exc
+        byte_count = item["byte_count"]
+        storage_key = item["storage_key"]
+        if (
+            not isinstance(byte_count, int)
+            or isinstance(byte_count, bool)
+            or byte_count < 0
+            or media_type != item["media_type"]
+            or storage_key != storage_key_for_sha256(digest)
+            or storage_key <= previous_key
+        ):
+            raise BackupVerificationError("backup manifest blob object is invalid")
+        previous_key = storage_key

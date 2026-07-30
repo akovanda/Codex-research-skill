@@ -117,6 +117,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Disposable Postgres restore URL used only for a redacted plan.",
     )
+    backup.add_argument(
+        "--blob-root",
+        type=Path,
+        default=None,
+        help="Filesystem blob root. Defaults to the configured data directory.",
+    )
 
     restore = subparsers.add_parser("restore", help="Restore a SQLite backup to a new path.")
     restore.add_argument("--backup", type=Path, required=True, help="Verified SQLite backup artifact.")
@@ -136,6 +142,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--verify",
         action="store_true",
         help="Verify backup SHA-256, integrity, counts, and hashes before restoring.",
+    )
+    restore.add_argument(
+        "--blob-root",
+        type=Path,
+        default=None,
+        help="Filesystem blob root used to verify referenced objects.",
+    )
+
+    blob_health = subparsers.add_parser(
+        "blob-health",
+        help="Inspect database-to-blob integrity and orphan inventory.",
+    )
+    blob_health.add_argument(
+        "--database",
+        default=None,
+        help="SQLite path/URL or Postgres URL. Defaults to the configured database.",
+    )
+    blob_health.add_argument(
+        "--blob-root",
+        type=Path,
+        default=None,
+        help="Filesystem blob root. Defaults to the configured data directory.",
     )
 
     migrate = subparsers.add_parser(
@@ -290,11 +318,18 @@ def main() -> None:
         from .config import load_settings
         from .db import resolve_database_target
 
-        database = args.database or load_settings().database_url
+        settings = load_settings()
+        database = args.database or settings.database_url
+        blob_root = args.blob_root or settings.data_dir / "blobs"
         target = resolve_database_target(database)
         if target.kind == "sqlite":
             manifest_path = args.manifest or args.output.with_suffix(args.output.suffix + ".manifest.json")
-            manifest = backup_sqlite(target, args.output, manifest_path=manifest_path)
+            manifest = backup_sqlite(
+                target,
+                args.output,
+                manifest_path=manifest_path,
+                blob_root=blob_root,
+            )
             print(
                 json.dumps(
                     {
@@ -320,14 +355,35 @@ def main() -> None:
 
     if args.command == "restore":
         from .backup import restore_sqlite_backup
+        from .config import load_settings
+
+        settings = load_settings()
 
         result = restore_sqlite_backup(
             args.backup,
             args.destination,
             manifest_path=args.manifest,
             verify=args.verify,
+            blob_root=args.blob_root or settings.data_dir / "blobs",
         )
         print(json.dumps(result, sort_keys=True))
+        return
+
+    if args.command == "blob-health":
+        from .application.source_versions import SourceVersionService
+        from .config import load_settings
+        from .ingestion.blobs import FilesystemBlobStore
+
+        settings = load_settings()
+        database = args.database or settings.database_url
+        blob_root = args.blob_root or settings.data_dir / "blobs"
+        report = SourceVersionService(
+            database,
+            FilesystemBlobStore(blob_root),
+        ).inspect_blob_health()
+        print(json.dumps(report.to_dict(), sort_keys=True))
+        if not report.healthy:
+            raise SystemExit(1)
         return
 
     if args.command == "migrate":
