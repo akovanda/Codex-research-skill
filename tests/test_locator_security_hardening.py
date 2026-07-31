@@ -22,6 +22,10 @@ from tests.test_v2_deposit import _bundle
     [
         "https://example.com/source;lang=en?view=compact",
         "https://xn--r8jz45g.xn--zckzah/source?lang=ja",
+        (
+            "https://example.com/source?"
+            "redirect=https%3A%2F%2Fother.example%2Fsafe%3Flang%3Den"
+        ),
     ],
 )
 def test_canonical_http_locators_with_non_secret_parameters_are_allowed(
@@ -41,9 +45,18 @@ def test_canonical_http_locators_with_non_secret_parameters_are_allowed(
         "https://example.com/source?ａｃｃｅｓｓ＿ｔｏｋｅｎ=top-secret",
         "https://example.com/source?SharedAccessSignature=top-secret",
         "https://example.com/source?ClientAssertion=top-secret",
+        (
+            "https://example.com/source?"
+            "redirect=https%3A%2F%2Fother.example%2Fcb%3F"
+            "access_token%3Dtop-secret"
+        ),
+        (
+            "https://example.com/source?"
+            "next=%2F%2Fother.example%2Fcb%3Fsig%3Dtop-secret"
+        ),
     ],
 )
-def test_obfuscated_and_matrix_credential_parameters_are_rejected(
+def test_obfuscated_nested_and_matrix_credentials_are_rejected(
     value: str,
 ) -> None:
     with pytest.raises(
@@ -63,6 +76,8 @@ def test_obfuscated_and_matrix_credential_parameters_are_rejected(
         "https://example.com:invalid/source",
         "https://example.com/source path",
         "https://example.com\\source",
+        "https://exa\u3000mple.com/source",
+        "https://example.com/source?\u200baccess_token=top-secret",
     ],
 )
 def test_noncanonical_http_locators_are_rejected(value: str) -> None:
@@ -80,9 +95,13 @@ def test_non_string_locator_is_rejected_with_stable_error() -> None:
     [
         "https://example.com/source?auth[token]=top-secret",
         "https://example.com/source;jsessionid=top-secret",
+        (
+            "https://example.com/source?"
+            "redirect=https%3A%2F%2Fother.example%2Fcb%3Fsig%3Dtop-secret"
+        ),
     ],
 )
-def test_v2_contract_inherits_obfuscated_parameter_rejection(unsafe: str) -> None:
+def test_v2_contract_inherits_hardened_parameter_rejection(unsafe: str) -> None:
     payload = deepcopy(_bundle(key="locator-hardening-v2"))
     payload["sources"][0]["identity"]["locator"] = unsafe
 
