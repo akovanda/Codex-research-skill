@@ -179,6 +179,8 @@ def run_v2_backfill(
                     )
 
     with service.connect() as conn:
+        repository = V2BackfillRepository(conn)
+        repository.refresh_projection_mirrors()
         if "search_documents" in service._list_tables(conn):
             rebuild_search_documents(conn)
     return _result(service)

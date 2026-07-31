@@ -340,6 +340,7 @@ class ResearchDepositService:
                     if isinstance(evidence.source_version, ClientReference)
                     else external_versions[source_version_id]["source_id"]
                 )
+                self._require_private_source(repository, source_id)
                 evidence_id = self._new_id("evd")
                 excerpt_id = self._new_id("ex")
                 evidence_ids[evidence.client_ref] = evidence_id
@@ -759,6 +760,11 @@ class ResearchDepositService:
                     namespace_id=namespace_id,
                 )
             if existing is not None:
+                if existing["visibility"] == "public":
+                    raise DepositError(
+                        "PUBLIC_PARENT_MUTATION_DENIED: A private deposit "
+                        "cannot revise a public claim."
+                    )
                 if existing["current_revision_id"] is None:
                     raise DepositError("existing claim has no current revision")
                 if (
@@ -868,6 +874,11 @@ class ResearchDepositService:
                 }
             )
         else:
+            if question["visibility"] == "public":
+                raise DepositError(
+                    "PUBLIC_PARENT_MUTATION_DENIED: A private deposit cannot "
+                    "attach a private run or report to a public question."
+                )
             question_id = question["id"]
         run_id = self._new_id("sess")
         started = bundle.run.started_at or now
@@ -937,6 +948,11 @@ class ResearchDepositService:
                 raise SourceVersionConflict(
                     "source identity key already identifies another source"
                 )
+            if existing["visibility"] == "public":
+                raise DepositError(
+                    "PUBLIC_PARENT_MUTATION_DENIED: A private deposit cannot "
+                    "add a version or evidence to a public source."
+                )
             return existing["id"]
         source_id = self._new_id("src")
         version = source.version
@@ -970,6 +986,22 @@ class ResearchDepositService:
             }
         )
         return source_id
+
+    @staticmethod
+    def _require_private_source(repository: Any, source_id: str) -> None:
+        source = repository.conn.execute(
+            "SELECT visibility FROM sources WHERE id = ?",
+            (source_id,),
+        ).fetchone()
+        if source is None:
+            raise DepositReferenceNotFound(
+                f"source reference not found: {source_id}"
+            )
+        if source["visibility"] == "public":
+            raise DepositError(
+                "PUBLIC_PARENT_MUTATION_DENIED: A private deposit cannot add "
+                "evidence to a public source version."
+            )
 
     def _source_version_spec(self, source: Any, source_id: str) -> SourceVersionSpec:
         version = source.version

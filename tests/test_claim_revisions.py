@@ -72,7 +72,7 @@ def test_approve_is_idempotent_and_appends_an_immutable_review_event(
         reviews.review(changed)
 
 
-def test_evidence_revision_history_uses_legacy_state_only_for_current_revision(
+def test_evidence_revision_history_never_inherits_mutable_claim_review_state(
     tmp_path: Path,
 ) -> None:
     registry, ids = seed_review_registry(
@@ -132,7 +132,7 @@ def test_evidence_revision_history_uses_legacy_state_only_for_current_revision(
         row["revision_id"]: row["review_state"] for row in revisions
     } == {
         ids["revision"]: "unreviewed",
-        current_revision_id: "reviewed",
+        current_revision_id: "unreviewed",
     }
 
 

@@ -39,8 +39,13 @@ stable diagnostics. Before exposing a shared/public alpha, retained v1 HTTP
 locators must reuse the v2 secret-bearing URL validator, administrators must
 either supply an explicit namespace for generic creates or the documented
 contract must intentionally retain the `user/local` default, and native v2
-publication must traverse authoritative `claim_evidence` relationships (or
-reject graphs that cannot be represented by the retained publication graph).
+publication must eventually traverse authoritative `claim_evidence`
+relationships. The alpha currently fails closed instead: native-v2 deposit
+graphs cannot be published, and public stable sources, claims, and questions
+cannot receive private versions, evidence, revisions, runs, reports, or
+revision-producing review actions. Capture is disabled for public sources.
+Retained v1 publication remains available only for its complete static
+compatibility graph.
 Shared beta must also provide an unambiguous namespace-aware global-admin
 deposit-receipt lookup and replace random-ID tie-breaking with an explicit
 deterministic sequence for runtime review events that share a timestamp.

@@ -1397,6 +1397,7 @@ class RegistryService:
                 namespace_kind=namespace_kind,
                 namespace_id=namespace_id,
             )
+            self._assert_alpha_publishable_graph(conn, graph)
             self._assert_publish_graph_ready(conn, graph)
             self._set_visibility(conn, canonical_kind, payload.record_id, "public", include_in_global_index=payload.include_in_global_index)
             if payload.cascade_linked_sources:
@@ -1409,6 +1410,85 @@ class RegistryService:
                 auth=auth,
                 details={"include_in_global_index": payload.include_in_global_index},
             )
+
+    def _assert_alpha_publishable_graph(
+        self,
+        conn: Any,
+        graph: set[tuple[str, str]],
+    ) -> None:
+        """Fail closed for native-v2 publication until its graph is versioned."""
+        native_ids: set[str] = set()
+        rows = conn.execute(
+            """
+            SELECT response_json
+            FROM idempotency_keys
+            WHERE operation = 'research_deposit_v2'
+            """
+        ).fetchall()
+        for row in rows:
+            try:
+                response = json.loads(row["response_json"])
+            except (AttributeError, TypeError, json.JSONDecodeError):
+                raise PermissionError(
+                    "native v2 publication state is unavailable"
+                ) from None
+            if isinstance(response, dict) and set(response) == {"reservation"}:
+                continue
+            records = response.get("records") if isinstance(response, dict) else None
+            if not isinstance(records, dict):
+                raise PermissionError(
+                    "native v2 publication state is unavailable"
+                )
+            for value in records.values():
+                if isinstance(value, str):
+                    native_ids.add(value)
+                elif isinstance(value, dict):
+                    native_ids.update(
+                        item for item in value.values() if isinstance(item, str)
+                    )
+        for kind, record_id in graph:
+            if record_id in native_ids:
+                raise PermissionError(
+                    "native v2 publication is disabled for this alpha"
+                )
+            if kind == "claim":
+                revision = conn.execute(
+                    """
+                    SELECT cr.metadata_json
+                    FROM claims c
+                    JOIN claim_revisions cr ON cr.id = c.current_revision_id
+                    WHERE c.id = ?
+                    """,
+                    (record_id,),
+                ).fetchone()
+                if revision is not None:
+                    try:
+                        metadata = json.loads(revision["metadata_json"])
+                    except (TypeError, json.JSONDecodeError):
+                        raise PermissionError(
+                            "native v2 publication state is unavailable"
+                        ) from None
+                    if isinstance(metadata, dict) and metadata.get(
+                        "review_action"
+                    ) is not None:
+                        raise PermissionError(
+                            "native v2 publication is disabled for this alpha"
+                        )
+            if kind != "excerpt":
+                continue
+            mapped = conn.execute(
+                """
+                SELECT v2_id
+                FROM legacy_projection_identity
+                WHERE legacy_kind = 'excerpt' AND legacy_id = ?
+                  AND v2_kind = 'evidence'
+                """,
+                (record_id,),
+            ).fetchone()
+            if mapped is not None and mapped["v2_id"] in native_ids:
+                raise PermissionError(
+                    "native v2 publication is disabled for this alpha"
+                )
 
     def record_namespace(
         self,
@@ -2903,19 +2983,36 @@ class RegistryService:
         with self.connect() as conn:
             session_rows = conn.execute(
                 f"""
-                SELECT id, question_id, expires_at, freshness_state, created_at
-                FROM research_sessions
-                WHERE question_id IN ({placeholders})
-                ORDER BY question_id ASC, created_at DESC
+                SELECT rs.id, rs.question_id, rs.expires_at,
+                       rs.freshness_state, rs.created_at
+                FROM research_sessions rs
+                JOIN questions q ON q.id = rs.question_id
+                WHERE rs.question_id IN ({placeholders})
+                  AND (
+                      q.visibility <> 'public'
+                      OR (
+                          rs.visibility = 'public'
+                          AND rs.public_index_state <> 'suppressed'
+                      )
+                  )
+                ORDER BY rs.question_id ASC, rs.created_at DESC
                 """,
                 tuple(question_ids),
             ).fetchall()
             report_rows = conn.execute(
                 f"""
-                SELECT id, question_id, created_at
-                FROM reports
-                WHERE question_id IN ({placeholders})
-                ORDER BY question_id ASC, created_at DESC
+                SELECT r.id, r.question_id, r.created_at
+                FROM reports r
+                JOIN questions q ON q.id = r.question_id
+                WHERE r.question_id IN ({placeholders})
+                  AND (
+                      q.visibility <> 'public'
+                      OR (
+                          r.visibility = 'public'
+                          AND r.public_index_state <> 'suppressed'
+                      )
+                  )
+                ORDER BY r.question_id ASC, r.created_at DESC
                 """,
                 tuple(question_ids),
             ).fetchall()
@@ -3492,13 +3589,31 @@ class RegistryService:
         )
 
     def _question_from_row(self, row: Any) -> QuestionRecord:
+        child_visibility_sql = (
+            " AND visibility = 'public'"
+            " AND public_index_state <> 'suppressed'"
+            if row["visibility"] == "public"
+            else ""
+        )
         with self.connect() as conn:
             latest_session = conn.execute(
-                "SELECT id, expires_at, freshness_state FROM research_sessions WHERE question_id = ? ORDER BY created_at DESC LIMIT 1",
+                """
+                SELECT id, expires_at, freshness_state
+                FROM research_sessions
+                WHERE question_id = ?
+                """
+                + child_visibility_sql
+                + " ORDER BY created_at DESC LIMIT 1",
                 (row["id"],),
             ).fetchone()
             latest_report = conn.execute(
-                "SELECT id FROM reports WHERE question_id = ? ORDER BY created_at DESC LIMIT 1",
+                """
+                SELECT id
+                FROM reports
+                WHERE question_id = ?
+                """
+                + child_visibility_sql
+                + " ORDER BY created_at DESC LIMIT 1",
                 (row["id"],),
             ).fetchone()
         latest_session_freshness_state, latest_session_expires_at, latest_session_is_stale = self._session_freshness_from_row(latest_session)

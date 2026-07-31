@@ -31,9 +31,41 @@ from tests.test_shared_http_authorization import (
 from tests.test_source_version_review_state import (
     exercise_source_version_review_state_isolation,
 )
+from tests.test_exact_revision_state import (
+    exercise_exact_revision_and_conflict_state,
+)
+from tests.test_publication_fail_closed import (
+    exercise_public_parent_fail_closed,
+)
 from tests.test_v2_migration import _exercise_legacy_review_matrix
 from tests.test_web_v2 import _exercise_global_admin_org_review
 from tests.test_v2_deposit import _bundle
+
+
+@pytest.mark.skipif(
+    "TEST_DATABASE_URL" not in os.environ,
+    reason="postgres publication boundary requires TEST_DATABASE_URL",
+)
+def test_postgres_public_parent_mutations_fail_closed(
+    tmp_path: Path,
+) -> None:
+    exercise_public_parent_fail_closed(
+        RegistryService(os.environ["TEST_DATABASE_URL"]),
+        tmp_path,
+        suffix=f"pg-{uuid4().hex[:10]}",
+    )
+
+
+@pytest.mark.skipif(
+    "TEST_DATABASE_URL" not in os.environ,
+    reason="postgres exact-state matrix requires TEST_DATABASE_URL",
+)
+def test_postgres_exact_revision_and_conflict_state(tmp_path: Path) -> None:
+    exercise_exact_revision_and_conflict_state(
+        RegistryService(os.environ["TEST_DATABASE_URL"]),
+        tmp_path,
+        suffix=uuid4().hex[:10],
+    )
 
 
 @pytest.mark.skipif(

@@ -14,6 +14,10 @@ from ..db import (
     connect_database,
     resolve_database_target,
 )
+from ..persistence.conflict_state import (
+    claim_revision_conflict_state_sql,
+    effective_conflict_state_sql,
+)
 from ..persistence.review_state import effective_review_state_sql
 from ..timestamps import freshness_case
 from .models import SearchDocument
@@ -285,7 +289,11 @@ SELECT
         entity_id_sql="sv.id",
         fallback_sql="'unreviewed'",
     )} AS review_state,
-    s.trust_tier, s.conflict_state,
+    s.trust_tier,
+    {effective_conflict_state_sql(
+        entity_kind="source_version",
+        entity_id_sql="sv.id",
+    )} AS conflict_state,
     'unknown' AS freshness, NULL AS status,
     (SELECT COUNT(*) FROM evidence_spans e
      WHERE e.source_version_id = sv.id) AS evidence_count,
@@ -310,7 +318,11 @@ SELECT
         entity_id_sql="e.id",
         fallback_sql="e.review_state",
     )} AS review_state,
-    e.trust_tier, s.conflict_state,
+    e.trust_tier,
+    {effective_conflict_state_sql(
+        entity_kind="evidence",
+        entity_id_sql="e.id",
+    )} AS conflict_state,
     CASE WHEN e.anchor_state = 'stale' THEN 'stale'
          WHEN e.anchor_state IN ('resolved', 'relocated') THEN 'fresh'
          ELSE 'unknown' END AS freshness,
@@ -338,19 +350,13 @@ SELECT
     {effective_review_state_sql(
         entity_kind="claim_revision",
         entity_id_sql="c.current_revision_id",
-        fallback_sql="c.review_state",
+        fallback_sql="'unreviewed'",
     )} AS review_state,
     c.trust_tier,
-    CASE
-        WHEN COALESCE(cr.status, c.status) = 'contested'
-          OR EXISTS (
-              SELECT 1 FROM claim_evidence conflict_ce
-              WHERE conflict_ce.claim_revision_id = c.current_revision_id
-                AND conflict_ce.relationship = 'refutes'
-          )
-        THEN 'conflicted'
-        ELSE c.conflict_state
-    END AS conflict_state,
+    {claim_revision_conflict_state_sql(
+        revision_id_sql="c.current_revision_id",
+        status_sql="cr.status",
+    )} AS conflict_state,
     CASE
         WHEN EXISTS (
             SELECT 1 FROM claim_evidence stale_ce

@@ -355,7 +355,17 @@ def test_rejected_default_state_penalties_and_rebuild_equivalence(
 
     with registry.connect() as conn:
         conn.execute(
-            "UPDATE claims SET conflict_state = 'conflicted' WHERE id = ?",
+            """
+            INSERT INTO review_events (
+                id, entity_kind, entity_id, action, from_state, to_state,
+                actor_type, created_at, metadata_json
+            )
+            SELECT
+                'rev_retrieval_conflict', 'claim_revision',
+                current_revision_id, 'contest', 'unreviewed', 'flagged',
+                'agent', '2026-07-31T00:00:00+00:00', '{}'
+            FROM claims WHERE id = ?
+            """,
             (accepted.records.claim_ids["claim"],),
         )
         conn.execute(

@@ -28,3 +28,10 @@ versions. The mirror follows the latest source version's effective decision
 and resets to unreviewed/non-conflicted when a newer native version is stored.
 Each v2 source version derives its own state only from review events for that
 exact version, falling back to unreviewed when no decision exists.
+
+The same exact-entity rule applies to v2 claim revisions and evidence spans.
+Review state falls back to `unreviewed`; conflict is derived from decisions for
+that exact entity and, for a claim revision, its own status and typed evidence
+relationships. Stable v1 source, excerpt, and claim fields are current-summary
+mirrors only and are repaired from the authoritative v2 ledger during
+backfill.

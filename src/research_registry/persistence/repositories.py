@@ -11,8 +11,12 @@ from uuid import UUID, uuid5
 from ..db import DbConnection
 from ..ingestion.blobs import BlobReference
 from ..timestamps import is_due, utc_text
+from .conflict_state import (
+    claim_revision_conflict_state_sql,
+    latest_claim_revision_conflict_state,
+    latest_effective_conflict_state,
+)
 from .review_state import (
-    DECISION_REVIEW_ACTIONS,
     effective_review_state_sql,
     latest_effective_review_state,
 )
@@ -469,38 +473,11 @@ def _refresh_source_review_mirror(
             entity_id=version["id"],
             fallback="unreviewed",
         )
-        event = conn.execute(
-            f"""
-            SELECT action
-            FROM review_events
-            WHERE entity_kind = 'source_version'
-              AND entity_id = ?
-              AND action IN ({", ".join(
-                  f"'{action}'" for action in DECISION_REVIEW_ACTIONS
-              )})
-              AND (
-                  to_state IN ('unreviewed', 'reviewed', 'flagged')
-                  OR (
-                      actor_type = 'migration'
-                      AND action = 'contest'
-                      AND to_state = 'conflicted'
-                  )
-              )
-            ORDER BY
-                created_at DESC,
-                CASE
-                    WHEN actor_type = 'migration'
-                     AND action = 'contest'
-                     AND to_state = 'conflicted'
-                    THEN 1 ELSE 0
-                END DESC,
-                id DESC
-            LIMIT 1
-            """,
-            (version["id"],),
-        ).fetchone()
-        if event is not None and event["action"] == "contest":
-            conflict_state = "conflicted"
+        conflict_state = latest_effective_conflict_state(
+            conn,
+            entity_kind="source_version",
+            entity_id=version["id"],
+        )
     conn.execute(
         """
         UPDATE sources
@@ -508,6 +485,91 @@ def _refresh_source_review_mirror(
         WHERE id = ?
         """,
         (review_state, conflict_state, source_id),
+    )
+
+
+def _refresh_claim_review_mirror(
+    conn: DbConnection, claim_id: str | None
+) -> None:
+    """Mirror only the current claim revision's exact derived state."""
+    if claim_id is None:
+        return
+    revision = conn.execute(
+        """
+        SELECT cr.id, cr.status
+        FROM claims c
+        LEFT JOIN claim_revisions cr ON cr.id = c.current_revision_id
+        WHERE c.id = ?
+        """,
+        (claim_id,),
+    ).fetchone()
+    review_state = "unreviewed"
+    conflict_state = "none"
+    if revision is not None and revision["id"] is not None:
+        review_state = latest_effective_review_state(
+            conn,
+            entity_kind="claim_revision",
+            entity_id=revision["id"],
+            fallback="unreviewed",
+        )
+        conflict_state = latest_claim_revision_conflict_state(
+            conn,
+            revision_id=revision["id"],
+            status=revision["status"],
+        )
+    conn.execute(
+        """
+        UPDATE claims
+        SET review_state = ?, conflict_state = ?, human_reviewed = ?
+        WHERE id = ?
+        """,
+        (
+            review_state,
+            conflict_state,
+            int(review_state == "reviewed"),
+            claim_id,
+        ),
+    )
+
+
+def _refresh_evidence_review_mirror(
+    conn: DbConnection,
+    *,
+    evidence_id: str,
+    excerpt_id: str | None,
+) -> None:
+    """Mirror one exact evidence span's event-derived compatibility state."""
+    if excerpt_id is None:
+        return
+    evidence = conn.execute(
+        "SELECT review_state FROM evidence_spans WHERE id = ?",
+        (evidence_id,),
+    ).fetchone()
+    if evidence is None:
+        return
+    review_state = latest_effective_review_state(
+        conn,
+        entity_kind="evidence",
+        entity_id=evidence_id,
+        fallback=evidence["review_state"],
+    )
+    conflict_state = latest_effective_conflict_state(
+        conn,
+        entity_kind="evidence",
+        entity_id=evidence_id,
+    )
+    conn.execute(
+        """
+        UPDATE excerpts
+        SET review_state = ?, conflict_state = ?, human_reviewed = ?
+        WHERE id = ?
+        """,
+        (
+            review_state,
+            conflict_state,
+            int(review_state == "reviewed"),
+            excerpt_id,
+        ),
     )
 
 
@@ -1056,6 +1118,19 @@ class DepositRepository:
                 values["claim_id"],
             ),
         )
+        _refresh_claim_review_mirror(self.conn, values["claim_id"])
+
+    def refresh_claim_review_mirror(self, claim_id: str | None) -> None:
+        _refresh_claim_review_mirror(self.conn, claim_id)
+
+    def refresh_evidence_review_mirror(
+        self, *, evidence_id: str, excerpt_id: str | None
+    ) -> None:
+        _refresh_evidence_review_mirror(
+            self.conn,
+            evidence_id=evidence_id,
+            excerpt_id=excerpt_id,
+        )
 
     def replace_claim_excerpts(
         self, claim_id: str, links: list[tuple[str, str | None, float]]
@@ -1271,14 +1346,22 @@ class ReviewRefreshRepository:
                 {effective_review_state_sql(
                     entity_kind="claim_revision",
                     entity_id_sql="cr.id",
-                    fallback_sql="c.review_state",
+                    fallback_sql="'unreviewed'",
                 )} AS review_state,
-                c.conflict_state,
-                c.human_reviewed,
+                {claim_revision_conflict_state_sql(
+                    revision_id_sql="cr.id",
+                    status_sql="cr.status",
+                )} AS conflict_state,
+                CASE WHEN {effective_review_state_sql(
+                    entity_kind="claim_revision",
+                    entity_id_sql="cr.id",
+                    fallback_sql="'unreviewed'",
+                )} = 'reviewed' THEN 1 ELSE 0 END AS human_reviewed,
                 c.session_id,
                 c.topic_id,
                 c.canonical_key,
                 c.scope_json,
+                c.visibility,
                 c.created_at AS claim_created_at,
                 cr.id AS revision_id,
                 cr.revision_number,
@@ -1314,14 +1397,22 @@ class ReviewRefreshRepository:
                 {effective_review_state_sql(
                     entity_kind="claim_revision",
                     entity_id_sql="cr.id",
-                    fallback_sql="c.review_state",
+                    fallback_sql="'unreviewed'",
                 )} AS review_state,
-                c.conflict_state,
-                c.human_reviewed,
+                {claim_revision_conflict_state_sql(
+                    revision_id_sql="cr.id",
+                    status_sql="cr.status",
+                )} AS conflict_state,
+                CASE WHEN {effective_review_state_sql(
+                    entity_kind="claim_revision",
+                    entity_id_sql="cr.id",
+                    fallback_sql="'unreviewed'",
+                )} = 'reviewed' THEN 1 ELSE 0 END AS human_reviewed,
                 c.session_id,
                 c.topic_id,
                 c.canonical_key,
                 c.scope_json,
+                c.visibility,
                 c.created_at AS claim_created_at,
                 cr.id AS revision_id,
                 cr.revision_number,
@@ -1792,6 +1883,18 @@ class ReviewRefreshRepository:
 
     def refresh_source_review_mirror(self, source_id: str | None) -> None:
         _refresh_source_review_mirror(self.conn, source_id)
+
+    def refresh_claim_review_mirror(self, claim_id: str | None) -> None:
+        _refresh_claim_review_mirror(self.conn, claim_id)
+
+    def refresh_evidence_review_mirror(
+        self, *, evidence_id: str, excerpt_id: str | None
+    ) -> None:
+        _refresh_evidence_review_mirror(
+            self.conn,
+            evidence_id=evidence_id,
+            excerpt_id=excerpt_id,
+        )
 
     def resolve_refresh_root(
         self,
@@ -2287,7 +2390,7 @@ class V2BackfillRepository:
                 SELECT id
                 FROM source_versions
                 WHERE source_id = ? AND version_kind <> 'migration'
-                ORDER BY created_at, id
+                ORDER BY retrieved_at DESC, created_at DESC, id DESC
                 LIMIT 1
                 """,
                 (source["id"],),
@@ -2393,6 +2496,98 @@ class V2BackfillRepository:
                 report_id,
                 update_existing=False,
             )
+        self.replay_mapped_legacy_state()
+        self.refresh_projection_mirrors()
+
+    def replay_mapped_legacy_state(self) -> None:
+        """Materialize pre-fix alpha mirror state as exact migration events."""
+        sources = self.conn.execute(
+            """
+            SELECT s.*, lpi.v2_id, sv.metadata_json AS v2_metadata_json
+            FROM legacy_projection_identity lpi
+            JOIN sources s ON s.id = lpi.legacy_id
+            JOIN source_versions sv
+              ON sv.id = lpi.v2_id AND sv.source_id = s.id
+            WHERE lpi.legacy_kind = 'source'
+              AND lpi.v2_kind = 'source_version'
+              AND sv.version_kind = 'migration'
+            ORDER BY s.id
+            """
+        ).fetchall()
+        for source in sources:
+            self._record_legacy_state(
+                source,
+                event_entity_kind="source_version",
+                event_entity_id=source["v2_id"],
+                refresh_entity_kind="source",
+                refresh_entity_id=source["id"],
+                legacy_state=_json_object(
+                    source["v2_metadata_json"]
+                ).get("legacy_state"),
+            )
+        claims = self.conn.execute(
+            """
+            SELECT c.*, lpi.v2_id, cr.metadata_json AS v2_metadata_json,
+                   rs.freshness_state AS session_freshness_state
+            FROM legacy_projection_identity lpi
+            JOIN claims c ON c.id = lpi.legacy_id
+            JOIN claim_revisions cr
+              ON cr.id = lpi.v2_id AND cr.claim_id = c.id
+            LEFT JOIN research_sessions rs ON rs.id = c.session_id
+            WHERE lpi.legacy_kind = 'claim'
+              AND lpi.v2_kind = 'claim_revision'
+            ORDER BY c.id
+            """
+        ).fetchall()
+        for claim in claims:
+            metadata = _json_object(claim["v2_metadata_json"])
+            if metadata.get("migration_id") != V2_MIGRATION_ID:
+                continue
+            self._record_legacy_state(
+                claim,
+                event_entity_kind="claim_revision",
+                event_entity_id=claim["v2_id"],
+                refresh_entity_kind="claim",
+                refresh_entity_id=claim["id"],
+                legacy_state=metadata.get("legacy_state"),
+            )
+
+    def refresh_projection_mirrors(self) -> None:
+        """Repair mutable compatibility mirrors from exact v2 state."""
+        sources = self.conn.execute(
+            """
+            SELECT DISTINCT legacy_id
+            FROM legacy_projection_identity
+            WHERE legacy_kind = 'source' AND v2_kind = 'source_version'
+            ORDER BY legacy_id
+            """
+        ).fetchall()
+        for source in sources:
+            _refresh_source_review_mirror(self.conn, source["legacy_id"])
+        evidence_rows = self.conn.execute(
+            """
+            SELECT legacy_id, v2_id
+            FROM legacy_projection_identity
+            WHERE legacy_kind = 'excerpt' AND v2_kind = 'evidence'
+            ORDER BY legacy_id
+            """
+        ).fetchall()
+        for evidence in evidence_rows:
+            _refresh_evidence_review_mirror(
+                self.conn,
+                evidence_id=evidence["v2_id"],
+                excerpt_id=evidence["legacy_id"],
+            )
+        claims = self.conn.execute(
+            """
+            SELECT DISTINCT legacy_id
+            FROM legacy_projection_identity
+            WHERE legacy_kind = 'claim' AND v2_kind = 'claim_revision'
+            ORDER BY legacy_id
+            """
+        ).fetchall()
+        for claim in claims:
+            _refresh_claim_review_mirror(self.conn, claim["legacy_id"])
 
     def _adopt_receipt_identity_pairs(
         self,
@@ -2831,12 +3026,24 @@ class V2BackfillRepository:
         if mapped_id is not None:
             mapped = self.conn.execute(
                 """
-                SELECT id FROM source_versions
+                SELECT id, version_kind, metadata_json FROM source_versions
                 WHERE id = ? AND source_id = ?
                 """,
                 (mapped_id, row["id"]),
             ).fetchone()
             if mapped is not None:
+                if mapped["version_kind"] == "migration":
+                    self._record_legacy_state(
+                        row,
+                        event_entity_kind="source_version",
+                        event_entity_id=mapped_id,
+                        refresh_entity_kind="source",
+                        refresh_entity_id=row["id"],
+                        legacy_state=_json_object(
+                            mapped["metadata_json"]
+                        ).get("legacy_state"),
+                    )
+                _refresh_source_review_mirror(self.conn, row["id"])
                 return 0, 0
         record = source_version_from_legacy(row, persisted=True)
         self.conn.execute(
@@ -2877,6 +3084,7 @@ class V2BackfillRepository:
             refresh_entity_kind="source",
             refresh_entity_id=row["id"],
         )
+        _refresh_source_review_mirror(self.conn, row["id"])
         return len(warnings), 0
 
     def _process_evidence(self, row: Any) -> tuple[int, int]:
@@ -2885,10 +3093,20 @@ class V2BackfillRepository:
         )
         if mapped_id is not None:
             mapped = self.conn.execute(
-                "SELECT id FROM evidence_spans WHERE id = ?",
+                "SELECT id, metadata_json FROM evidence_spans WHERE id = ?",
                 (mapped_id,),
             ).fetchone()
             if mapped is not None:
+                metadata = _json_object(mapped["metadata_json"])
+                if metadata.get("migration_id") == V2_MIGRATION_ID:
+                    self._record_legacy_state(
+                        row,
+                        event_entity_kind="evidence",
+                        event_entity_id=mapped_id,
+                        refresh_entity_kind="evidence",
+                        refresh_entity_id=mapped_id,
+                        legacy_state=metadata.get("legacy_state"),
+                    )
                 return 0, 0
         if not row["quote_text"]:
             self._record_error(
@@ -2971,12 +3189,23 @@ class V2BackfillRepository:
         if mapped_id is not None:
             mapped = self.conn.execute(
                 """
-                SELECT id FROM claim_revisions
+                SELECT id, metadata_json FROM claim_revisions
                 WHERE id = ? AND claim_id = ?
                 """,
                 (mapped_id, row["id"]),
             ).fetchone()
             if mapped is not None:
+                metadata = _json_object(mapped["metadata_json"])
+                if metadata.get("migration_id") == V2_MIGRATION_ID:
+                    self._record_legacy_state(
+                        row,
+                        event_entity_kind="claim_revision",
+                        event_entity_id=mapped_id,
+                        refresh_entity_kind="claim",
+                        refresh_entity_id=row["id"],
+                        legacy_state=metadata.get("legacy_state"),
+                    )
+                _refresh_claim_review_mirror(self.conn, row["id"])
                 return 0, 0
         record = claim_revision_from_legacy(row, persisted=True)
         if record.status == "supported":
@@ -3047,6 +3276,7 @@ class V2BackfillRepository:
             refresh_entity_kind="claim",
             refresh_entity_id=row["id"],
         )
+        _refresh_claim_review_mirror(self.conn, row["id"])
         return len(warnings), 0
 
     def _process_claim_evidence(self, row: Any) -> tuple[int, int]:
@@ -3088,6 +3318,7 @@ class V2BackfillRepository:
             "claim", row["id"], "claim_revision"
         )
         if row["current_revision_id"] is not None:
+            _refresh_claim_review_mirror(self.conn, row["id"])
             return 0, 0
         revision = self.conn.execute(
             "SELECT * FROM claim_revisions WHERE id = ?", (revision_id,)
@@ -3124,6 +3355,7 @@ class V2BackfillRepository:
                 row["id"],
             ),
         )
+        _refresh_claim_review_mirror(self.conn, row["id"])
         return 0, 0
 
     def _process_report_state(self, row: Any) -> tuple[int, int]:
@@ -3261,9 +3493,17 @@ class V2BackfillRepository:
         event_entity_id: str,
         refresh_entity_kind: str,
         refresh_entity_id: str,
+        legacy_state: Any | None = None,
     ) -> None:
-        raw_review_state = row["review_state"]
-        raw_conflict_state = row["conflict_state"]
+        normalized_legacy_state = (
+            legacy_state if isinstance(legacy_state, dict) else {}
+        )
+        raw_review_state = normalized_legacy_state.get(
+            "review_state", row["review_state"]
+        )
+        raw_conflict_state = normalized_legacy_state.get(
+            "conflict_state", row["conflict_state"]
+        )
         if raw_conflict_state == "conflicted" or raw_review_state == "flagged":
             self._insert_review_event(
                 event_entity_kind,

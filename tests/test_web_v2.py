@@ -11,7 +11,8 @@ from research_registry.application.deposit import ResearchDepositService
 from research_registry.application.refresh import ResearchRefreshService
 from research_registry.config import Settings
 from research_registry.ingestion.blobs import FilesystemBlobStore
-from research_registry.models import ApiKeyCreate, PublishRequest
+from research_registry.models import ApiKeyCreate
+from research_registry.retrieval.projection import rebuild_search_documents
 
 
 SNAPSHOT_SENTINEL = "FULL_PRIVATE_SNAPSHOT_SENTINEL"
@@ -147,13 +148,22 @@ def _client_with_fixture(
     ).deposit(_bundle())
     if visibility == "public":
         assert receipt.records.report_id is not None
-        app.state.service.publish(
-            PublishRequest(
-                kind="report",
-                record_id=receipt.records.report_id,
-                include_in_global_index=True,
+        # Model a public record created by a pre-fix alpha database. Native-v2
+        # publication is now intentionally fail-closed, but public rows that
+        # already exist must remain safely readable during the upgrade window.
+        with app.state.service.connect() as conn:
+            graph = app.state.service._collect_publish_graph(
+                conn, "report", receipt.records.report_id
             )
-        )
+            for kind, record_id in graph:
+                app.state.service._set_visibility(
+                    conn,
+                    kind,
+                    record_id,
+                    "public",
+                    include_in_global_index=True,
+                )
+            rebuild_search_documents(conn)
     ids = {
         "source": receipt.records.source_ids["source"],
         "source_version": receipt.records.source_version_ids["source"],

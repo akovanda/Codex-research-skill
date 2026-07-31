@@ -141,6 +141,19 @@ class SourceVersionService:
                 result=SourceVersionCreateResult(record=existing, reused=True),
                 needs_finalize=False,
             )
+        source = repository.conn.execute(
+            "SELECT visibility FROM sources WHERE id = ?",
+            (spec.source_id,),
+        ).fetchone()
+        if source is None:
+            raise SourceVersionConflict(
+                "SOURCE_NOT_FOUND: The source identity does not exist."
+            )
+        if source["visibility"] == "public":
+            raise SourceVersionConflict(
+                "PUBLIC_PARENT_MUTATION_DENIED: A new private source version "
+                "cannot be added to a public source."
+            )
         content_object, needs_finalize = self._prepare_content_object(
             repository,
             spec,

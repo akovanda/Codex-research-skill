@@ -11,6 +11,10 @@ from ..retrieval.lexical import create_lexical_adapter
 from ..retrieval.models import SearchDocument
 from ..retrieval.relationships import expand_relationships
 from ..timestamps import freshness_case, utc_text
+from .conflict_state import (
+    claim_revision_conflict_state_sql,
+    effective_conflict_state_sql,
+)
 from .review_state import effective_review_state_sql
 
 
@@ -217,8 +221,17 @@ class CurrentRetrievalAdapter:
     def get_current_revision(self, claim_id: str) -> dict[str, Any] | None:
         with connect_database(self.database) as conn:
             row = conn.execute(
-                """
-                SELECT cr.*
+                f"""
+                SELECT cr.*,
+                    {effective_review_state_sql(
+                        entity_kind="claim_revision",
+                        entity_id_sql="cr.id",
+                        fallback_sql="'unreviewed'",
+                    )} AS review_state,
+                    {claim_revision_conflict_state_sql(
+                        revision_id_sql="cr.id",
+                        status_sql="cr.status",
+                    )} AS conflict_state
                 FROM claims c
                 JOIN claim_revisions cr ON cr.id = c.current_revision_id
                 WHERE c.id = ?
@@ -230,8 +243,18 @@ class CurrentRetrievalAdapter:
     def list_revisions(self, claim_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
         with connect_database(self.database) as conn:
             rows = conn.execute(
-                """
-                SELECT * FROM claim_revisions
+                f"""
+                SELECT cr.*,
+                    {effective_review_state_sql(
+                        entity_kind="claim_revision",
+                        entity_id_sql="cr.id",
+                        fallback_sql="'unreviewed'",
+                    )} AS review_state,
+                    {claim_revision_conflict_state_sql(
+                        revision_id_sql="cr.id",
+                        status_sql="cr.status",
+                    )} AS conflict_state
+                FROM claim_revisions cr
                 WHERE claim_id = ?
                 ORDER BY revision_number DESC, id ASC
                 LIMIT ?
@@ -289,6 +312,10 @@ class CurrentRetrievalAdapter:
                         entity_id_sql="e.id",
                         fallback_sql="e.review_state",
                     )} AS review_state,
+                    {effective_conflict_state_sql(
+                        entity_kind="evidence",
+                        entity_id_sql="e.id",
+                    )} AS conflict_state,
                     e.trust_tier, e.created_at,
                     sv.source_id, s.title AS source_title,
                     s.locator AS source_url, {relationship}
@@ -316,6 +343,7 @@ class CurrentRetrievalAdapter:
                 "confidence": float(row["confidence"]),
                 "anchor_state": row["anchor_state"],
                 "review_state": row["review_state"],
+                "conflict_state": row["conflict_state"],
                 "trust_tier": row["trust_tier"],
                 "relationship": row["relationship"],
                 "rationale": row["rationale"],
@@ -359,7 +387,10 @@ class CurrentRetrievalAdapter:
                         fallback_sql="'unreviewed'",
                     )} AS review_state,
                     s.trust_tier,
-                    s.conflict_state
+                    {effective_conflict_state_sql(
+                        entity_kind="source_version",
+                        entity_id_sql="sv.id",
+                    )} AS conflict_state
                 FROM source_versions sv
                 JOIN sources s ON s.id = sv.source_id
                 WHERE ({' OR '.join(selectors)}) AND {clause}
@@ -418,12 +449,12 @@ class CurrentRetrievalAdapter:
                     {effective_review_state_sql(
                         entity_kind="claim_revision",
                         entity_id_sql="cr.id",
-                        fallback_sql=(
-                            "CASE WHEN cr.id = c.current_revision_id "
-                            "THEN c.review_state ELSE 'unreviewed' END"
-                        ),
+                        fallback_sql="'unreviewed'",
                     )} AS review_state,
-                    c.conflict_state
+                    {claim_revision_conflict_state_sql(
+                        revision_id_sql="cr.id",
+                        status_sql="cr.status",
+                    )} AS conflict_state
                 FROM claim_evidence ce
                 JOIN claim_revisions cr ON cr.id = ce.claim_revision_id
                 JOIN claims c ON c.id = cr.claim_id
@@ -758,7 +789,11 @@ class CurrentRetrievalAdapter:
                         entity_id_sql="sv.id",
                         fallback_sql="'unreviewed'",
                     )} AS review_state,
-                    s.conflict_state, 'unknown' AS freshness,
+                    {effective_conflict_state_sql(
+                        entity_kind="source_version",
+                        entity_id_sql="sv.id",
+                    )} AS conflict_state,
+                    'unknown' AS freshness,
                     (SELECT COUNT(*) FROM evidence_spans e
                      WHERE e.source_version_id = sv.id) AS evidence_count,
                     sv.retrieved_at AS updated_at, sv.created_at,
@@ -781,7 +816,10 @@ class CurrentRetrievalAdapter:
                         entity_id_sql="e.id",
                         fallback_sql="e.review_state",
                     )} AS review_state,
-                    s.conflict_state,
+                    {effective_conflict_state_sql(
+                        entity_kind="evidence",
+                        entity_id_sql="e.id",
+                    )} AS conflict_state,
                     CASE WHEN e.anchor_state = 'stale' THEN 'stale'
                          WHEN e.anchor_state = 'resolved' THEN 'fresh'
                          ELSE 'unknown' END AS freshness,
@@ -805,19 +843,12 @@ class CurrentRetrievalAdapter:
                     {effective_review_state_sql(
                         entity_kind="claim_revision",
                         entity_id_sql="c.current_revision_id",
-                        fallback_sql="c.review_state",
+                        fallback_sql="'unreviewed'",
                     )} AS review_state,
-                    CASE
-                        WHEN COALESCE(cr.status, c.status) = 'contested'
-                          OR EXISTS (
-                              SELECT 1 FROM claim_evidence conflict_ce
-                              WHERE conflict_ce.claim_revision_id =
-                                    c.current_revision_id
-                                AND conflict_ce.relationship = 'refutes'
-                          )
-                        THEN 'conflicted'
-                        ELSE c.conflict_state
-                    END AS conflict_state,
+                    {claim_revision_conflict_state_sql(
+                        revision_id_sql="c.current_revision_id",
+                        status_sql="cr.status",
+                    )} AS conflict_state,
                     CASE
                         WHEN EXISTS (
                             SELECT 1 FROM claim_evidence stale_ce
@@ -924,19 +955,12 @@ class CurrentRetrievalAdapter:
                     {effective_review_state_sql(
                         entity_kind="claim_revision",
                         entity_id_sql="c.current_revision_id",
-                        fallback_sql="c.review_state",
+                        fallback_sql="'unreviewed'",
                     )} AS effective_review_state,
-                    CASE
-                        WHEN COALESCE(cr.status, c.status) = 'contested'
-                          OR EXISTS (
-                              SELECT 1 FROM claim_evidence conflict_ce
-                              WHERE conflict_ce.claim_revision_id =
-                                    c.current_revision_id
-                                AND conflict_ce.relationship = 'refutes'
-                          )
-                        THEN 'conflicted'
-                        ELSE c.conflict_state
-                    END AS derived_conflict_state,
+                    {claim_revision_conflict_state_sql(
+                        revision_id_sql="c.current_revision_id",
+                        status_sql="cr.status",
+                    )} AS derived_conflict_state,
                     CASE
                         WHEN EXISTS (
                             SELECT 1 FROM claim_evidence stale_ce
@@ -1007,7 +1031,11 @@ class CurrentRetrievalAdapter:
             """,
             "evidence": f"""
                 SELECT e.*, s.id AS source_id, s.title AS source_title,
-                    s.locator AS source_url, s.conflict_state,
+                    s.locator AS source_url,
+                    {effective_conflict_state_sql(
+                        entity_kind="evidence",
+                        entity_id_sql="e.id",
+                    )} AS conflict_state,
                     s.title AS read_title, e.quote_text AS read_text,
                     {effective_review_state_sql(
                         entity_kind="evidence",
@@ -1024,7 +1052,10 @@ class CurrentRetrievalAdapter:
             """,
             "source_version": f"""
                 SELECT sv.*, s.title AS source_title, s.locator AS source_url,
-                    s.conflict_state,
+                    {effective_conflict_state_sql(
+                        entity_kind="source_version",
+                        entity_id_sql="sv.id",
+                    )} AS conflict_state,
                     {effective_review_state_sql(
                         entity_kind="source_version",
                         entity_id_sql="sv.id",
@@ -1267,6 +1298,8 @@ class CurrentRetrievalAdapter:
             "supersedes_revision_id": row["supersedes_revision_id"],
             "created_by_model": row["created_by_model"],
             "created_at": row["created_at"],
+            "review_state": row["review_state"],
+            "conflict_state": row["conflict_state"],
         }
 
     @staticmethod

@@ -81,6 +81,46 @@ def _version_states(
     return listed, fetched, searched
 
 
+def _version_conflicts(
+    service: RegistryService,
+    source_id: str,
+    marker: str,
+    version_ids: list[str],
+    *,
+    access: ReadAccess,
+) -> tuple[dict[str, str | None], dict[str, str | None], dict[str, str | None]]:
+    retrieval = CurrentRetrievalAdapter(service.database)
+    listed = {
+        row["id"]: row["conflict_state"]
+        for row in retrieval.list_source_versions(
+            source_id=source_id,
+            access=access,
+        )
+        if row["id"] in version_ids
+    }
+    fetched = {}
+    for version_id in version_ids:
+        record = retrieval.get_record(version_id, access=access)
+        assert record is not None
+        fetched[version_id] = record.conflict_state
+    response = ResearchSearchService(retrieval).search(
+        ResearchSearchRequest(
+            protocol="research-search/v2",
+            query=marker,
+            kinds=["source_version"],
+            include_private=True,
+            limit=100,
+        ),
+        access=access,
+    )
+    searched = {
+        hit.id: hit.conflict_state
+        for hit in response.hits
+        if hit.id in version_ids
+    }
+    return listed, fetched, searched
+
+
 def _inbox_ids(
     service: RegistryService,
     *,
@@ -158,6 +198,97 @@ def exercise_source_version_review_state_isolation(
         "unreviewed",
         "none",
     )
+    reviews = ResearchReviewService(service.database)
+    reviews.review(
+        {
+            "protocol": "research-review/v2",
+            "idempotency_key": f"{marker}-contest-a",
+            "entity": {"kind": "source_version", "id": version_a.id},
+            "action": "contest",
+            "expected_state": "reviewed",
+        }
+    )
+    conflicts = _version_conflicts(
+        service,
+        source.id,
+        marker,
+        [version_a.id, version_b.id],
+        access=access,
+    )
+    assert conflicts[0] == conflicts[1] == conflicts[2] == {
+        version_a.id: "conflicted",
+        version_b.id: "none",
+    }
+    reviews.review(
+        {
+            "protocol": "research-review/v2",
+            "idempotency_key": f"{marker}-contest-b",
+            "entity": {"kind": "source_version", "id": version_b.id},
+            "action": "contest",
+            "expected_state": "unreviewed",
+        }
+    )
+    conflicts = _version_conflicts(
+        service,
+        source.id,
+        marker,
+        [version_a.id, version_b.id],
+        access=access,
+    )
+    assert conflicts[0] == conflicts[1] == conflicts[2] == {
+        version_a.id: "conflicted",
+        version_b.id: "conflicted",
+    }
+    reviews.review(
+        {
+            "protocol": "research-review/v2",
+            "idempotency_key": f"{marker}-approve-b",
+            "entity": {"kind": "source_version", "id": version_b.id},
+            "action": "approve",
+            "expected_state": "flagged",
+        }
+    )
+    with service.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO review_events (
+                id, entity_kind, entity_id, action, from_state, to_state,
+                actor_type, created_at, metadata_json
+            ) VALUES (?, 'source_version', ?, 'reject', 'flagged', 'flagged',
+                      'human', '2026-08-01T00:00:00+00:00', '{}')
+            """,
+            (f"rev_{marker}_reject_a", version_a.id),
+        )
+        rebuild_search_documents(conn)
+    expected = {version_a.id: "flagged", version_b.id: "reviewed"}
+    listed, fetched, searched = _version_states(
+        service,
+        source.id,
+        marker,
+        list(expected),
+        access=access,
+    )
+    assert listed == fetched == searched == expected
+    expected_conflicts = {version_a.id: "none", version_b.id: "none"}
+    listed_conflicts, fetched_conflicts, searched_conflicts = (
+        _version_conflicts(
+            service,
+            source.id,
+            marker,
+            list(expected),
+            access=access,
+        )
+    )
+    assert (
+        listed_conflicts
+        == fetched_conflicts
+        == searched_conflicts
+        == expected_conflicts
+    )
+    version_detail = V2WebViewService(  # type: ignore[arg-type]
+        service.database, None
+    ).source_version_detail(version_a.id, access=access, can_review=True)
+    assert version_detail.version.conflict_state == "none"
 
     version_c = versions.create_or_reuse(
         _version_spec(source.id, marker, "c", hour=2)
@@ -229,6 +360,25 @@ def exercise_source_version_review_state_isolation(
         "none",
     )
     assert version_d.id in _inbox_ids(service, access=access)
+    # Simulate a pre-fix alpha compatibility mirror with no exact event or
+    # projection identity. Adoption must repair it without inventing review
+    # provenance for the native version.
+    with service.connect() as conn:
+        conn.execute(
+            """
+            UPDATE sources
+            SET review_state = 'reviewed', conflict_state = 'conflicted'
+            WHERE id = ?
+            """,
+            (source.id,),
+        )
+        conn.execute(
+            """
+            DELETE FROM legacy_projection_identity
+            WHERE legacy_kind = 'source' AND legacy_id = ?
+            """,
+            (source.id,),
+        )
 
     legacy = service.create_source(
         SourceCreate(
@@ -258,6 +408,28 @@ def exercise_source_version_review_state_isolation(
         ).fetchone()
         assert projection is not None
         legacy_version_id = projection["v2_id"]
+        repaired_projection = conn.execute(
+            """
+            SELECT v2_id FROM legacy_projection_identity
+            WHERE legacy_kind = 'source' AND legacy_id = ?
+            """,
+            (source.id,),
+        ).fetchone()
+        repaired_mirror = conn.execute(
+            """
+            SELECT review_state, conflict_state
+            FROM sources WHERE id = ?
+            """,
+            (source.id,),
+        ).fetchone()
+        native_migration_events = conn.execute(
+            """
+            SELECT COUNT(*) AS count FROM review_events
+            WHERE entity_kind = 'source_version' AND entity_id = ?
+              AND actor_type = 'migration'
+            """,
+            (version_d.id,),
+        ).fetchone()["count"]
         legacy_events = conn.execute(
             """
             SELECT action, from_state, to_state, actor_type
@@ -308,6 +480,12 @@ def exercise_source_version_review_state_isolation(
         )
         for row in legacy_events
     ] == [("approve", "unreviewed", "reviewed", "migration")]
+    assert repaired_projection["v2_id"] == version_d.id
+    assert (
+        repaired_mirror["review_state"],
+        repaired_mirror["conflict_state"],
+    ) == ("unreviewed", "none")
+    assert native_migration_events == 0
     legacy_record = CurrentRetrievalAdapter(service.database).get_record(
         legacy_version_id,
         access=access,

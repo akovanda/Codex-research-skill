@@ -377,6 +377,15 @@ class ResearchReviewService:
             raise ExpectedStateMismatch(
                 "EXPECTED_STATE_MISMATCH: The current review state changed."
             )
+        if row["visibility"] == "public" and command.action in {
+            "contest",
+            "reject",
+            "supersede",
+        }:
+            raise InvalidClaimTransition(
+                "INVALID_CLAIM_TRANSITION: Public claims cannot create "
+                "replacement revisions."
+            )
 
         refresh_ids: list[str] = []
         revision_created = False
@@ -441,6 +450,8 @@ class ResearchReviewService:
                 ),
             }
         )
+        if command.action != "request_refresh":
+            repository.refresh_claim_review_mirror(row["claim_id"])
         current = repository.get_claim(
             row["claim_id"],
             namespace_kind=namespace_kind,
@@ -548,6 +559,11 @@ class ResearchReviewService:
         if command.action != "request_refresh":
             if entity["event_kind"] == "source_version":
                 repository.refresh_source_review_mirror(entity["legacy_id"])
+            elif entity["event_kind"] == "evidence":
+                repository.refresh_evidence_review_mirror(
+                    evidence_id=entity["event_id"],
+                    excerpt_id=entity["legacy_id"],
+                )
             else:
                 repository.update_legacy_review_mirror(
                     table=entity["legacy_table"],
@@ -648,19 +664,13 @@ class ResearchReviewService:
         row: Any,
     ) -> ClaimCurrentState:
         status: ClaimRevisionStatus = row["revision_status"]
-        conflict = (
-            "conflicted"
-            if status == "contested"
-            or repository.current_claim_has_refuting_evidence(row["claim_id"])
-            else "none"
-        )
         return ClaimCurrentState(
             claim_id=row["claim_id"],
             current_revision_id=row["current_revision_id"],
             revision_number=int(row["revision_number"]),
             status=status,
             review_state=row["review_state"],
-            conflict_state=conflict,
+            conflict_state=row["conflict_state"],
             freshness=repository.claim_freshness(row["claim_id"]),
         )
 

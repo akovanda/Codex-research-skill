@@ -269,6 +269,25 @@ def _exercise_legacy_review_matrix(
                         raw_conflict_state,
                     )
                     continue
+                if entity_kind == "source_version":
+                    source_mirror = conn.execute(
+                        """
+                        SELECT review_state, conflict_state
+                        FROM sources WHERE id = ?
+                        """,
+                        (legacy_id,),
+                    ).fetchone()
+                    assert (
+                        source_mirror["review_state"],
+                        source_mirror["conflict_state"],
+                    ) == (
+                        expected_state,
+                        (
+                            "conflicted"
+                            if expected_action == "contest"
+                            else "none"
+                        ),
+                    )
                 table = {
                     "source_version": "source_versions",
                     "evidence": "evidence_spans",
@@ -345,15 +364,22 @@ def _exercise_legacy_review_matrix(
         for row in retrieval.list_refresh_queue(access=access)
     }
     for states, targets in target_rows.items():
-        _, expected_state = _expected_legacy_decision(*states)
-        expected_conflict = states[1]
+        expected_action, expected_state = _expected_legacy_decision(*states)
+        exact_conflict = (
+            "conflicted" if expected_action == "contest" else "none"
+        )
         external_targets: dict[str, str] = {}
+        expected_conflicts: dict[tuple[str, str], str] = {}
         for entity_kind, (legacy_id, v2_id) in targets.items():
             external_id = legacy_id if entity_kind == "claim_revision" else v2_id
             external_kind = (
                 "claim" if entity_kind == "claim_revision" else entity_kind
             )
+            expected_conflict = (
+                states[1] if external_kind == "report" else exact_conflict
+            )
             external_targets[external_kind] = external_id
+            expected_conflicts[(external_kind, external_id)] = expected_conflict
             assert search_states[(external_kind, external_id)] == expected_state
             record = retrieval.get_record(external_id, access=access)
             assert record is not None
@@ -384,15 +410,19 @@ def _exercise_legacy_review_matrix(
                 query=f"Legacy review matrix {marker}",
                 kinds=["source_version", "evidence", "claim", "report"],
                 review_states=[expected_state],
-                conflict_states=[expected_conflict],
                 include_private=True,
                 limit=20,
             ),
             access=access,
         )
-        assert set(external_targets.items()) <= {
-            (hit.kind, hit.id) for hit in search_result.hits
+        hits = {
+            (hit.kind, hit.id): hit for hit in search_result.hits
         }
+        assert set(external_targets.items()) <= set(hits)
+        assert all(
+            hits[target].conflict_state == expected_conflict
+            for target, expected_conflict in expected_conflicts.items()
+        )
 
         expected_refresh_targets = {
             ("source", seeded[states]["source"]),
@@ -402,7 +432,7 @@ def _exercise_legacy_review_matrix(
         }
         assert all(
             (target in refresh_page_rows)
-            is (expected_conflict == "conflicted")
+            is (states[1] == "conflicted")
             for target in expected_refresh_targets
         )
 
@@ -474,6 +504,23 @@ def _v1_snapshot(service: RegistryService, ids) -> dict[str, object]:
                 mode="json"
             ),
         ],
+    }
+
+
+def _without_review_mirrors(
+    snapshot: dict[str, object],
+) -> dict[str, object]:
+    return {
+        kind: [
+            {
+                key: value
+                for key, value in record.items()
+                if key
+                not in {"review_state", "conflict_state", "human_reviewed"}
+            }
+            for record in records
+        ]
+        for kind, records in snapshot.items()
     }
 
 
@@ -651,7 +698,9 @@ def test_backfill_maps_once_preserves_v1_reads_and_exposes_v2(
 
     assert result.status == "completed"
     assert result.error_count == 0
-    assert before_v1 == after_v1
+    assert _without_review_mirrors(before_v1) == _without_review_mirrors(
+        after_v1
+    )
     assert after_counts["sources"] == before_counts["sources"]
     assert after_counts["excerpts"] == before_counts["excerpts"]
     assert after_counts["claims"] == before_counts["claims"]

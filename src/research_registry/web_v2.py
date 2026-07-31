@@ -60,6 +60,8 @@ class RevisionView(ClosedModel):
     statement: str
     status: str
     confidence: float
+    review_state: str
+    conflict_state: str
     created_at: str
     supersedes_revision_id: str | None = None
 
@@ -99,6 +101,7 @@ class EvidenceView(ClosedModel):
     confidence: float
     anchor_state: str
     review_state: str
+    conflict_state: str
     trust_tier: str
     source_id: str
     source_title: str
@@ -148,6 +151,7 @@ class EvidenceDetailView(ClosedModel):
     confidence: float
     anchor_state: str
     review_state: str
+    conflict_state: str
     trust_tier: str
     source_id: str
     source_title: str
@@ -429,6 +433,7 @@ class V2WebViewService:
             confidence=float(result.record.get("confidence") or 0),
             anchor_state=str(result.record.get("anchor_state") or "unverified"),
             review_state=result.review_state or "unreviewed",
+            conflict_state=result.conflict_state or "none",
             trust_tier=str(result.record.get("trust_tier") or "low"),
             source_id=str(result.record.get("source_id") or ""),
             source_title=result.title,
@@ -677,6 +682,8 @@ class V2WebViewService:
             statement=str(item["statement"]),
             status=str(item["status"]),
             confidence=float(item["confidence"]),
+            review_state=str(item.get("review_state") or "unreviewed"),
+            conflict_state=str(item.get("conflict_state") or "none"),
             created_at=str(item["created_at"]),
             supersedes_revision_id=(
                 str(item["supersedes_revision_id"])
@@ -752,6 +759,7 @@ class V2WebViewService:
             confidence=float(item.get("confidence") or 0),
             anchor_state=str(item.get("anchor_state") or "unverified"),
             review_state=str(item.get("review_state") or "unreviewed"),
+            conflict_state=str(item.get("conflict_state") or "none"),
             trust_tier=str(item.get("trust_tier") or "low"),
             source_id=str(item["source_id"]),
             source_title=str(item["source_title"]),

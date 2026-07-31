@@ -225,6 +225,12 @@ class SourceCaptureCoordinator:
                 "RECORD_NOT_FOUND: The refresh source was not found."
             )
         source, previous = context
+        if source["visibility"] == "public":
+            raise RefreshModeDenied(
+                "PUBLIC_PARENT_MUTATION_DENIED: Capture and verification are "
+                "disabled for public sources until immutable-version "
+                "publication is supported."
+            )
         locator = source["locator"]
         previous_kind = previous["version_kind"] if previous is not None else None
         source_kind = _capture_kind(locator, previous_kind)
