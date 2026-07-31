@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated, Any, Literal
-from urllib.parse import parse_qsl, urlsplit
 
 from pydantic import Field, StringConstraints, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
+from ..locator_security import validate_safe_locator
 from .common import (
     ClaimRevisionStatus,
     ClosedModel,
@@ -43,46 +43,6 @@ def _validate_order(start: int | None, end: int | None, label: str) -> None:
 def _remove_json_schema_default(schema: dict[str, Any]) -> None:
     """Represent optional-but-non-null packet properties exactly."""
     schema.pop("default", None)
-
-
-_SECRET_QUERY_KEYS = {
-    "token",
-    "access_token",
-    "api_key",
-    "apikey",
-    "key",
-    "secret",
-    "signature",
-    "sig",
-    "credential",
-    "credentials",
-    "session",
-    "session_id",
-    "sessionid",
-}
-
-
-def _validate_safe_locator(value: str) -> str:
-    parsed = urlsplit(value)
-    if parsed.scheme.lower() not in {"http", "https"}:
-        return value
-    if parsed.username is not None or parsed.password is not None:
-        raise ValueError("HTTP(S) locators must not contain userinfo")
-    if parsed.fragment:
-        raise ValueError("HTTP(S) locators must not contain URL fragments")
-    for key, _ in parse_qsl(parsed.query, keep_blank_values=True):
-        normalized = key.strip().lower().replace("-", "_")
-        if (
-            normalized in _SECRET_QUERY_KEYS
-            or normalized.endswith("_token")
-            or normalized.endswith("_secret")
-            or normalized.endswith("_signature")
-            or normalized.endswith("_credential")
-        ):
-            raise ValueError(
-                "HTTP(S) locators must not contain credential query parameters"
-            )
-    return value
 
 
 class TextQuoteSelector(ClosedModel):
@@ -291,7 +251,7 @@ class SourceIdentity(ClosedModel):
     @field_validator("locator")
     @classmethod
     def validate_locator(cls, value: str) -> str:
-        return _validate_safe_locator(value)
+        return validate_safe_locator(value)
 
 
 class SourceSnapshot(ClosedModel):
@@ -345,7 +305,7 @@ class SourceVersion(ClosedModel):
     @field_validator("canonical_locator")
     @classmethod
     def validate_canonical_locator(cls, value: str) -> str:
-        return _validate_safe_locator(value)
+        return validate_safe_locator(value)
 
     @model_validator(mode="after")
     def validate_git_provenance(self) -> SourceVersion:

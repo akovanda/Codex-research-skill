@@ -20,6 +20,7 @@ from .application.source_versions import SourceVersionService
 from .application.review import ResearchReviewService
 from .contracts.v2 import ResearchReviewRequest
 from .ingestion.blobs import FilesystemBlobStore
+from .locator_security import validate_safe_locator
 from .legacy_feature import require_legacy_heuristics
 from .migration_runner import MigrationRunner
 from .retrieval.projection import rebuild_search_documents
@@ -496,6 +497,9 @@ class RegistryService:
         *,
         _project_v2: bool = True,
     ) -> SourceRecord:
+        validate_safe_locator(payload.locator)
+        if payload.snapshot_url is not None:
+            validate_safe_locator(payload.snapshot_url)
         payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         dedupe_key = self._scoped_dedupe_key(
@@ -1106,6 +1110,7 @@ class RegistryService:
         return DashboardData(reports=reports, claims=claims, questions=questions)
 
     def import_url(self, payload: ImportUrlRequest, auth: AuthContext | None = None) -> ImportResult:
+        validate_safe_locator(payload.url)
         candidate = fetch_url_candidate(payload.url)
         return self._materialize_import_candidate(
             candidate.source,
