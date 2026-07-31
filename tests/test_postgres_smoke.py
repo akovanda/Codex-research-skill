@@ -14,6 +14,10 @@ from research_registry.application.deposit import ResearchDepositService
 from research_registry.application.migrate_v2 import run_v2_backfill
 from research_registry.application.review import ResearchReviewService
 from research_registry.ingestion.blobs import FilesystemBlobStore
+from research_registry.persistence.read_adapter import (
+    CurrentRetrievalAdapter,
+    ReadAccess,
+)
 from research_registry.service import RegistryService
 from research_registry.data_audit import audit_database
 from research_registry.retrieval.projection import rebuild_search_documents
@@ -270,6 +274,105 @@ def test_postgres_retained_review_idempotency_tracks_current_revision(
         "approve",
         "contest",
     ]
+
+
+@pytest.mark.skipif(
+    "TEST_DATABASE_URL" not in os.environ,
+    reason="postgres retained evidence review requires TEST_DATABASE_URL",
+)
+def test_postgres_retained_evidence_review_uses_append_only_effective_state(
+    tmp_path,
+) -> None:
+    app = create_app(_settings(tmp_path, os.environ["TEST_DATABASE_URL"]))
+    service = app.state.service
+    client = TestClient(app)
+    suffix = uuid4().hex
+    _, ids = seed_review_registry(
+        tmp_path,
+        key=f"postgres-retained-evidence-review-{suffix}",
+        database=service.database.url,
+    )
+    issued = service.issue_api_key(
+        ApiKeyCreate(
+            label=f"postgres-evidence-reviewer-{suffix}",
+            actor_user_id=f"postgres-evidence-reviewer-{suffix}",
+            scopes=["admin", "read_private"],
+        )
+    )
+    headers = {"x-api-key": issued.token}
+    retained_payload = {
+        "kind": "excerpt",
+        "record_id": ids["excerpt"],
+        "reviewed": True,
+    }
+
+    first = client.post(
+        "/api/review", headers=headers, json=retained_payload
+    )
+    contested = ResearchReviewService(service.database).review(
+        {
+            "protocol": "research-review/v2",
+            "idempotency_key": f"postgres-contest-evidence-{suffix}",
+            "entity": {
+                "kind": "evidence",
+                "id": ids["supporting"],
+            },
+            "action": "contest",
+            "expected_state": "reviewed",
+        }
+    )
+    second = client.post(
+        "/api/review", headers=headers, json=retained_payload
+    )
+    replay = client.post(
+        "/api/review", headers=headers, json=retained_payload
+    )
+
+    assert first.status_code == 200
+    assert contested.event_id
+    assert second.status_code == 200
+    assert replay.status_code == 200
+    with service.connect() as conn:
+        events = conn.execute(
+            """
+            SELECT action, from_state, to_state
+            FROM review_events
+            WHERE entity_kind = 'evidence' AND entity_id = ?
+            ORDER BY created_at, id
+            """,
+            (ids["supporting"],),
+        ).fetchall()
+        evidence = conn.execute(
+            "SELECT review_state FROM evidence_spans WHERE id = ?",
+            (ids["supporting"],),
+        ).fetchone()
+        excerpt = conn.execute(
+            """
+            SELECT review_state, human_reviewed
+            FROM excerpts WHERE id = ?
+            """,
+            (ids["excerpt"],),
+        ).fetchone()
+    effective = CurrentRetrievalAdapter(service.database).get_record(
+        ids["supporting"],
+        access=ReadAccess(include_private=True, local_trusted=True),
+    )
+
+    assert [
+        (row["action"], row["from_state"], row["to_state"])
+        for row in events
+    ] == [
+        ("approve", "unreviewed", "reviewed"),
+        ("contest", "reviewed", "flagged"),
+        ("approve", "flagged", "reviewed"),
+    ]
+    assert evidence["review_state"] == "unreviewed"
+    assert (excerpt["review_state"], excerpt["human_reviewed"]) == (
+        "reviewed",
+        1,
+    )
+    assert effective is not None
+    assert effective.review_state == "reviewed"
 
 
 @pytest.mark.skipif(

@@ -11,6 +11,7 @@ from uuid import UUID, uuid5
 from ..db import DbConnection
 from ..ingestion.blobs import BlobReference
 from ..timestamps import is_due, utc_text
+from .review_state import latest_effective_review_state
 
 
 V2_MIGRATION_ID = "0003_v2_evidence"
@@ -1949,17 +1950,12 @@ class ReviewRefreshRepository:
     def _latest_review_state(
         self, entity_kind: str, entity_id: str, fallback: str
     ) -> str:
-        row = self.conn.execute(
-            """
-            SELECT to_state FROM review_events
-            WHERE entity_kind = ? AND entity_id = ?
-              AND action IN ('approve', 'contest', 'reject', 'supersede')
-            ORDER BY created_at DESC, id DESC
-            LIMIT 1
-            """,
-            (entity_kind, entity_id),
-        ).fetchone()
-        return row["to_state"] if row is not None else fallback
+        return latest_effective_review_state(
+            self.conn,
+            entity_kind=entity_kind,
+            entity_id=entity_id,
+            fallback=fallback,
+        )
 
 
 class SourceVersionRepository:

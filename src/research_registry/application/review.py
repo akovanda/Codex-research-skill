@@ -193,9 +193,7 @@ class ResearchReviewService:
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.database = database
-        self.clock = clock or (
-            lambda: datetime.now(timezone.utc).replace(microsecond=0)
-        )
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.revisions = ClaimRevisionService()
 
     def review(

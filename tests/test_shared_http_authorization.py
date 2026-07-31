@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from research_registry.app import create_app
+from research_registry.application.migrate_v2 import run_v2_backfill
 from research_registry.config import Settings
 from research_registry.external_ingest import (
     CapturedVersionCandidate,
@@ -420,6 +421,228 @@ def _exercise_two_user_isolation(
     }
 
 
+def _exercise_create_governance_and_admin_publish(
+    settings: Settings,
+) -> None:
+    app = create_app(settings)
+    service = app.state.service
+    run_v2_backfill(service.database.url)
+    client = TestClient(app)
+    with service.connect() as conn:
+        initial_review_events = conn.execute(
+            "SELECT COUNT(*) AS count FROM review_events"
+        ).fetchone()["count"]
+        initial_publish_audits = conn.execute(
+            "SELECT COUNT(*) AS count FROM audit_log WHERE action = 'publish'"
+        ).fetchone()["count"]
+        initial_approvals = conn.execute(
+            """
+            SELECT COUNT(*) AS count FROM review_events
+            WHERE action = 'approve'
+            """
+        ).fetchone()["count"]
+    suffix = uuid4().hex
+    namespace_id = f"governed-{suffix}"
+    ingest_headers = _issued_headers(service, namespace_id)
+    admin_headers = {"x-admin-token": "secret"}
+    escalated = {
+        "visibility": "public",
+        "review_state": "reviewed",
+        "trust_tier": "high",
+        "conflict_state": "conflicted",
+    }
+
+    question = _post(
+        client,
+        "/api/questions",
+        ingest_headers,
+        {
+            "prompt": f"Governed creation {suffix}",
+            "focus": {"domain": "governance", "object": suffix},
+            **escalated,
+            "namespace_kind": "user",
+            "namespace_id": namespace_id,
+        },
+    )
+    session = _post(
+        client,
+        "/api/sessions",
+        ingest_headers,
+        {
+            "question_id": question["id"],
+            **escalated,
+            "namespace_kind": "user",
+            "namespace_id": namespace_id,
+        },
+    )
+    source = _post(
+        client,
+        "/api/sources",
+        ingest_headers,
+        {
+            "locator": f"https://example.test/governed-{suffix}",
+            "title": "Governed source",
+            "snapshot_present": True,
+            **escalated,
+            "namespace_kind": "user",
+            "namespace_id": namespace_id,
+        },
+    )
+    excerpt = _post(
+        client,
+        "/api/excerpts",
+        ingest_headers,
+        {
+            "source_id": source["id"],
+            "question_id": question["id"],
+            "session_id": session["id"],
+            "focal_label": "governance",
+            "note": "Governed evidence.",
+            "selector": {"exact": "governed evidence"},
+            "quote_text": "governed evidence",
+            **escalated,
+            "namespace_kind": "user",
+            "namespace_id": namespace_id,
+        },
+    )
+    claim = _post(
+        client,
+        "/api/claims",
+        ingest_headers,
+        {
+            "question_id": question["id"],
+            "session_id": session["id"],
+            "title": "Governed claim",
+            "focal_label": "governance",
+            "statement": "Governed evidence supports the claim.",
+            "excerpt_ids": [excerpt["id"]],
+            **escalated,
+            "namespace_kind": "user",
+            "namespace_id": namespace_id,
+        },
+    )
+    report = _post(
+        client,
+        "/api/reports",
+        ingest_headers,
+        {
+            "question_id": question["id"],
+            "session_id": session["id"],
+            "title": "Governed report",
+            "focal_label": "governance",
+            "summary_md": "Governed report.",
+            "claim_ids": [claim["id"]],
+            **escalated,
+            "namespace_kind": "user",
+            "namespace_id": namespace_id,
+        },
+    )
+
+    for record in (question, session, source, excerpt, claim, report):
+        assert record["visibility"] == "private"
+        assert record["public_index_state"] == "private"
+    for record in (source, excerpt, claim, report):
+        assert record["review_state"] == "unreviewed"
+        assert record["conflict_state"] == "none"
+        assert record["trust_tier"] == "low"
+    assert excerpt["human_reviewed"] is False
+    assert claim["human_reviewed"] is False
+    assert report["human_reviewed"] is False
+
+    with service.connect() as conn:
+        review_events = conn.execute(
+            "SELECT COUNT(*) AS count FROM review_events"
+        ).fetchone()["count"]
+        publish_audits = conn.execute(
+            "SELECT COUNT(*) AS count FROM audit_log WHERE action = 'publish'"
+        ).fetchone()["count"]
+        evidence_state = conn.execute(
+            """
+            SELECT e.review_state
+            FROM evidence_spans e
+            JOIN legacy_projection_identity p
+              ON p.v2_kind = 'evidence'
+             AND p.v2_id = e.id
+            WHERE p.legacy_kind = 'excerpt' AND p.legacy_id = ?
+            """,
+            (excerpt["id"],),
+        ).fetchone()
+        revision_state = conn.execute(
+            """
+            SELECT c.review_state
+            FROM claims c
+            WHERE c.id = ?
+            """,
+            (claim["id"],),
+        ).fetchone()
+    assert review_events == initial_review_events
+    assert publish_audits == initial_publish_audits
+    assert evidence_state["review_state"] == "unreviewed"
+    assert revision_state["review_state"] == "unreviewed"
+    assert client.get(
+        "/api/search", params={"q": "Governed", "global_index_only": "true"}
+    ).json()["hits"] == []
+
+    reviewed = client.post(
+        "/api/review",
+        headers=admin_headers,
+        json={"kind": "claim", "record_id": claim["id"], "reviewed": True},
+    )
+    assert reviewed.status_code == 200
+
+    for kind, record in (
+        ("source", source),
+        ("excerpt", excerpt),
+        ("claim", claim),
+        ("report", report),
+    ):
+        published = client.post(
+            f"/admin/{kind}/{record['id']}/publish",
+            headers={**admin_headers, "referer": "/admin"},
+            data={"confirm": "yes"},
+            follow_redirects=False,
+        )
+        assert published.status_code == 303, published.text
+
+    with service.connect() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) AS count FROM audit_log WHERE action = 'publish'"
+        ).fetchone()["count"] == initial_publish_audits + 4
+        assert conn.execute(
+            """
+            SELECT COUNT(*) AS count FROM review_events
+            WHERE action = 'approve'
+            """
+        ).fetchone()["count"] == initial_approvals + 1
+
+    foreign_namespace = f"foreign-{suffix}"
+    foreign_headers = _issued_headers(service, foreign_namespace)
+    foreign = _create_graph(
+        client,
+        foreign_headers,
+        foreign_namespace,
+        f"foreign-{suffix}",
+    )
+    with service.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO claim_excerpts (claim_id, excerpt_id, rationale, weight)
+            VALUES (?, ?, ?, ?)
+            """,
+            (claim["id"], foreign["excerpt"], None, 1.0),
+        )
+    mixed = client.post(
+        f"/admin/claim/{claim['id']}/publish",
+        headers={**admin_headers, "referer": "/admin"},
+        data={"confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert mixed.status_code == 403
+    assert mixed.headers["content-type"].startswith("text/html")
+    assert "Record was not published" in mixed.text
+    assert foreign_namespace not in mixed.text
+
+
 def test_shared_http_two_user_mutation_isolation_sqlite(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -442,4 +665,25 @@ def test_shared_http_two_user_mutation_isolation_postgres(
     _exercise_two_user_isolation(
         _settings(tmp_path, os.environ["TEST_DATABASE_URL"]),
         monkeypatch,
+    )
+
+
+def test_authenticated_create_governance_and_admin_publish_sqlite(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "create-governance.sqlite3"
+    _exercise_create_governance_and_admin_publish(
+        _settings(tmp_path, f"sqlite:///{database.resolve()}")
+    )
+
+
+@pytest.mark.skipif(
+    "TEST_DATABASE_URL" not in os.environ,
+    reason="PostgreSQL retained create governance parity requires TEST_DATABASE_URL",
+)
+def test_authenticated_create_governance_and_admin_publish_postgres(
+    tmp_path: Path,
+) -> None:
+    _exercise_create_governance_and_admin_publish(
+        _settings(tmp_path, os.environ["TEST_DATABASE_URL"])
     )

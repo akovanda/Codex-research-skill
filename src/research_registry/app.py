@@ -639,12 +639,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         kind: str,
         record_id: str,
         request: Request,
-    ) -> RedirectResponse:
+    ) -> HTMLResponse:
         _require_admin(request)
         form = await request.form()
         if form.get("confirm") != "yes":
             raise HTTPException(status_code=400, detail="publish confirmation required")
-        service.publish(PublishRequest(kind=kind, record_id=record_id, include_in_global_index=True), auth=_admin_auth())
+        try:
+            namespace_kind, namespace_id = service.record_namespace(
+                kind,  # type: ignore[arg-type]
+                record_id,
+            )
+            service.publish(
+                PublishRequest(
+                    kind=kind,
+                    record_id=record_id,
+                    include_in_global_index=True,
+                    namespace_kind=namespace_kind,
+                    namespace_id=namespace_id,
+                ),
+                auth=_admin_auth(),
+            )
+        except (KeyError, PermissionError, ValueError):
+            return _v2_error_response(
+                request,
+                title="Record was not published",
+                message=(
+                    "The record is unavailable, not ready, or its linked graph "
+                    "does not belong to one authorized namespace."
+                ),
+                status_code=403,
+                return_href=request.headers.get("referer", "/admin"),
+            )
         return RedirectResponse(request.headers.get("referer", "/admin"), status_code=303)
 
     @app.post("/admin/{kind}/{record_id}/review")

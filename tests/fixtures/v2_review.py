@@ -28,6 +28,7 @@ def seed_review_registry(
 ) -> tuple[RegistryService, dict[str, str]]:
     registry = RegistryService(database or (tmp_path / f"{key}.sqlite3"))
     registry.initialize()
+    content = f"{CONTENT}\nSeed: {key}"
     evidence: list[dict[str, Any]] = [
         {
             "client_ref": "supporting",
@@ -93,13 +94,13 @@ def seed_review_registry(
                         "version_key": f"note:{key}:v1",
                         "version_kind": "note",
                         "retrieved_at": "2026-07-30T00:00:00Z",
-                        "content_sha256": sha256(CONTENT.encode()).hexdigest(),
+                        "content_sha256": sha256(content.encode()).hexdigest(),
                         "canonical_locator": f"note:{key}",
                         "snapshot": {
                             "policy": "extracted_text",
-                            "text": CONTENT,
+                            "text": content,
                             "media_type": "text/plain",
-                            "byte_count": len(CONTENT.encode()),
+                            "byte_count": len(content.encode()),
                         },
                     },
                 }
@@ -133,4 +134,15 @@ def seed_review_registry(
     }
     if include_refuting_evidence:
         ids["refuting"] = receipt.records.evidence_ids["refuting"]
+    with registry.connect() as conn:
+        ids["excerpt"] = conn.execute(
+            """
+            SELECT legacy_id
+            FROM legacy_projection_identity
+            WHERE legacy_kind = 'excerpt'
+              AND v2_kind = 'evidence'
+              AND v2_id = ?
+            """,
+            (ids["supporting"],),
+        ).fetchone()["legacy_id"]
     return registry, ids

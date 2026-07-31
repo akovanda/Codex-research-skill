@@ -24,6 +24,7 @@ from .legacy_feature import require_legacy_heuristics
 from .migration_runner import MigrationRunner
 from .retrieval.projection import rebuild_search_documents
 from .persistence.repositories import V2BackfillRepository
+from .persistence.review_state import latest_effective_review_state
 from .timestamps import utc_text
 from .models import (
     ApiKeyCreate,
@@ -231,6 +232,7 @@ class RegistryService:
         return self._topic_from_row(row)
 
     def create_question(self, payload: QuestionCreate, auth: AuthContext | None = None) -> QuestionRecord:
+        payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         topic_id = payload.topic_id
         if topic_id is None:
@@ -398,6 +400,7 @@ class RegistryService:
             conn.execute("UPDATE questions SET follow_up_status = ? WHERE id = ?", (follow_up_status, question_id))
 
     def create_session(self, payload: ResearchSessionCreate, auth: AuthContext | None = None) -> ResearchSessionRecord:
+        payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         dedupe_key = self._scoped_dedupe_key(
             payload.dedupe_key,
@@ -493,6 +496,7 @@ class RegistryService:
         *,
         _project_v2: bool = True,
     ) -> SourceRecord:
+        payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         dedupe_key = self._scoped_dedupe_key(
             payload.dedupe_key,
@@ -592,6 +596,7 @@ class RegistryService:
         _project_v2: bool = True,
         _source_version_id: str | None = None,
     ) -> ExcerptRecord:
+        payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         if payload.source_id:
             with self.connect() as conn:
@@ -726,6 +731,7 @@ class RegistryService:
         return self._excerpt_from_row(row)
 
     def create_claim(self, payload: ClaimCreate, auth: AuthContext | None = None) -> ClaimRecord:
+        payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         dedupe_key = self._scoped_dedupe_key(
             payload.dedupe_key,
@@ -836,6 +842,7 @@ class RegistryService:
         return self._claim_from_row(row)
 
     def create_report(self, payload: ReportCreate, auth: AuthContext | None = None) -> ReportRecord:
+        payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         dedupe_key = self._scoped_dedupe_key(
             payload.dedupe_key,
@@ -1403,6 +1410,29 @@ class RegistryService:
                 details={"include_in_global_index": payload.include_in_global_index},
             )
 
+    def record_namespace(
+        self,
+        kind: RecordKind,
+        record_id: str,
+    ) -> tuple[str, str]:
+        """Resolve a retained record's namespace for trusted server-side flows."""
+        canonical_kind = self._canonical_kind(kind)
+        if canonical_kind is None:  # pragma: no cover - closed RecordKind contract
+            raise KeyError("record not found")
+        table = self._table_name(canonical_kind)
+        with self.connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT namespace_kind, namespace_id
+                FROM {table}
+                WHERE id = ?
+                """,
+                (record_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError("record not found")
+        return row["namespace_kind"], row["namespace_id"]
+
     def review(self, payload: ReviewRequest, auth: AuthContext | None = None) -> None:
         canonical_kind = self._canonical_kind(payload.kind)
         target = self._v2_review_target(canonical_kind, payload.record_id)
@@ -1560,15 +1590,21 @@ class RegistryService:
                 entity_kind = "report"
             else:
                 return None
-        if row is None:
-            return None
+            if row is None:
+                return None
+            effective_review_state = latest_effective_review_state(
+                conn,
+                entity_kind=entity_kind,
+                entity_id=row["entity_id"],
+                fallback=row["review_state"],
+            )
         return {
             "entity_kind": entity_kind,
             "entity_id": row["entity_id"],
             "expected_revision_id": (
                 row["entity_id"] if entity_kind == "claim_revision" else None
             ),
-            "review_state": row["review_state"],
+            "review_state": effective_review_state,
             "namespace_kind": row["namespace_kind"],
             "namespace_id": row["namespace_id"],
         }
@@ -3718,6 +3754,37 @@ class RegistryService:
             "api_key_id": auth.api_key_id,
             "public_namespace_slug": resolved_namespace_id,
         }
+
+    def _govern_authenticated_create(
+        self,
+        payload: Any,
+        auth: AuthContext | None,
+    ) -> Any:
+        """Keep retained authenticated writes behind review/publication gates.
+
+        Trusted migration and local compatibility callers use ``auth=None`` and
+        may preserve historic state. Any authenticated create is a remote
+        ingest operation: it begins private, unreviewed, non-conflicted, and
+        without caller-authoritative trust.
+        """
+        if auth is None:
+            return payload
+        fields = type(payload).model_fields
+        updates: dict[str, object] = {}
+        if "visibility" in fields:
+            updates["visibility"] = "private"
+        if "review_state" in fields:
+            updates["review_state"] = "unreviewed"
+        if "conflict_state" in fields:
+            updates["conflict_state"] = "none"
+        if "trust_tier" in fields:
+            if isinstance(payload, SourceCreate):
+                updates["trust_tier"] = default_trust_tier_for_source_type(
+                    payload.source_type
+                )
+            else:
+                updates["trust_tier"] = "low"
+        return payload.model_copy(update=updates)
 
     def _row_namespace_matches_auth(self, row: Any, auth: AuthContext) -> bool:
         return row["namespace_kind"] == auth.namespace_kind and row["namespace_id"] == auth.namespace_id

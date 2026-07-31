@@ -14,6 +14,7 @@ from ..db import (
     connect_database,
     resolve_database_target,
 )
+from ..persistence.review_state import effective_review_state_sql
 from ..timestamps import freshness_case
 from .models import SearchDocument
 
@@ -289,7 +290,7 @@ FROM source_versions sv
 JOIN sources s ON s.id = sv.source_id
 """
 
-_EVIDENCE_SQL = """
+_EVIDENCE_SQL = f"""
 SELECT
     e.id, 'evidence' AS kind, s.title,
     e.quote_text AS summary,
@@ -298,13 +299,11 @@ SELECT
     s.locator, NULL AS doi, sv.repository_locator AS repository, sv.path,
     NULL AS canonical_key, t.slug AS topic_slug,
     e.quote_sha256 AS quote_hash, NULL AS dedupe_key,
-    COALESCE((
-        SELECT re.to_state FROM review_events re
-        WHERE re.entity_kind = 'evidence' AND re.entity_id = e.id
-          AND re.action IN ('approve', 'contest', 'reject', 'supersede')
-        ORDER BY re.created_at DESC, re.id DESC
-        LIMIT 1
-    ), e.review_state) AS review_state,
+    {effective_review_state_sql(
+        entity_kind="evidence",
+        entity_id_sql="e.id",
+        fallback_sql="e.review_state",
+    )} AS review_state,
     e.trust_tier, s.conflict_state,
     CASE WHEN e.anchor_state = 'stale' THEN 'stale'
          WHEN e.anchor_state IN ('resolved', 'relocated') THEN 'fresh'

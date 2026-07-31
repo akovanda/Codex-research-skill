@@ -35,7 +35,12 @@ anchors during deposit whenever retained content bytes are available; expand
 PostgreSQL coverage from sequential smoke checks to concurrent identical,
 conflicting-idempotency, and canonical-claim requests; and narrow psycopg
 exception translation so programming and schema failures retain distinct
-stable diagnostics.
+stable diagnostics. Before exposing a shared/public alpha, retained v1 HTTP
+locators must reuse the v2 secret-bearing URL validator, administrators must
+either supply an explicit namespace for generic creates or the documented
+contract must intentionally retain the `user/local` default, and native v2
+publication must traverse authoritative `claim_evidence` relationships (or
+reject graphs that cannot be represented by the retained publication graph).
 
 Offline `SHA256SUMS`, SPDX 2.3 SBOM, and in-toto/SLSA-shaped provenance drafts
 are generated under `.data/release/<version>/`. Local provenance explicitly records a
