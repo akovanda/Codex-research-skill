@@ -23,6 +23,7 @@ from .application.refresh import InvalidRefreshTransition
 from .contracts.v2 import ResearchReviewRequest
 from .mcp_tools import create_mcp_server
 from .mcp.deep_research import create_deep_research_server
+from .locator_security import UnsafeLocatorError
 from .models import (
     ApiKeyCreate,
     AuthContext,
@@ -864,6 +865,8 @@ def _safe_mutation(operation):
         return operation()
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except UnsafeLocatorError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ReviewError as exc:
