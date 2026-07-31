@@ -30,9 +30,13 @@ PDF/complex parsers remain unsupported without a future isolated optional
 extra, embeddings remain optional and absent, and there is no agent loop or
 automatic publication.
 
-Post-alpha correctness follow-ups are explicitly tracked: resolve evidence
-anchors during deposit whenever retained content bytes are available; expand
-PostgreSQL coverage from sequential smoke checks to concurrent identical,
+Deposit now resolves exact evidence anchors whenever supplied or retained
+UTF-8 content provides the selector's required representation. Exact
+mismatches and ambiguous matches reject the entire deposit atomically;
+unavailable page/DOM indexes or absent content remain explicitly unverified
+with bounded warnings and per-evidence metadata. Remaining post-alpha
+correctness follow-ups are explicitly tracked: expand PostgreSQL coverage from
+sequential smoke checks to concurrent identical,
 conflicting-idempotency, and canonical-claim requests; and narrow psycopg
 exception translation so programming and schema failures retain distinct
 stable diagnostics. Before exposing a shared/public alpha, retained v1 HTTP

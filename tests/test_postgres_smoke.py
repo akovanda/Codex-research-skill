@@ -40,6 +40,17 @@ from tests.test_publication_fail_closed import (
 from tests.test_v2_migration import _exercise_legacy_review_matrix
 from tests.test_web_v2 import _exercise_global_admin_org_review
 from tests.test_v2_deposit import _bundle
+from tests.test_deposit_anchor_resolution import (
+    test_postgres_deposit_anchor_resolution_and_atomic_rejection as _exercise_postgres_anchor_validation,
+)
+
+
+@pytest.mark.skipif(
+    "TEST_DATABASE_URL" not in os.environ,
+    reason="postgres evidence-anchor validation requires TEST_DATABASE_URL",
+)
+def test_postgres_evidence_anchor_validation(tmp_path: Path) -> None:
+    _exercise_postgres_anchor_validation(tmp_path)
 
 
 @pytest.mark.skipif(

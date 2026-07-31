@@ -931,9 +931,9 @@ class DepositRepository:
                 id, source_version_id, topic_id, question_id, session_id,
                 quote_text, quote_sha256, selector_type, selector_json, note,
                 confidence, anchor_state, review_state, trust_tier,
-                created_by_model, created_at, metadata_json
+                created_by_model, created_at, last_resolved_at, metadata_json
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unverified', ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -948,10 +948,12 @@ class DepositRepository:
                 values["selector_json"],
                 values["note"],
                 values["confidence"],
+                values.get("anchor_state", "unverified"),
                 values["review_state"],
                 values["trust_tier"],
                 values["created_by_model"],
                 values["created_at"],
+                values.get("last_resolved_at"),
                 values["metadata_json"],
             ),
         )
