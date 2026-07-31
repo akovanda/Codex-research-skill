@@ -544,12 +544,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "new_revision": new_revision,
                 }
             )
+            if auth.api_key_id is None:
+                namespace_kind, namespace_id = service.v2_review_entity_namespace(
+                    command.entity.kind,
+                    command.entity.id,
+                )
+            else:
+                namespace_kind = auth.namespace_kind
+                namespace_id = auth.namespace_id
             result = ResearchReviewService(service.database).review(
                 command,
-                namespace_kind=auth.namespace_kind,
-                namespace_id=auth.namespace_id,
+                namespace_kind=namespace_kind,
+                namespace_id=namespace_id,
                 actor_type="human",
-                actor_id=auth.actor_user_id or auth.api_key_id,
+                actor_id=auth.actor_user_id or auth.api_key_id or "global-admin",
             )
         except (ExpectedRevisionMismatch, ExpectedStateMismatch):
             return _v2_error_response(
@@ -563,7 +571,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return_href=_review_return_href(entity_kind, entity_id),
                 retry=True,
             )
-        except ReviewRecordNotFound:
+        except (KeyError, ReviewRecordNotFound):
             return _v2_error_response(
                 request,
                 title="Review target not found",

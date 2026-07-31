@@ -27,6 +27,8 @@ from tests.test_shared_http_authorization import (
     _exercise_two_user_isolation,
     _settings,
 )
+from tests.test_v2_migration import _exercise_legacy_review_matrix
+from tests.test_web_v2 import _exercise_global_admin_org_review
 from tests.test_v2_deposit import _bundle
 
 
@@ -373,6 +375,30 @@ def test_postgres_retained_evidence_review_uses_append_only_effective_state(
     )
     assert effective is not None
     assert effective.review_state == "reviewed"
+
+
+@pytest.mark.skipif(
+    "TEST_DATABASE_URL" not in os.environ,
+    reason="postgres global admin organization review requires TEST_DATABASE_URL",
+)
+def test_postgres_global_admin_can_review_org_records_and_refresh(
+    tmp_path,
+) -> None:
+    _exercise_global_admin_org_review(
+        _settings(tmp_path, os.environ["TEST_DATABASE_URL"]),
+        tmp_path,
+    )
+
+
+@pytest.mark.skipif(
+    "TEST_DATABASE_URL" not in os.environ,
+    reason="postgres legacy review matrix requires TEST_DATABASE_URL",
+)
+def test_postgres_backfill_normalizes_legacy_review_state_matrix() -> None:
+    _exercise_legacy_review_matrix(
+        RegistryService(os.environ["TEST_DATABASE_URL"]),
+        suffix=f"postgres-review-matrix-{uuid4().hex[:8]}",
+    )
 
 
 @pytest.mark.skipif(

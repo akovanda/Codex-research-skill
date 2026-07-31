@@ -1433,6 +1433,28 @@ class RegistryService:
             raise KeyError("record not found")
         return row["namespace_kind"], row["namespace_id"]
 
+    def v2_review_entity_namespace(
+        self,
+        entity_kind: str,
+        entity_id: str,
+    ) -> tuple[str, str]:
+        """Resolve v2 review ownership for the trusted global admin UI.
+
+        Remote API and MCP callers do not use this resolver; they remain bound
+        to their authenticated namespace. The review service still performs
+        the final namespace-scoped lookup after this server-side resolution.
+        """
+        with self.connect() as conn:
+            namespace = self._v2_review_owner_namespace(
+                conn,
+                entity_kind,
+                entity_id,
+                seen=set(),
+            )
+        if namespace is None:
+            raise KeyError("review target not found")
+        return namespace
+
     def review(self, payload: ReviewRequest, auth: AuthContext | None = None) -> None:
         canonical_kind = self._canonical_kind(payload.kind)
         target = self._v2_review_target(canonical_kind, payload.record_id)
@@ -3785,6 +3807,95 @@ class RegistryService:
             else:
                 updates["trust_tier"] = "low"
         return payload.model_copy(update=updates)
+
+    def _v2_review_owner_namespace(
+        self,
+        conn: DbConnection,
+        entity_kind: str,
+        entity_id: str,
+        *,
+        seen: set[tuple[str, str]],
+    ) -> tuple[str, str] | None:
+        target = (entity_kind, entity_id)
+        if target in seen:
+            return None
+        seen.add(target)
+        if entity_kind == "claim_revision":
+            row = conn.execute(
+                """
+                SELECT c.namespace_kind, c.namespace_id
+                FROM claim_revisions cr
+                JOIN claims c ON c.id = cr.claim_id
+                WHERE cr.id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+        elif entity_kind == "claim":
+            row = conn.execute(
+                """
+                SELECT namespace_kind, namespace_id
+                FROM claims WHERE id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+        elif entity_kind == "evidence":
+            row = conn.execute(
+                """
+                SELECT s.namespace_kind, s.namespace_id
+                FROM evidence_spans e
+                JOIN source_versions sv ON sv.id = e.source_version_id
+                JOIN sources s ON s.id = sv.source_id
+                WHERE e.id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+        elif entity_kind == "source_version":
+            row = conn.execute(
+                """
+                SELECT s.namespace_kind, s.namespace_id
+                FROM source_versions sv
+                JOIN sources s ON s.id = sv.source_id
+                WHERE sv.id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+        elif entity_kind == "source":
+            row = conn.execute(
+                """
+                SELECT namespace_kind, namespace_id
+                FROM sources WHERE id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+        elif entity_kind == "report":
+            row = conn.execute(
+                """
+                SELECT namespace_kind, namespace_id
+                FROM reports WHERE id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+        elif entity_kind == "refresh_item":
+            item = conn.execute(
+                """
+                SELECT entity_kind, entity_id
+                FROM refresh_queue WHERE id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+            if item is None:
+                return None
+            return self._v2_review_owner_namespace(
+                conn,
+                item["entity_kind"],
+                item["entity_id"],
+                seen=seen,
+            )
+        else:
+            return None
+        if row is None:
+            return None
+        return row["namespace_kind"], row["namespace_id"]
 
     def _row_namespace_matches_auth(self, row: Any, auth: AuthContext) -> bool:
         return row["namespace_kind"] == auth.namespace_kind and row["namespace_id"] == auth.namespace_id

@@ -41,6 +41,9 @@ either supply an explicit namespace for generic creates or the documented
 contract must intentionally retain the `user/local` default, and native v2
 publication must traverse authoritative `claim_evidence` relationships (or
 reject graphs that cannot be represented by the retained publication graph).
+Shared beta must also provide an unambiguous namespace-aware global-admin
+deposit-receipt lookup and replace random-ID tie-breaking with an explicit
+deterministic sequence for runtime review events that share a timestamp.
 
 Offline `SHA256SUMS`, SPDX 2.3 SBOM, and in-toto/SLSA-shaped provenance drafts
 are generated under `.data/release/<version>/`. Local provenance explicitly records a

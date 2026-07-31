@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -10,20 +11,23 @@ from research_registry.application.deposit import ResearchDepositService
 from research_registry.application.refresh import ResearchRefreshService
 from research_registry.config import Settings
 from research_registry.ingestion.blobs import FilesystemBlobStore
-from research_registry.models import PublishRequest
+from research_registry.models import ApiKeyCreate, PublishRequest
 
 
 SNAPSHOT_SENTINEL = "FULL_PRIVATE_SNAPSHOT_SENTINEL"
 MALICIOUS_QUOTE = '<script>alert("stored content")</script>'
 
 
-def _settings(tmp_path: Path) -> Settings:
+def _settings(
+    tmp_path: Path,
+    database_url: str | None = None,
+) -> Settings:
     data_dir = tmp_path / "data"
     database = tmp_path / "registry.sqlite3"
     return Settings(
         data_dir=data_dir,
         db_path=database,
-        database_url=f"sqlite:///{database.resolve()}",
+        database_url=database_url or f"sqlite:///{database.resolve()}",
         capture_queue_path=data_dir / "pending.jsonl",
         backend_profile_path=data_dir / "profiles.json",
         admin_token="web-secret",
@@ -39,14 +43,15 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-def _bundle(*, visibility: str = "private") -> dict:
+def _bundle(*, visibility: str = "private", seed: str = "") -> dict:
     quotes = {
         "support": "The current implementation preserves claim history.",
         "refute": "A later observation contradicts part of the conclusion.",
         "qualify": "The guarantee applies only to immutable revisions.",
         "context": MALICIOUS_QUOTE,
     }
-    content = " ".join([SNAPSHOT_SENTINEL, *quotes.values()])
+    content = " ".join([SNAPSHOT_SENTINEL, *quotes.values(), seed])
+    locator_suffix = f"-{seed}" if seed else ""
     evidence = []
     links = []
     relationships = {
@@ -74,7 +79,7 @@ def _bundle(*, visibility: str = "private") -> dict:
         )
     return {
         "protocol": "research-deposit/v2",
-        "idempotency_key": "web-v2-synthetic",
+        "idempotency_key": f"web-v2-synthetic{locator_suffix}",
         "visibility": visibility,
         "inquiry": {
             "client_ref": "question",
@@ -90,17 +95,17 @@ def _bundle(*, visibility: str = "private") -> dict:
             {
                 "client_ref": "source",
                 "identity": {
-                    "locator": "note:web-v2",
+                    "locator": f"note:web-v2{locator_suffix}",
                     "title": "Reviewer <em>source</em>",
                     "source_type": "note",
-                    "canonical_key": "web-v2-source",
+                    "canonical_key": f"web-v2-source{locator_suffix}",
                 },
                 "version": {
-                    "version_key": "note:web-v2:v1",
+                    "version_key": f"note:web-v2{locator_suffix}:v1",
                     "version_kind": "note",
                     "retrieved_at": "2026-07-30T00:00:00Z",
                     "content_sha256": sha256(content.encode()).hexdigest(),
-                    "canonical_locator": "note:web-v2",
+                    "canonical_locator": f"note:web-v2{locator_suffix}",
                     "snapshot": {
                         "policy": "extracted_text",
                         "text": content,
@@ -161,6 +166,213 @@ def _client_with_fixture(
         "report": receipt.records.report_id or "",
     }
     return TestClient(app), ids
+
+
+def _exercise_global_admin_org_review(
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    app = create_app(settings)
+    client = TestClient(app)
+    suffix = uuid4().hex
+    namespace_id = f"review-org-{suffix}"
+    bundle = _bundle(seed=suffix)
+    bundle["namespace"] = {"kind": "org", "id": namespace_id}
+    receipt = ResearchDepositService(
+        app.state.service.database,
+        FilesystemBlobStore(settings.data_dir / f"org-blobs-{suffix}"),
+    ).deposit(bundle)
+    ids = {
+        "source": receipt.records.source_ids["source"],
+        "source_version": receipt.records.source_version_ids["source"],
+        "claim": receipt.records.claim_ids["claim"],
+        "revision": receipt.records.claim_revision_ids["claim"],
+        "evidence": receipt.records.evidence_ids["support"],
+        "report": receipt.records.report_id or "",
+    }
+    assert settings.admin_token is not None
+    headers = {"x-admin-token": settings.admin_token}
+
+    inbox = client.get("/v2/review", headers=headers)
+    assert inbox.status_code == 200
+    assert ids["claim"] in inbox.text
+    assert ids["evidence"] in inbox.text
+    assert ids["source_version"] in inbox.text
+    assert ids["report"] in inbox.text
+
+    namespace_bound_admin = app.state.service.issue_api_key(
+        ApiKeyCreate(
+            label=f"namespace-bound-admin-{suffix}",
+            actor_user_id=f"other-admin-{suffix}",
+            namespace_kind="user",
+            namespace_id=f"other-{suffix}",
+            scopes=["admin", "read_private"],
+        )
+    )
+    denied = client.post(
+        "/v2/review",
+        headers={"x-api-key": namespace_bound_admin.token},
+        data={
+            "entity_kind": "evidence",
+            "entity_id": ids["evidence"],
+            "action": "approve",
+            "expected_state": "unreviewed",
+        },
+    )
+    assert denied.status_code == 404
+    assert namespace_id not in denied.text
+
+    def apply(
+        *,
+        entity_kind: str,
+        entity_id: str,
+        action: str,
+        expected_state: str,
+        expected_revision_id: str | None = None,
+        confirm: bool = False,
+    ):
+        payload = {
+            "entity_kind": entity_kind,
+            "entity_id": entity_id,
+            "action": action,
+            "expected_state": expected_state,
+            "note": f"Global admin {action}.",
+        }
+        if expected_revision_id is not None:
+            payload["expected_revision_id"] = expected_revision_id
+        if confirm:
+            payload["confirm"] = "yes"
+        response = client.post(
+            "/v2/review",
+            headers=headers,
+            data=payload,
+            follow_redirects=False,
+        )
+        assert response.status_code == 303, response.text
+        return response
+
+    apply(
+        entity_kind="claim_revision",
+        entity_id=ids["revision"],
+        action="approve",
+        expected_revision_id=ids["revision"],
+        expected_state="unreviewed",
+    )
+    apply(
+        entity_kind="claim_revision",
+        entity_id=ids["revision"],
+        action="contest",
+        expected_revision_id=ids["revision"],
+        expected_state="reviewed",
+        confirm=True,
+    )
+    apply(
+        entity_kind="evidence",
+        entity_id=ids["evidence"],
+        action="approve",
+        expected_state="unreviewed",
+    )
+    apply(
+        entity_kind="source_version",
+        entity_id=ids["source_version"],
+        action="approve",
+        expected_state="unreviewed",
+    )
+    apply(
+        entity_kind="report",
+        entity_id=ids["report"],
+        action="approve",
+        expected_state="unreviewed",
+    )
+    apply(
+        entity_kind="source_version",
+        entity_id=ids["source_version"],
+        action="request_refresh",
+        expected_state="reviewed",
+    )
+
+    queue = client.get("/v2/refresh", headers=headers)
+    assert queue.status_code == 200
+    assert ids["source"] in queue.text
+    with app.state.service.connect() as conn:
+        refresh_item = conn.execute(
+            """
+            SELECT id FROM refresh_queue
+            WHERE entity_kind = 'source' AND entity_id = ?
+              AND status = 'pending'
+            ORDER BY detected_at, id
+            LIMIT 1
+            """,
+            (ids["source"],),
+        ).fetchone()
+    assert refresh_item is not None
+    apply(
+        entity_kind="refresh_item",
+        entity_id=refresh_item["id"],
+        action="dismiss_refresh",
+        expected_state="pending",
+        confirm=True,
+    )
+
+    missing = client.post(
+        "/v2/review",
+        headers=headers,
+        data={
+            "entity_kind": "evidence",
+            "entity_id": f"evd_missing_{suffix}",
+            "action": "approve",
+            "expected_state": "unreviewed",
+        },
+    )
+    assert missing.status_code == 404
+    assert "accessible review target could not be found" in missing.text.lower()
+    assert namespace_id not in missing.text
+    assert "Reviewer &lt;em&gt;source&lt;/em&gt;" not in missing.text
+
+    with app.state.service.connect() as conn:
+        current_claim = conn.execute(
+            """
+            SELECT current_revision_id, review_state, conflict_state
+            FROM claims WHERE id = ?
+            """,
+            (ids["claim"],),
+        ).fetchone()
+        decisions = conn.execute(
+            """
+            SELECT entity_kind, entity_id, action, actor_type, actor_id
+            FROM review_events
+            WHERE actor_id = 'global-admin'
+            ORDER BY created_at, id
+            """
+        ).fetchall()
+        dismissed = conn.execute(
+            "SELECT status FROM refresh_queue WHERE id = ?",
+            (refresh_item["id"],),
+        ).fetchone()
+    assert current_claim["current_revision_id"] != ids["revision"]
+    assert current_claim["review_state"] == "flagged"
+    assert current_claim["conflict_state"] == "conflicted"
+    assert dismissed["status"] == "dismissed"
+    assert {
+        (row["entity_kind"], row["action"]) for row in decisions
+    }.issuperset(
+        {
+            ("claim_revision", "approve"),
+            ("claim_revision", "contest"),
+            ("evidence", "approve"),
+            ("source_version", "approve"),
+            ("report", "approve"),
+            ("source_version", "refresh_requested"),
+            ("source_version", "refresh_resolved"),
+        }
+    )
+    assert all(row["actor_type"] == "human" for row in decisions)
+
+
+def test_global_admin_can_review_org_records_and_refresh_sqlite(
+    tmp_path: Path,
+) -> None:
+    _exercise_global_admin_org_review(_settings(tmp_path), tmp_path)
 
 
 def test_v2_search_is_private_aware_explained_and_keyboard_accessible(

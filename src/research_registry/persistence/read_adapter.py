@@ -352,7 +352,13 @@ class CurrentRetrievalAdapter:
                 f"""
                 SELECT
                     sv.*, s.title AS source_title, s.locator AS source_url,
-                    s.source_type, s.review_state, s.trust_tier,
+                    s.source_type,
+                    {effective_review_state_sql(
+                        entity_kind="source_version",
+                        entity_id_sql="sv.id",
+                        fallback_sql="s.review_state",
+                    )} AS review_state,
+                    s.trust_tier,
                     s.conflict_state
                 FROM source_versions sv
                 JOIN sources s ON s.id = sv.source_id
@@ -409,7 +415,12 @@ class CurrentRetrievalAdapter:
                     c.id AS claim_id, cr.id AS revision_id,
                     cr.revision_number, cr.title, cr.status,
                     ce.relationship, ce.rationale, ce.weight,
-                    c.review_state, c.conflict_state
+                    {effective_review_state_sql(
+                        entity_kind="claim_revision",
+                        entity_id_sql="cr.id",
+                        fallback_sql="c.review_state",
+                    )} AS review_state,
+                    c.conflict_state
                 FROM claim_evidence ce
                 JOIN claim_revisions cr ON cr.id = ce.claim_revision_id
                 JOIN claims c ON c.id = cr.claim_id
@@ -571,7 +582,12 @@ class CurrentRetrievalAdapter:
         with connect_database(self.database) as conn:
             rows = conn.execute(
                 f"""
-                SELECT r.*
+                SELECT r.*,
+                    {effective_review_state_sql(
+                        entity_kind="report",
+                        entity_id_sql="r.id",
+                        fallback_sql="r.review_state",
+                    )} AS effective_review_state
                 FROM reports r {join}
                 WHERE {where} AND {clause}
                 ORDER BY r.created_at DESC, r.id ASC
@@ -585,7 +601,7 @@ class CurrentRetrievalAdapter:
                 "title": row["title"],
                 "summary": row["summary_md"][:4_000],
                 "report_kind": row["report_kind"],
-                "review_state": row["review_state"],
+                "review_state": row["effective_review_state"],
                 "conflict_state": row["conflict_state"],
                 "created_at": row["created_at"],
             }
@@ -734,7 +750,12 @@ class CurrentRetrievalAdapter:
                     (s.title || ' ' || sv.canonical_locator || ' ' ||
                      COALESCE(sv.repository_locator, '') || ' ' ||
                      COALESCE(sv.path, '')) AS search_text,
-                    s.review_state, s.conflict_state, 'unknown' AS freshness,
+                    {effective_review_state_sql(
+                        entity_kind="source_version",
+                        entity_id_sql="sv.id",
+                        fallback_sql="s.review_state",
+                    )} AS review_state,
+                    s.conflict_state, 'unknown' AS freshness,
                     (SELECT COUNT(*) FROM evidence_spans e
                      WHERE e.source_version_id = sv.id) AS evidence_count,
                     sv.retrieved_at AS updated_at, sv.created_at,
@@ -778,7 +799,11 @@ class CurrentRetrievalAdapter:
                     (COALESCE(cr.title, c.title) || ' ' ||
                      COALESCE(cr.statement, c.statement) || ' ' ||
                      COALESCE(c.canonical_key, '')) AS search_text,
-                    c.review_state,
+                    {effective_review_state_sql(
+                        entity_kind="claim_revision",
+                        entity_id_sql="c.current_revision_id",
+                        fallback_sql="c.review_state",
+                    )} AS review_state,
                     CASE
                         WHEN COALESCE(cr.status, c.status) = 'contested'
                           OR EXISTS (
@@ -860,7 +885,12 @@ class CurrentRetrievalAdapter:
                 SELECT r.id, r.title,
                     substr(r.summary_md, 1, 4000) AS summary,
                     (r.title || ' ' || r.summary_md) AS search_text,
-                    r.review_state, r.conflict_state,
+                    {effective_review_state_sql(
+                        entity_kind="report",
+                        entity_id_sql="r.id",
+                        fallback_sql="r.review_state",
+                    )} AS review_state,
+                    r.conflict_state,
                     COALESCE(rs.freshness_state, 'unknown') AS freshness,
                     (SELECT COUNT(*) FROM report_claims rc
                      JOIN claims c ON c.id = rc.claim_id
@@ -888,6 +918,11 @@ class CurrentRetrievalAdapter:
                 SELECT c.*, COALESCE(cr.title, c.title) AS read_title,
                     COALESCE(cr.statement, c.statement) AS read_text,
                     COALESCE(cr.status, c.status) AS revision_status,
+                    {effective_review_state_sql(
+                        entity_kind="claim_revision",
+                        entity_id_sql="c.current_revision_id",
+                        fallback_sql="c.review_state",
+                    )} AS effective_review_state,
                     CASE
                         WHEN COALESCE(cr.status, c.status) = 'contested'
                           OR EXISTS (
@@ -957,6 +992,11 @@ class CurrentRetrievalAdapter:
             """,
             "report": f"""
                 SELECT r.*, r.title AS read_title, r.summary_md AS read_text,
+                    {effective_review_state_sql(
+                        entity_kind="report",
+                        entity_id_sql="r.id",
+                        fallback_sql="r.review_state",
+                    )} AS effective_review_state,
                     COALESCE(rs.freshness_state, 'unknown') AS freshness
                 FROM reports r
                 LEFT JOIN research_sessions rs ON rs.id = r.session_id
@@ -982,6 +1022,11 @@ class CurrentRetrievalAdapter:
             "source_version": f"""
                 SELECT sv.*, s.title AS source_title, s.locator AS source_url,
                     s.review_state, s.conflict_state,
+                    {effective_review_state_sql(
+                        entity_kind="source_version",
+                        entity_id_sql="sv.id",
+                        fallback_sql="s.review_state",
+                    )} AS effective_review_state,
                     s.title AS read_title,
                     sv.canonical_locator AS read_text,
                     'unknown' AS freshness
@@ -1186,7 +1231,12 @@ class CurrentRetrievalAdapter:
             url=url,
             review_state=(
                 row["effective_review_state"]
-                if kind == "evidence"
+                if kind in {
+                    "claim",
+                    "evidence",
+                    "report",
+                    "source_version",
+                }
                 else row["review_state"]
             ),
             conflict_state=(

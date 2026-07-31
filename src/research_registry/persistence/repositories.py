@@ -11,7 +11,10 @@ from uuid import UUID, uuid5
 from ..db import DbConnection
 from ..ingestion.blobs import BlobReference
 from ..timestamps import is_due, utc_text
-from .review_state import latest_effective_review_state
+from .review_state import (
+    effective_review_state_sql,
+    latest_effective_review_state,
+)
 
 
 V2_MIGRATION_ID = "0003_v2_evidence"
@@ -1193,11 +1196,15 @@ class ReviewRefreshRepository:
     ) -> Any | None:
         suffix = " FOR UPDATE" if self.conn.target.kind == "postgres" else ""
         return self.conn.execute(
-            """
+            f"""
             SELECT
                 c.id AS claim_id,
                 c.current_revision_id,
-                c.review_state,
+                {effective_review_state_sql(
+                    entity_kind="claim_revision",
+                    entity_id_sql="cr.id",
+                    fallback_sql="c.review_state",
+                )} AS review_state,
                 c.conflict_state,
                 c.human_reviewed,
                 c.session_id,
@@ -1232,11 +1239,15 @@ class ReviewRefreshRepository:
     ) -> Any | None:
         suffix = " FOR UPDATE" if self.conn.target.kind == "postgres" else ""
         return self.conn.execute(
-            """
+            f"""
             SELECT
                 c.id AS claim_id,
                 c.current_revision_id,
-                c.review_state,
+                {effective_review_state_sql(
+                    entity_kind="claim_revision",
+                    entity_id_sql="cr.id",
+                    fallback_sql="c.review_state",
+                )} AS review_state,
                 c.conflict_state,
                 c.human_reviewed,
                 c.session_id,
@@ -1687,6 +1698,16 @@ class ReviewRefreshRepository:
             return
         if table not in {"sources", "excerpts", "reports"}:
             raise ValueError("unsupported review mirror")
+        if table == "sources":
+            self.conn.execute(
+                """
+                UPDATE sources
+                SET review_state = ?, conflict_state = ?
+                WHERE id = ?
+                """,
+                (review_state, conflict_state, record_id),
+            )
+            return
         self.conn.execute(
             f"""
             UPDATE {table}
@@ -3032,6 +3053,9 @@ class V2BackfillRepository:
         return 0, 0
 
     def _process_report_state(self, row: Any) -> tuple[int, int]:
+        mapped_id = self.projection_target("report", row["id"], "report")
+        if mapped_id == row["id"]:
+            return 0, 0
         self.record_projection_identity(
             "report",
             row["id"],
@@ -3164,18 +3188,9 @@ class V2BackfillRepository:
         refresh_entity_kind: str,
         refresh_entity_id: str,
     ) -> None:
-        review_state = row["review_state"]
-        if review_state == "reviewed":
-            self._insert_review_event(
-                event_entity_kind,
-                event_entity_id,
-                "approve",
-                "unreviewed",
-                "reviewed",
-                row["id"],
-                row["created_at"],
-            )
-        elif review_state == "flagged":
+        raw_review_state = row["review_state"]
+        raw_conflict_state = row["conflict_state"]
+        if raw_conflict_state == "conflicted" or raw_review_state == "flagged":
             self._insert_review_event(
                 event_entity_kind,
                 event_entity_id,
@@ -3184,16 +3199,20 @@ class V2BackfillRepository:
                 "flagged",
                 row["id"],
                 row["created_at"],
+                raw_review_state=raw_review_state,
+                raw_conflict_state=raw_conflict_state,
             )
-        if row["conflict_state"] == "conflicted" and review_state != "flagged":
+        elif raw_review_state == "reviewed":
             self._insert_review_event(
                 event_entity_kind,
                 event_entity_id,
-                "contest",
-                review_state,
-                "conflicted",
+                "approve",
+                "unreviewed",
+                "reviewed",
                 row["id"],
                 row["created_at"],
+                raw_review_state=raw_review_state,
+                raw_conflict_state=raw_conflict_state,
             )
 
         refresh_due_at = row["refresh_due_at"]
@@ -3209,7 +3228,7 @@ class V2BackfillRepository:
                 refresh_due_at,
                 row["created_at"],
             )
-        if row["conflict_state"] == "conflicted":
+        if raw_conflict_state == "conflicted":
             self._insert_refresh(
                 refresh_entity_kind,
                 refresh_entity_id,
@@ -3228,6 +3247,9 @@ class V2BackfillRepository:
         to_state: str,
         legacy_id: str,
         created_at: str,
+        *,
+        raw_review_state: str | None,
+        raw_conflict_state: str | None,
     ) -> None:
         event_id = deterministic_v2_id(
             "rev",
@@ -3251,7 +3273,14 @@ class V2BackfillRepository:
                 to_state,
                 created_at,
                 canonical_json(
-                    {"legacy_id": legacy_id, "migration_id": V2_MIGRATION_ID}
+                    {
+                        "legacy_id": legacy_id,
+                        "legacy_state": {
+                            "conflict_state": raw_conflict_state,
+                            "review_state": raw_review_state,
+                        },
+                        "migration_id": V2_MIGRATION_ID,
+                    }
                 ),
             ),
         )

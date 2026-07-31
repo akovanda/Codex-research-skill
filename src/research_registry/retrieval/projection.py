@@ -269,7 +269,7 @@ SELECT
 FROM sources s
 """
 
-_SOURCE_VERSION_SQL = """
+_SOURCE_VERSION_SQL = f"""
 SELECT
     sv.id, 'source_version' AS kind, s.title,
     sv.canonical_locator AS summary,
@@ -279,7 +279,13 @@ SELECT
     sv.canonical_locator AS locator, NULL AS doi,
     sv.repository_locator AS repository, sv.path,
     NULL AS canonical_key, NULL AS topic_slug, NULL AS quote_hash,
-    NULL AS dedupe_key, s.review_state, s.trust_tier, s.conflict_state,
+    NULL AS dedupe_key,
+    {effective_review_state_sql(
+        entity_kind="source_version",
+        entity_id_sql="sv.id",
+        fallback_sql="s.review_state",
+    )} AS review_state,
+    s.trust_tier, s.conflict_state,
     'unknown' AS freshness, NULL AS status,
     (SELECT COUNT(*) FROM evidence_spans e
      WHERE e.source_version_id = sv.id) AS evidence_count,
@@ -318,7 +324,7 @@ JOIN sources s ON s.id = sv.source_id
 LEFT JOIN topics t ON t.id = e.topic_id
 """
 
-_CLAIM_SQL = """
+_CLAIM_SQL = f"""
 SELECT
     c.id, 'claim' AS kind, COALESCE(cr.title, c.title) AS title,
     COALESCE(cr.statement, c.statement) AS summary,
@@ -328,7 +334,13 @@ SELECT
      COALESCE(c.canonical_key, '')) AS body,
     NULL AS locator, NULL AS doi, NULL AS repository, NULL AS path,
     c.canonical_key, t.slug AS topic_slug, NULL AS quote_hash,
-    c.dedupe_key, c.review_state, c.trust_tier,
+    c.dedupe_key,
+    {effective_review_state_sql(
+        entity_kind="claim_revision",
+        entity_id_sql="c.current_revision_id",
+        fallback_sql="c.review_state",
+    )} AS review_state,
+    c.trust_tier,
     CASE
         WHEN COALESCE(cr.status, c.status) = 'contested'
           OR EXISTS (
@@ -396,14 +408,20 @@ LEFT JOIN research_sessions rs ON rs.id = c.session_id
 LEFT JOIN topics t ON t.id = c.topic_id
 """
 
-_REPORT_SQL = """
+_REPORT_SQL = f"""
 SELECT
     r.id, 'report' AS kind, r.title, r.summary_md AS summary,
     (r.title || ' ' || r.summary_md || ' ' ||
      COALESCE(r.guidance_json, '')) AS body,
     NULL AS locator, NULL AS doi, NULL AS repository, NULL AS path,
     NULL AS canonical_key, t.slug AS topic_slug, NULL AS quote_hash,
-    r.dedupe_key, r.review_state, r.trust_tier, r.conflict_state,
+    r.dedupe_key,
+    {effective_review_state_sql(
+        entity_kind="report",
+        entity_id_sql="r.id",
+        fallback_sql="r.review_state",
+    )} AS review_state,
+    r.trust_tier, r.conflict_state,
     COALESCE(rs.freshness_state, 'unknown') AS freshness,
     NULL AS status,
     (SELECT COUNT(*) FROM report_claims rc

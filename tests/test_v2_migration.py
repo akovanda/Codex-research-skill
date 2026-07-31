@@ -14,12 +14,23 @@ from research_registry.application.migrate_v2 import (
     InjectedBackfillInterruption,
     run_v2_backfill,
 )
+from research_registry.application.fetch import ResearchFetchService
+from research_registry.application.search import ResearchSearchService
 from research_registry.cli import build_parser, main as cli_main
+from research_registry.contracts.v2 import ResearchSearchRequest
 from research_registry.migration_runner import MigrationRunner
 from research_registry.persistence.repositories import (
     V2BackfillRepository,
     V2ReadRepository,
 )
+from research_registry.persistence.read_adapter import (
+    CurrentRetrievalAdapter,
+    ReadAccess,
+)
+from research_registry.persistence.review_state import (
+    latest_effective_review_state,
+)
+from research_registry.retrieval.projection import rebuild_search_documents
 from research_registry.models import SourceCreate
 from research_registry.service import RegistryService
 from tests.fixtures.v1 import populate_v1_fixture, weaken_sqlite_v1_fixture
@@ -39,6 +50,380 @@ V2_TABLES = {
     "migration_backfill_warnings",
     "migration_backfill_errors",
 }
+
+LEGACY_REVIEW_MATRIX = tuple(
+    (review_state, conflict_state)
+    for review_state in (
+        "unreviewed",
+        "reviewed",
+        "flagged",
+        "legacy_unknown",
+    )
+    for conflict_state in ("none", "conflicted")
+)
+
+
+def _clone_row(
+    conn,
+    table: str,
+    template_id: str,
+    **overrides,
+) -> str:
+    row = conn.execute(
+        f"SELECT * FROM {table} WHERE id = ?", (template_id,)
+    ).fetchone()
+    assert row is not None
+    values = dict(row)
+    values.update(overrides)
+    columns = tuple(values)
+    conn.execute(
+        f"INSERT INTO {table} ({', '.join(columns)}) "
+        f"VALUES ({', '.join('?' for _ in columns)})",
+        tuple(values[column] for column in columns),
+    )
+    return str(values["id"])
+
+
+def _seed_legacy_review_matrix(
+    service: RegistryService,
+    *,
+    suffix: str,
+) -> dict[tuple[str, str], dict[str, str]]:
+    templates = populate_v1_fixture(service, suffix=f"{suffix}-template")
+    seeded: dict[tuple[str, str], dict[str, str]] = {}
+    with service.connect() as conn:
+        for index, (review_state, conflict_state) in enumerate(
+            LEGACY_REVIEW_MATRIX
+        ):
+            marker = f"{suffix}-{index}"
+            source_id = _clone_row(
+                conn,
+                "sources",
+                templates.snapshotted_source_id,
+                id=f"src_matrix_{marker}",
+                locator=f"note:legacy-review-matrix-{marker}",
+                title=f"Legacy review matrix {marker}",
+                review_state=review_state,
+                conflict_state=conflict_state,
+                dedupe_key=f"matrix:{marker}:source",
+            )
+            excerpt_id = _clone_row(
+                conn,
+                "excerpts",
+                templates.reviewed_excerpt_id,
+                id=f"ext_matrix_{marker}",
+                source_id=source_id,
+                note=f"Legacy review matrix evidence {marker}",
+                quote_text=f"Legacy review matrix quote {marker}",
+                review_state=review_state,
+                conflict_state=conflict_state,
+                human_reviewed=int(review_state == "reviewed"),
+                dedupe_key=f"matrix:{marker}:excerpt",
+            )
+            claim_id = _clone_row(
+                conn,
+                "claims",
+                templates.reviewed_claim_id,
+                id=f"clm_matrix_{marker}",
+                title=f"Legacy review matrix claim {marker}",
+                statement=f"Legacy review matrix statement {marker}.",
+                review_state=review_state,
+                conflict_state=conflict_state,
+                human_reviewed=int(review_state == "reviewed"),
+                dedupe_key=f"matrix:{marker}:claim",
+                canonical_key=f"matrix:{marker}:canonical",
+                current_revision_id=None,
+            )
+            conn.execute(
+                """
+                INSERT INTO claim_excerpts (
+                    claim_id, excerpt_id, rationale, weight
+                ) VALUES (?, ?, 'matrix support', 1.0)
+                """,
+                (claim_id, excerpt_id),
+            )
+            report_id = _clone_row(
+                conn,
+                "reports",
+                templates.report_id,
+                id=f"rpt_matrix_{marker}",
+                title=f"Legacy review matrix report {marker}",
+                summary_md=f"# Legacy review matrix {marker}",
+                review_state=review_state,
+                conflict_state=conflict_state,
+                human_reviewed=int(review_state == "reviewed"),
+                dedupe_key=f"matrix:{marker}:report",
+            )
+            conn.execute(
+                "INSERT INTO report_claims (report_id, claim_id) VALUES (?, ?)",
+                (report_id, claim_id),
+            )
+            seeded[(review_state, conflict_state)] = {
+                "source": source_id,
+                "excerpt": excerpt_id,
+                "claim": claim_id,
+                "report": report_id,
+            }
+    return seeded
+
+
+def _expected_legacy_decision(
+    review_state: str,
+    conflict_state: str,
+) -> tuple[str | None, str]:
+    if conflict_state == "conflicted" or review_state == "flagged":
+        return "contest", "flagged"
+    if review_state == "reviewed":
+        return "approve", "reviewed"
+    return None, "unreviewed"
+
+
+def _exercise_legacy_review_matrix(
+    service: RegistryService,
+    *,
+    suffix: str,
+) -> None:
+    seeded = _seed_legacy_review_matrix(service, suffix=suffix)
+    result = run_v2_backfill(service.database_url, batch_size=3, resume=True)
+    assert result.error_count == 0
+
+    target_rows: dict[
+        tuple[str, str], dict[str, tuple[str, str]]
+    ] = {}
+    with service.connect() as conn:
+        for states, ids in seeded.items():
+            target_rows[states] = {}
+            for legacy_kind, v2_kind in (
+                ("source", "source_version"),
+                ("excerpt", "evidence"),
+                ("claim", "claim_revision"),
+                ("report", "report"),
+            ):
+                projection = conn.execute(
+                    """
+                    SELECT v2_id FROM legacy_projection_identity
+                    WHERE legacy_kind = ? AND legacy_id = ? AND v2_kind = ?
+                    """,
+                    (legacy_kind, ids[legacy_kind], v2_kind),
+                ).fetchone()
+                assert projection is not None
+                target_rows[states][v2_kind] = (
+                    ids[legacy_kind],
+                    projection["v2_id"],
+                )
+
+        target_ids = [
+            v2_id
+            for targets in target_rows.values()
+            for _, v2_id in targets.values()
+        ]
+        events = conn.execute(
+            f"""
+            SELECT * FROM review_events
+            WHERE actor_type = 'migration'
+              AND entity_id IN ({','.join('?' for _ in target_ids)})
+            ORDER BY entity_kind, entity_id, created_at, id
+            """,
+            tuple(target_ids),
+        ).fetchall()
+        events_by_target: dict[str, list[object]] = {}
+        for event in events:
+            events_by_target.setdefault(event["entity_id"], []).append(event)
+
+        for states, targets in target_rows.items():
+            raw_review_state, raw_conflict_state = states
+            expected_action, expected_state = _expected_legacy_decision(
+                raw_review_state, raw_conflict_state
+            )
+            for entity_kind, (legacy_id, v2_id) in targets.items():
+                target_events = events_by_target.get(v2_id, [])
+                assert len(target_events) == int(expected_action is not None)
+                if expected_action is not None:
+                    event = target_events[0]
+                    assert (
+                        event["entity_kind"],
+                        event["action"],
+                        event["from_state"],
+                        event["to_state"],
+                    ) == (
+                        entity_kind,
+                        expected_action,
+                        "unreviewed",
+                        expected_state,
+                    )
+                    assert json.loads(event["metadata_json"])["legacy_state"] == {
+                        "conflict_state": raw_conflict_state,
+                        "review_state": raw_review_state,
+                    }
+
+                if entity_kind == "report":
+                    report = conn.execute(
+                        """
+                        SELECT review_state, conflict_state
+                        FROM reports WHERE id = ?
+                        """,
+                        (legacy_id,),
+                    ).fetchone()
+                    assert (report["review_state"], report["conflict_state"]) == (
+                        raw_review_state,
+                        raw_conflict_state,
+                    )
+                    continue
+                table = {
+                    "source_version": "source_versions",
+                    "evidence": "evidence_spans",
+                    "claim_revision": "claim_revisions",
+                }[entity_kind]
+                entity = conn.execute(
+                    f"SELECT metadata_json FROM {table} WHERE id = ?",
+                    (v2_id,),
+                ).fetchone()
+                assert json.loads(entity["metadata_json"])["legacy_state"][
+                    "review_state"
+                ] == raw_review_state
+                assert json.loads(entity["metadata_json"])["legacy_state"][
+                    "conflict_state"
+                ] == raw_conflict_state
+
+        assert all(
+            event["to_state"] in {"unreviewed", "reviewed", "flagged"}
+            for event in events
+        )
+
+        conflict_refresh = {
+            (row["entity_kind"], row["entity_id"])
+            for row in conn.execute(
+                """
+                SELECT entity_kind, entity_id FROM refresh_queue
+                WHERE reason = 'conflict'
+                """
+            ).fetchall()
+        }
+        for states, targets in target_rows.items():
+            should_refresh = states[1] == "conflicted"
+            ids = seeded[states]
+            expected_refresh_targets = {
+                ("source", ids["source"]),
+                ("evidence", targets["evidence"][1]),
+                ("claim", ids["claim"]),
+                ("report", ids["report"]),
+            }
+            assert all(
+                (target in conflict_refresh) is should_refresh
+                for target in expected_refresh_targets
+            )
+
+        search_ids = [
+            *target_ids,
+            *(ids["claim"] for ids in seeded.values()),
+        ]
+        search_states = {
+            (row["kind"], row["id"]): row["review_state"]
+            for row in conn.execute(
+                f"""
+                SELECT kind, id, review_state FROM search_documents
+                WHERE id IN ({','.join('?' for _ in search_ids)})
+                """,
+                tuple(search_ids),
+            ).fetchall()
+        }
+
+    access = ReadAccess(include_private=True, local_trusted=True)
+    retrieval = CurrentRetrievalAdapter(service.database)
+    fetch = ResearchFetchService(retrieval)
+    search = ResearchSearchService(retrieval)
+    inbox_candidates = {
+        (candidate.kind, candidate.id): candidate
+        for candidate in retrieval.list_candidates(
+            kinds=["source_version", "evidence", "claim", "report"],
+            access=access,
+            max_per_kind=1_001,
+        )
+    }
+    refresh_page_rows = {
+        (str(row["entity_kind"]), str(row["entity_id"]))
+        for row in retrieval.list_refresh_queue(access=access)
+    }
+    for states, targets in target_rows.items():
+        _, expected_state = _expected_legacy_decision(*states)
+        expected_conflict = states[1]
+        external_targets: dict[str, str] = {}
+        for entity_kind, (legacy_id, v2_id) in targets.items():
+            external_id = legacy_id if entity_kind == "claim_revision" else v2_id
+            external_kind = (
+                "claim" if entity_kind == "claim_revision" else entity_kind
+            )
+            external_targets[external_kind] = external_id
+            assert search_states[(external_kind, external_id)] == expected_state
+            record = retrieval.get_record(external_id, access=access)
+            assert record is not None
+            assert record.review_state == expected_state
+            assert record.conflict_state == expected_conflict
+            assert (
+                inbox_candidates[(external_kind, external_id)].review_state
+                == expected_state
+            )
+            hydrated = fetch.get(
+                record_id=external_id,
+                include=[
+                    "current_revision",
+                    "reviews",
+                    "refresh",
+                    "source_versions",
+                ],
+                depth=1,
+                access=access,
+            )
+            assert hydrated.review_state == expected_state
+            assert hydrated.conflict_state == expected_conflict
+
+        marker = seeded[states]["source"].removeprefix("src_matrix_")
+        search_result = search.search(
+            ResearchSearchRequest(
+                protocol="research-search/v2",
+                query=f"Legacy review matrix {marker}",
+                kinds=["source_version", "evidence", "claim", "report"],
+                review_states=[expected_state],
+                conflict_states=[expected_conflict],
+                include_private=True,
+                limit=20,
+            ),
+            access=access,
+        )
+        assert set(external_targets.items()) <= {
+            (hit.kind, hit.id) for hit in search_result.hits
+        }
+
+        expected_refresh_targets = {
+            ("source", seeded[states]["source"]),
+            ("evidence", targets["evidence"][1]),
+            ("claim", seeded[states]["claim"]),
+            ("report", seeded[states]["report"]),
+        }
+        assert all(
+            (target in refresh_page_rows)
+            is (expected_conflict == "conflicted")
+            for target in expected_refresh_targets
+        )
+
+    before_rerun = {}
+    with service.connect() as conn:
+        for table in ("review_events", "refresh_queue"):
+            before_rerun[table] = conn.execute(
+                f"SELECT COUNT(*) AS count FROM {table}"
+            ).fetchone()["count"]
+    rerun = run_v2_backfill(
+        service.database_url, batch_size=5, resume=True
+    )
+    assert rerun.error_count == 0
+    with service.connect() as conn:
+        for table, count in before_rerun.items():
+            assert (
+                conn.execute(
+                    f"SELECT COUNT(*) AS count FROM {table}"
+                ).fetchone()["count"]
+                == count
+            )
 
 
 def _counts(service: RegistryService) -> dict[str, int]:
@@ -514,6 +899,96 @@ def test_cli_migrate_v2_data_is_bounded_and_content_free(
     assert "cli-private-sentinel" not in output
     assert "quote" not in output
     assert "statement" not in output
+
+
+def test_sqlite_backfill_normalizes_legacy_review_state_matrix(
+    tmp_path: Path,
+) -> None:
+    service = RegistryService(tmp_path / "legacy-review-matrix.sqlite3")
+    _exercise_legacy_review_matrix(service, suffix="sqlite-review-matrix")
+
+
+def test_pre_fix_conflicted_migration_event_hydrates_deterministically(
+    tmp_path: Path,
+) -> None:
+    service = RegistryService(tmp_path / "pre-fix-conflicted-event.sqlite3")
+    service.initialize()
+    source = service.create_source(
+        SourceCreate(
+            locator="note:prefixed-conflicted-migration-event",
+            title="Prefixed conflicted migration event",
+        )
+    )
+    run_v2_backfill(service.database_url)
+    created_at = "2026-07-30T00:00:00+00:00"
+    with service.connect() as conn:
+        version = conn.execute(
+            """
+            SELECT sv.id FROM source_versions sv
+            JOIN legacy_projection_identity lpi ON lpi.v2_id = sv.id
+            WHERE lpi.legacy_kind = 'source' AND lpi.legacy_id = ?
+            """,
+            (source.id,),
+        ).fetchone()
+        assert version is not None
+        for event_id, action, to_state in (
+            ("rev_z_prefixed_approve", "approve", "reviewed"),
+            ("rev_a_prefixed_contest", "contest", "conflicted"),
+        ):
+            conn.execute(
+                """
+                INSERT INTO review_events (
+                    id, entity_kind, entity_id, action, from_state, to_state,
+                    actor_type, created_at, metadata_json
+                ) VALUES (?, 'source_version', ?, ?, 'unreviewed', ?,
+                          'migration', ?, '{}')
+                """,
+                (event_id, version["id"], action, to_state, created_at),
+            )
+        assert (
+            latest_effective_review_state(
+                conn,
+                entity_kind="source_version",
+                entity_id=version["id"],
+                fallback="unreviewed",
+            )
+            == "flagged"
+        )
+        rebuild_search_documents(conn)
+
+    access = ReadAccess(include_private=True, local_trusted=True)
+    retrieval = CurrentRetrievalAdapter(service.database)
+    prefixed = retrieval.get_record(version["id"], access=access)
+    assert prefixed is not None
+    assert prefixed.review_state == "flagged"
+
+    with service.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO review_events (
+                id, entity_kind, entity_id, action, from_state, to_state,
+                actor_type, created_at, metadata_json
+            ) VALUES (
+                'rev_future_valid_approve', 'source_version', ?, 'approve',
+                'flagged', 'reviewed', 'human',
+                '2026-07-31T00:00:00+00:00', '{}'
+            )
+            """,
+            (version["id"],),
+        )
+        assert (
+            latest_effective_review_state(
+                conn,
+                entity_kind="source_version",
+                entity_id=version["id"],
+                fallback="unreviewed",
+            )
+            == "reviewed"
+        )
+        rebuild_search_documents(conn)
+    superseded = retrieval.get_record(version["id"], access=access)
+    assert superseded is not None
+    assert superseded.review_state == "reviewed"
 
 
 @pytest.mark.skipif(
