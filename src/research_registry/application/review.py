@@ -527,12 +527,6 @@ class ResearchReviewService:
             conflict_state = (
                 "conflicted" if command.action == "contest" else "none"
             )
-            repository.update_legacy_review_mirror(
-                table=entity["legacy_table"],
-                record_id=entity["legacy_id"],
-                review_state=to_state,
-                conflict_state=conflict_state,
-            )
         event_id = f"rev_{uuid4()}"
         repository.insert_review_event(
             {
@@ -551,6 +545,16 @@ class ResearchReviewService:
                 ),
             }
         )
+        if command.action != "request_refresh":
+            if entity["event_kind"] == "source_version":
+                repository.refresh_source_review_mirror(entity["legacy_id"])
+            else:
+                repository.update_legacy_review_mirror(
+                    table=entity["legacy_table"],
+                    record_id=entity["legacy_id"],
+                    review_state=to_state,
+                    conflict_state=conflict_state,
+                )
         return ResearchReviewResult(
             protocol="research-review-result/v2",
             status="applied",

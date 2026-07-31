@@ -356,7 +356,7 @@ class CurrentRetrievalAdapter:
                     {effective_review_state_sql(
                         entity_kind="source_version",
                         entity_id_sql="sv.id",
-                        fallback_sql="s.review_state",
+                        fallback_sql="'unreviewed'",
                     )} AS review_state,
                     s.trust_tier,
                     s.conflict_state
@@ -418,7 +418,10 @@ class CurrentRetrievalAdapter:
                     {effective_review_state_sql(
                         entity_kind="claim_revision",
                         entity_id_sql="cr.id",
-                        fallback_sql="c.review_state",
+                        fallback_sql=(
+                            "CASE WHEN cr.id = c.current_revision_id "
+                            "THEN c.review_state ELSE 'unreviewed' END"
+                        ),
                     )} AS review_state,
                     c.conflict_state
                 FROM claim_evidence ce
@@ -753,7 +756,7 @@ class CurrentRetrievalAdapter:
                     {effective_review_state_sql(
                         entity_kind="source_version",
                         entity_id_sql="sv.id",
-                        fallback_sql="s.review_state",
+                        fallback_sql="'unreviewed'",
                     )} AS review_state,
                     s.conflict_state, 'unknown' AS freshness,
                     (SELECT COUNT(*) FROM evidence_spans e
@@ -1021,11 +1024,11 @@ class CurrentRetrievalAdapter:
             """,
             "source_version": f"""
                 SELECT sv.*, s.title AS source_title, s.locator AS source_url,
-                    s.review_state, s.conflict_state,
+                    s.conflict_state,
                     {effective_review_state_sql(
                         entity_kind="source_version",
                         entity_id_sql="sv.id",
-                        fallback_sql="s.review_state",
+                        fallback_sql="'unreviewed'",
                     )} AS effective_review_state,
                     s.title AS read_title,
                     sv.canonical_locator AS read_text,

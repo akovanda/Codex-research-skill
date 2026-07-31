@@ -149,6 +149,7 @@ class SourceVersionService:
         )
         record = self._new_source_version(spec, content_object)
         repository.insert_source_version(record)
+        repository.refresh_source_review_mirror(record.source_id)
         return PreparedSourceVersion(
             result=SourceVersionCreateResult(record=record, reused=False),
             needs_finalize=needs_finalize,

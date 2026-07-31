@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from hashlib import sha256
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -27,9 +28,24 @@ from tests.test_shared_http_authorization import (
     _exercise_two_user_isolation,
     _settings,
 )
+from tests.test_source_version_review_state import (
+    exercise_source_version_review_state_isolation,
+)
 from tests.test_v2_migration import _exercise_legacy_review_matrix
 from tests.test_web_v2 import _exercise_global_admin_org_review
 from tests.test_v2_deposit import _bundle
+
+
+@pytest.mark.skipif(
+    "TEST_DATABASE_URL" not in os.environ,
+    reason="postgres source-version review isolation requires TEST_DATABASE_URL",
+)
+def test_postgres_source_version_review_state_isolation(tmp_path: Path) -> None:
+    exercise_source_version_review_state_isolation(
+        RegistryService(os.environ["TEST_DATABASE_URL"]),
+        tmp_path,
+        suffix=uuid4().hex[:10],
+    )
 
 
 @pytest.mark.skipif("TEST_DATABASE_URL" not in os.environ, reason="postgres smoke test requires TEST_DATABASE_URL")

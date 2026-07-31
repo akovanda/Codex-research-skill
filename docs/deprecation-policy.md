@@ -21,3 +21,10 @@ research, repository intelligence, specialist routing, and low-level v1 MCP
 tools. Their replacements are the focused `research-recall` and
 `research-deposit` skills plus the high-level v2 status/search/get/deposit/
 review/refresh tools. Removal is not scheduled.
+
+The retained `sources.review_state` and `sources.conflict_state` columns are
+v1 compatibility mirrors, not authoritative state for immutable v2 source
+versions. The mirror follows the latest source version's effective decision
+and resets to unreviewed/non-conflicted when a newer native version is stored.
+Each v2 source version derives its own state only from review events for that
+exact version, falling back to unreviewed when no decision exists.

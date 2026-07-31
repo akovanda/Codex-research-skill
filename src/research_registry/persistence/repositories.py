@@ -12,6 +12,7 @@ from ..db import DbConnection
 from ..ingestion.blobs import BlobReference
 from ..timestamps import is_due, utc_text
 from .review_state import (
+    DECISION_REVIEW_ACTIONS,
     effective_review_state_sql,
     latest_effective_review_state,
 )
@@ -441,6 +442,73 @@ def _optional_row_value(row: Any, field: str) -> Any:
         return row[field]
     except (IndexError, KeyError):
         return None
+
+
+def _refresh_source_review_mirror(
+    conn: DbConnection, source_id: str | None
+) -> None:
+    """Mirror only the newest source version's effective decision state."""
+    if source_id is None:
+        return
+    version = conn.execute(
+        """
+        SELECT id
+        FROM source_versions
+        WHERE source_id = ?
+        ORDER BY retrieved_at DESC, created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (source_id,),
+    ).fetchone()
+    review_state = "unreviewed"
+    conflict_state = "none"
+    if version is not None:
+        review_state = latest_effective_review_state(
+            conn,
+            entity_kind="source_version",
+            entity_id=version["id"],
+            fallback="unreviewed",
+        )
+        event = conn.execute(
+            f"""
+            SELECT action
+            FROM review_events
+            WHERE entity_kind = 'source_version'
+              AND entity_id = ?
+              AND action IN ({", ".join(
+                  f"'{action}'" for action in DECISION_REVIEW_ACTIONS
+              )})
+              AND (
+                  to_state IN ('unreviewed', 'reviewed', 'flagged')
+                  OR (
+                      actor_type = 'migration'
+                      AND action = 'contest'
+                      AND to_state = 'conflicted'
+                  )
+              )
+            ORDER BY
+                created_at DESC,
+                CASE
+                    WHEN actor_type = 'migration'
+                     AND action = 'contest'
+                     AND to_state = 'conflicted'
+                    THEN 1 ELSE 0
+                END DESC,
+                id DESC
+            LIMIT 1
+            """,
+            (version["id"],),
+        ).fetchone()
+        if event is not None and event["action"] == "contest":
+            conflict_state = "conflicted"
+    conn.execute(
+        """
+        UPDATE sources
+        SET review_state = ?, conflict_state = ?
+        WHERE id = ?
+        """,
+        (review_state, conflict_state, source_id),
+    )
 
 
 class DepositRepository:
@@ -1640,7 +1708,7 @@ class ReviewRefreshRepository:
         if kind == "source_version":
             row = self.conn.execute(
                 """
-                SELECT sv.id, sv.source_id, s.review_state,
+                SELECT sv.id, sv.source_id,
                        s.namespace_kind, s.namespace_id
                 FROM source_versions sv
                 JOIN sources s ON s.id = sv.source_id
@@ -1657,7 +1725,7 @@ class ReviewRefreshRepository:
                 "queue_kind": "source",
                 "queue_id": row["source_id"],
                 "review_state": self._latest_review_state(
-                    "source_version", entity_id, row["review_state"]
+                    "source_version", entity_id, "unreviewed"
                 ),
                 "legacy_table": "sources",
                 "legacy_id": row["source_id"],
@@ -1721,6 +1789,9 @@ class ReviewRefreshRepository:
                 record_id,
             ),
         )
+
+    def refresh_source_review_mirror(self, source_id: str | None) -> None:
+        _refresh_source_review_mirror(self.conn, source_id)
 
     def resolve_refresh_root(
         self,
@@ -2083,6 +2154,9 @@ class SourceVersionRepository:
                 record.created_at,
             ),
         )
+
+    def refresh_source_review_mirror(self, source_id: str) -> None:
+        _refresh_source_review_mirror(self.conn, source_id)
 
     def list_referenced_blobs(self) -> list[BlobReference]:
         rows = self.conn.execute(

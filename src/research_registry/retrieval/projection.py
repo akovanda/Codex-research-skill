@@ -283,7 +283,7 @@ SELECT
     {effective_review_state_sql(
         entity_kind="source_version",
         entity_id_sql="sv.id",
-        fallback_sql="s.review_state",
+        fallback_sql="'unreviewed'",
     )} AS review_state,
     s.trust_tier, s.conflict_state,
     'unknown' AS freshness, NULL AS status,

@@ -1569,7 +1569,8 @@ class RegistryService:
             elif kind == "source":
                 row = conn.execute(
                     """
-                    SELECT sv.id AS entity_id, s.review_state,
+                    SELECT sv.id AS entity_id,
+                           'unreviewed' AS review_state,
                            s.namespace_kind, s.namespace_id
                     FROM source_versions sv
                     JOIN sources s ON s.id = sv.source_id

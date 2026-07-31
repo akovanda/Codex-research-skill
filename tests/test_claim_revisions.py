@@ -72,6 +72,70 @@ def test_approve_is_idempotent_and_appends_an_immutable_review_event(
         reviews.review(changed)
 
 
+def test_evidence_revision_history_uses_legacy_state_only_for_current_revision(
+    tmp_path: Path,
+) -> None:
+    registry, ids = seed_review_registry(
+        tmp_path,
+        key="historical-review-fallback",
+    )
+    current_revision_id = "clmr_historical_fallback_current"
+    with registry.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO claim_revisions (
+                id, claim_id, revision_number, title, statement, status,
+                confidence, valid_from, valid_until, supersedes_revision_id,
+                created_by_model, created_at, metadata_json
+            )
+            SELECT
+                ?, claim_id, 2, title, statement, status, confidence,
+                valid_from, valid_until, id, created_by_model,
+                '2026-07-31T12:00:00+00:00', metadata_json
+            FROM claim_revisions
+            WHERE id = ?
+            """,
+            (current_revision_id, ids["revision"]),
+        )
+        conn.execute(
+            """
+            INSERT INTO claim_evidence (
+                claim_revision_id, evidence_span_id, relationship, rationale,
+                weight, review_state, created_at
+            )
+            SELECT
+                ?, evidence_span_id, relationship, rationale, weight,
+                review_state, '2026-07-31T12:00:00+00:00'
+            FROM claim_evidence
+            WHERE claim_revision_id = ?
+            """,
+            (current_revision_id, ids["revision"]),
+        )
+        conn.execute(
+            """
+            UPDATE claims
+            SET current_revision_id = ?, review_state = 'reviewed',
+                human_reviewed = 1
+            WHERE id = ?
+            """,
+            (current_revision_id, ids["claim"]),
+        )
+
+    revisions = CurrentRetrievalAdapter(
+        registry.database
+    ).list_claim_revisions_for_evidence(
+        ids["supporting"],
+        access=ReadAccess(include_private=True, local_trusted=True),
+    )
+
+    assert {
+        row["revision_id"]: row["review_state"] for row in revisions
+    } == {
+        ids["revision"]: "unreviewed",
+        current_revision_id: "reviewed",
+    }
+
+
 def test_stale_expected_revision_and_state_conflict_without_partial_writes(
     tmp_path: Path,
 ) -> None:
