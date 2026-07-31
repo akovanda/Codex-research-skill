@@ -41,7 +41,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[dev]"
-      - run: python -m pytest -q tests/test_postgres_smoke.py
+      - run: python -m pytest -q tests/test_postgres_smoke.py tests/test_postgres_deposit_concurrency.py
 
   packaging-and-assets:
     runs-on: ubuntu-latest

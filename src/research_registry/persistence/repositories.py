@@ -579,6 +579,15 @@ class DepositRepository:
     def __init__(self, conn: DbConnection):
         self.conn = conn
 
+    def _lock_identity(self, identity_kind: str, identity_key: str) -> None:
+        """Serialize PostgreSQL find-or-create decisions for one identity."""
+        if self.conn.target.kind != "postgres":
+            return
+        self.conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+            (f"research-deposit:{identity_kind}:{identity_key}",),
+        )
+
     def get_idempotency(
         self,
         namespace_kind: str,
@@ -657,6 +666,9 @@ class DepositRepository:
     def find_topic(
         self, *, slug: str, namespace_kind: str, namespace_id: str
     ) -> Any | None:
+        self._lock_identity(
+            "topic", f"{namespace_kind}:{namespace_id}:{slug}"
+        )
         return self.conn.execute(
             """
             SELECT * FROM topics
@@ -693,6 +705,10 @@ class DepositRepository:
         namespace_kind: str,
         namespace_id: str,
     ) -> Any | None:
+        self._lock_identity(
+            "question",
+            f"{namespace_kind}:{namespace_id}:{topic_id}:{normalized_prompt}",
+        )
         return self.conn.execute(
             """
             SELECT * FROM questions
@@ -786,6 +802,12 @@ class DepositRepository:
         namespace_kind: str,
         namespace_id: str,
     ) -> Any | None:
+        identity_key = (
+            dedupe_key
+            if dedupe_key is not None
+            else f"{namespace_kind}:{namespace_id}:{locator}"
+        )
+        self._lock_identity("source", identity_key)
         if dedupe_key is not None:
             return self.conn.execute(
                 "SELECT * FROM sources WHERE dedupe_key = ? LIMIT 1",
@@ -982,11 +1004,9 @@ class DepositRepository:
         namespace_kind: str,
         namespace_id: str,
     ) -> Any | None:
-        if self.conn.target.kind == "postgres":
-            self.conn.execute(
-                "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
-                (f"{namespace_kind}:{namespace_id}:{canonical_key}",),
-            )
+        self._lock_identity(
+            "claim", f"{namespace_kind}:{namespace_id}:{canonical_key}"
+        )
         suffix = " FOR UPDATE" if self.conn.target.kind == "postgres" else ""
         return self.conn.execute(
             """

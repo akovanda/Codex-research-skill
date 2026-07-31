@@ -34,12 +34,12 @@ Deposit now resolves exact evidence anchors whenever supplied or retained
 UTF-8 content provides the selector's required representation. Exact
 mismatches and ambiguous matches reject the entire deposit atomically;
 unavailable page/DOM indexes or absent content remain explicitly unverified
-with bounded warnings and per-evidence metadata. Remaining post-alpha
-correctness follow-ups are explicitly tracked: expand PostgreSQL coverage from
-sequential smoke checks to concurrent identical,
-conflicting-idempotency, and canonical-claim requests; and narrow psycopg
-exception translation so programming and schema failures retain distinct
-stable diagnostics. Retained v1 source creation, snapshot locators, and URL
+with bounded warnings and per-evidence metadata. PostgreSQL deposit parity now covers concurrent identical requests,
+same-key conflicting requests, and distinct-key requests that converge on one
+canonical claim. Transaction-scoped advisory identity locks serialize topic,
+question, source, and canonical-claim find-or-create decisions. The remaining
+post-alpha correctness follow-up is to narrow psycopg exception translation so
+programming and schema failures retain distinct stable diagnostics. Retained v1 source creation, snapshot locators, and URL
 import now reuse the same secret-bearing HTTP(S) validator as v2 before dedupe,
 persistence, or external I/O. Before exposing a shared/public alpha,
 administrators must either supply an explicit namespace for generic creates or
