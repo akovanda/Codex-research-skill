@@ -1,0 +1,8 @@
+{
+  "migration_id": "0002_dialect_bundle",
+  "description": "Test-only dialect bundle.",
+  "transactional": {
+    "sqlite": true,
+    "postgres": true
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "artifact_version": 1,
+  "baseline_commit": "4f2163083570a22b613e950dd3a78f010854a3a4",
+  "captured_on": "2026-07-30",
+  "issue": "RR2-000",
+  "environment": {
+    "build": "1.5.0",
+    "fastapi": "0.141.1",
+    "mcp": "1.29.0",
+    "package": "research-registry 0.1.0",
+    "psycopg": "3.3.4",
+    "pydantic": "2.13.4",
+    "pytest": "8.4.2",
+    "python": "3.12.3"
+  },
+  "checks": [
+    {
+      "command": ".venv/bin/python -m pytest -q <all 18 baseline test modules>",
+      "result": "79 passed, 3 skipped, 1 warning in 20.72s",
+      "status": "passed"
+    },
+    {
+      "command": ".venv/bin/python -m build",
+      "result": "wheel and sdist built successfully",
+      "status": "passed"
+    },
+    {
+      "command": ".venv/bin/python -m research_registry --help",
+      "result": "CLI help rendered without starting the server",
+      "status": "passed"
+    }
+  ],
+  "current_commands": {
+    "build": "make build",
+    "grounded_pass_check": "make grounded-pass-check",
+    "preview_check": "make preview-check",
+    "test": "make test",
+    "workflow_check": "make workflow-check"
+  },
+  "schema_migrations": [
+    {
+      "checksum_sha256": "ea4c8ad9e9773fee7f19adc31a247ddc2aa4cbd14fd544418c80b802c6cf278e",
+      "migration_id": "0001_initial"
+    },
+    {
+      "checksum_sha256": "f360daa9ab2fc3a35b4157ab0766961e7ec7cf1699f4c144a21692f7b5dda54c",
+      "migration_id": "0002_workflows_and_trust"
+    }
+  ],
+  "contract_snapshots": {
+    "database_inventory": "tests/contracts/v1_database_inventory.json",
+    "http_openapi": "tests/contracts/v1_openapi.json",
+    "mcp_tools": "tests/contracts/v1_mcp_tools.json"
+  },
+  "private_operator_audit": {
+    "status": "pending",
+    "reason": "RR2-000 checks in only synthetic/content-free artifacts; the operator must audit the real private registry locally."
+  }
+}

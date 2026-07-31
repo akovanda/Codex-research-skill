@@ -1,0 +1,199 @@
+{
+  "$defs": {
+    "SearchScope": {
+      "additionalProperties": false,
+      "properties": {
+        "created_after": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created After"
+        },
+        "created_before": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created Before"
+        },
+        "paths": {
+          "items": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Paths",
+          "type": "array"
+        },
+        "repository": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repository"
+        },
+        "source_types": {
+          "items": {
+            "maxLength": 100,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Source Types",
+          "type": "array"
+        },
+        "topic_ids": {
+          "items": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Topic Ids",
+          "type": "array"
+        }
+      },
+      "title": "SearchScope",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "conflict_states": {
+      "items": {
+        "enum": [
+          "none",
+          "conflicted",
+          "resolved"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "title": "Conflict States",
+      "type": "array"
+    },
+    "cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cursor"
+    },
+    "explain": {
+      "default": true,
+      "title": "Explain",
+      "type": "boolean"
+    },
+    "freshness": {
+      "items": {
+        "enum": [
+          "fresh",
+          "needs_refresh",
+          "stale",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "maxItems": 4,
+      "title": "Freshness",
+      "type": "array"
+    },
+    "include_private": {
+      "default": true,
+      "title": "Include Private",
+      "type": "boolean"
+    },
+    "include_rejected": {
+      "default": false,
+      "title": "Include Rejected",
+      "type": "boolean"
+    },
+    "kinds": {
+      "items": {
+        "enum": [
+          "question",
+          "source",
+          "source_version",
+          "evidence",
+          "claim",
+          "report"
+        ],
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Kinds",
+      "type": "array"
+    },
+    "limit": {
+      "default": 10,
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    },
+    "protocol": {
+      "const": "research-search/v2",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "query": {
+      "maxLength": 10000,
+      "minLength": 1,
+      "title": "Query",
+      "type": "string"
+    },
+    "review_states": {
+      "items": {
+        "enum": [
+          "unreviewed",
+          "reviewed",
+          "flagged"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "title": "Review States",
+      "type": "array"
+    },
+    "scope": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SearchScope"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "protocol",
+    "query"
+  ],
+  "title": "ResearchSearchRequest",
+  "type": "object"
+}

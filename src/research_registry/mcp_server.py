@@ -5,20 +5,26 @@ from .config import load_settings
 from .mcp_tools import create_mcp_server
 from .service import RegistryService
 
-settings = load_settings()
-backend = create_backend(settings)
-service = backend if isinstance(backend, RegistryService) else None
-mcp = create_mcp_server(
-    backend,
-    settings=settings,
-    service=service,
-    default_api_key=settings.backend_api_key,
-    allow_admin_fallback=True,
-)
-
 
 def main() -> None:
+    _initialize_default_personal_storage()
+    settings = load_settings()
+    backend = create_backend(settings)
+    service = backend if isinstance(backend, RegistryService) else None
+    mcp = create_mcp_server(
+        backend,
+        settings=settings,
+        service=service,
+        default_api_key=settings.backend_api_key,
+        allow_admin_fallback=True,
+    )
     mcp.run()
+
+
+def _initialize_default_personal_storage() -> None:
+    from .local_personal import initialize_personal_registry_if_unconfigured
+
+    initialize_personal_registry_if_unconfigured()
 
 
 if __name__ == "__main__":

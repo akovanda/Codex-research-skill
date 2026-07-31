@@ -146,13 +146,29 @@ button {
 }
 
 input[type="search"],
-input[type="password"] {
+input[type="password"],
+input[type="text"],
+input[type="number"],
+textarea,
+select {
   flex: 1;
   min-width: 220px;
   padding: 0.95rem 1rem;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.8);
+  color: var(--ink);
+}
+
+input[type="search"],
+input[type="password"] {
+  border-radius: 999px;
+}
+
+textarea {
+  width: 100%;
+  min-height: 9rem;
+  resize: vertical;
 }
 
 button {
@@ -162,6 +178,20 @@ button {
   color: white;
   padding: 0.9rem 1.1rem;
   cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #0f766e;
+  outline-offset: 3px;
+}
+
+button.danger {
+  background: var(--danger);
 }
 
 a.button-link,
@@ -287,6 +317,21 @@ button.ghost {
   color: var(--danger);
 }
 
+.badge.positive {
+  background: var(--accent-soft);
+  color: #0f4d48;
+}
+
+.badge.warning {
+  background: #f8e7b0;
+  color: #6b4e05;
+}
+
+.badge.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .step-card {
   position: relative;
 }
@@ -322,6 +367,11 @@ button.ghost {
 .empty,
 .error {
   color: var(--muted);
+}
+
+.error-panel {
+  border-color: rgba(154, 52, 18, 0.35);
+  background: rgba(243, 214, 201, 0.72);
 }
 
 .error {
@@ -366,6 +416,82 @@ blockquote,
   background: rgba(12, 118, 110, 0.08);
   border-radius: 18px;
   white-space: pre-wrap;
+}
+
+.safe-content {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.search-form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.filter-row,
+.action-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.filter-row label,
+.supersede-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.filter-row select {
+  min-width: 150px;
+  padding: 0.65rem 0.8rem;
+}
+
+.review-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.confirmation {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.supersede-form {
+  margin-top: 1rem;
+}
+
+.supersede-form form {
+  margin-top: 0.8rem;
+}
+
+.data-block,
+.inline-data {
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0.8rem;
+  border-radius: 14px;
+  background: rgba(24, 34, 29, 0.06);
+}
+
+.inline-data {
+  margin: 0;
+}
+
+.compact-meta {
+  margin-top: 0.75rem;
+}
+
+.timeline {
+  display: grid;
+  gap: 1rem;
 }
 
 @media (max-width: 900px) {

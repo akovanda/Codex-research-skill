@@ -1,0 +1,13 @@
+{
+  "protocol": "research-review/v2",
+  "idempotency_key": "approve-clmr-retry-1",
+  "entity": {
+    "kind": "claim_revision",
+    "id": "clmr_retry_1"
+  },
+  "action": "approve",
+  "expected_revision_id": "clmr_retry_1",
+  "expected_state": "unreviewed",
+  "note": "Implementation and official operational documentation agree.",
+  "new_revision": null
+}

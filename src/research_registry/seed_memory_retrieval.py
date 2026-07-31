@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .config import load_settings
+from .legacy_feature import require_legacy_heuristics
 from .models import ClaimCreate, ExcerptCreate, FocusTuple, GuidancePayload, PublishRequest, QuestionCreate, ReportCreate, ResearchSessionCreate, ReviewRequest, SourceCreate, SourceSelector
 from .service import RegistryService
 
@@ -21,8 +22,8 @@ def seed_memory_retrieval(service: RegistryService) -> dict[str, str]:
         ResearchSessionCreate(
             question_id=question.id,
             prompt=question.prompt,
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             mode="live_research",
             notes="Seed corpus for the research-memory-retrieval flow.",
         )
@@ -163,6 +164,7 @@ def seed_memory_retrieval(service: RegistryService) -> dict[str, str]:
 
 
 def main() -> None:
+    require_legacy_heuristics()
     settings = load_settings()
     service = RegistryService(settings.database_url)
     service.initialize()

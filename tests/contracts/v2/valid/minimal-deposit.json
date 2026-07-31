@@ -1,0 +1,12 @@
+{
+  "protocol": "research-deposit/v2",
+  "idempotency_key": "minimal-deposit",
+  "run": {
+    "client_ref": "run1",
+    "mode": "manual",
+    "provenance": {}
+  },
+  "sources": [],
+  "evidence": [],
+  "claims": []
+}

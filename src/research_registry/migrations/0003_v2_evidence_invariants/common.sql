@@ -1,0 +1,1 @@
+-- Immutability enforcement is dialect-specific.

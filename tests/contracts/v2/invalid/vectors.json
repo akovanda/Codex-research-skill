@@ -1,0 +1,418 @@
+[
+  {
+    "name": "search rejects unknown top-level fields",
+    "model": "search",
+    "payload": {
+      "protocol": "research-search/v2",
+      "query": "bounded retry",
+      "unexpected": true
+    },
+    "error_type": "extra_forbidden",
+    "field": "unexpected"
+  },
+  {
+    "name": "deposit rejects unknown nested fields",
+    "model": "deposit",
+    "payload": {
+      "protocol": "research-deposit/v2",
+      "idempotency_key": "unknown-nested-field",
+      "run": {
+        "client_ref": "run1",
+        "mode": "manual",
+        "provenance": {
+          "named_model_guess": "forbidden"
+        }
+      },
+      "sources": [],
+      "evidence": [],
+      "claims": []
+    },
+    "error_type": "extra_forbidden",
+    "field": "named_model_guess"
+  },
+  {
+    "name": "search rejects the wrong protocol",
+    "model": "search",
+    "payload": {
+      "protocol": "research-search/v1",
+      "query": "bounded retry"
+    },
+    "error_type": "literal_error",
+    "field": "protocol"
+  },
+  {
+    "name": "search rejects oversized queries",
+    "model": "search",
+    "payload": {
+      "protocol": "research-search/v2",
+      "query": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "repeat": {
+      "field": "query",
+      "count": 101
+    },
+    "error_type": "string_too_long",
+    "field": "query"
+  },
+  {
+    "name": "search rejects duplicate kinds",
+    "model": "search",
+    "payload": {
+      "protocol": "research-search/v2",
+      "query": "bounded retry",
+      "kinds": [
+        "claim",
+        "claim"
+      ]
+    },
+    "error_type": "value_error",
+    "field": "kinds",
+    "message_contains": "unique"
+  },
+  {
+    "name": "get rejects duplicate include entries",
+    "model": "get",
+    "payload": {
+      "protocol": "research-get/v2",
+      "id": "clm_example",
+      "include": [
+        "evidence",
+        "evidence"
+      ]
+    },
+    "error_type": "value_error",
+    "field": "include",
+    "message_contains": "unique"
+  },
+  {
+    "name": "deposit rejects an invalid content hash",
+    "model": "deposit",
+    "payload": {
+      "protocol": "research-deposit/v2",
+      "idempotency_key": "invalid-hash",
+      "run": {
+        "client_ref": "run1",
+        "mode": "manual",
+        "provenance": {}
+      },
+      "sources": [
+        {
+          "client_ref": "src1",
+          "identity": {
+            "locator": "https://example.test",
+            "title": "Example",
+            "source_type": "webpage"
+          },
+          "version": {
+            "version_kind": "web",
+            "retrieved_at": "2026-07-29T20:00:00Z",
+            "content_sha256": "not-a-hash",
+            "canonical_locator": "https://example.test",
+            "snapshot": {
+              "policy": "metadata_only"
+            }
+          }
+        }
+      ],
+      "evidence": [],
+      "claims": []
+    },
+    "error_type": "string_pattern_mismatch",
+    "field": "content_sha256"
+  },
+  {
+    "name": "deposit rejects an invalid selector path",
+    "model": "deposit",
+    "payload": {
+      "protocol": "research-deposit/v2",
+      "idempotency_key": "invalid-selector",
+      "run": {
+        "client_ref": "run1",
+        "mode": "manual",
+        "provenance": {}
+      },
+      "sources": [],
+      "evidence": [
+        {
+          "client_ref": "ev1",
+          "source_version": {
+            "id": "srcv_external"
+          },
+          "quote_text": "quote",
+          "selector": {
+            "type": "git_line_range",
+            "path": "../secret",
+            "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "blob_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "start_line": 1,
+            "end_line": 1,
+            "exact": "quote"
+          }
+        }
+      ],
+      "claims": []
+    },
+    "error_type": "value_error",
+    "field": "path",
+    "message_contains": "POSIX"
+  },
+  {
+    "name": "deposit rejects invalid evidence relationships",
+    "model": "deposit",
+    "payload": {
+      "protocol": "research-deposit/v2",
+      "idempotency_key": "invalid-relationship",
+      "run": {
+        "client_ref": "run1",
+        "mode": "manual",
+        "provenance": {}
+      },
+      "sources": [],
+      "evidence": [],
+      "claims": [
+        {
+          "client_ref": "claim1",
+          "title": "Claim",
+          "statement": "Statement",
+          "status": "partial",
+          "confidence": 0.5,
+          "evidence": [
+            {
+              "evidence": {
+                "id": "evd_external"
+              },
+              "relationship": "mentions"
+            }
+          ]
+        }
+      ]
+    },
+    "error_type": "literal_error",
+    "field": "relationship"
+  },
+  {
+    "name": "deposit rejects duplicate client references",
+    "model": "deposit",
+    "payload": {
+      "protocol": "research-deposit/v2",
+      "idempotency_key": "duplicate-ref",
+      "run": {
+        "client_ref": "duplicate",
+        "mode": "manual",
+        "provenance": {}
+      },
+      "sources": [
+        {
+          "client_ref": "duplicate",
+          "identity": {
+            "locator": "https://example.test",
+            "title": "Example",
+            "source_type": "webpage"
+          },
+          "version": {
+            "version_kind": "web",
+            "retrieved_at": "2026-07-29T20:00:00Z",
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "canonical_locator": "https://example.test",
+            "snapshot": {
+              "policy": "metadata_only"
+            }
+          }
+        }
+      ],
+      "evidence": [],
+      "claims": []
+    },
+    "error_type": "value_error",
+    "message_contains": "unique"
+  },
+  {
+    "name": "deposit rejects missing local references",
+    "model": "deposit",
+    "payload": {
+      "protocol": "research-deposit/v2",
+      "idempotency_key": "missing-ref",
+      "run": {
+        "client_ref": "run1",
+        "mode": "manual",
+        "provenance": {}
+      },
+      "sources": [],
+      "evidence": [
+        {
+          "client_ref": "ev1",
+          "source_version": {
+            "ref": "missing-source"
+          },
+          "quote_text": "quote",
+          "selector": {
+            "type": "text_quote",
+            "exact": "quote"
+          }
+        }
+      ],
+      "claims": []
+    },
+    "error_type": "value_error",
+    "message_contains": "not found"
+  },
+  {
+    "name": "review rejects invalid actions",
+    "model": "review",
+    "payload": {
+      "protocol": "research-review/v2",
+      "idempotency_key": "invalid-action",
+      "entity": {
+        "kind": "claim_revision",
+        "id": "clmr_example"
+      },
+      "action": "delete"
+    },
+    "error_type": "literal_error",
+    "field": "action"
+  },
+  {
+    "name": "refresh rejects an empty entity list",
+    "model": "refresh",
+    "payload": {
+      "protocol": "research-refresh/v2",
+      "mode": "inspect",
+      "entities": []
+    },
+    "error_type": "too_short",
+    "field": "entities"
+  },
+  {
+    "name": "refresh rejects an oversized entity list",
+    "model": "refresh",
+    "payload": {
+      "protocol": "research-refresh/v2",
+      "mode": "inspect",
+      "entities": [
+        {
+          "kind": "source",
+          "id": "src_example"
+        }
+      ]
+    },
+    "repeat": {
+      "field": "entities",
+      "count": 101
+    },
+    "error_type": "too_long",
+    "field": "entities"
+  },
+  {
+    "name": "compact errors reject unknown details containers",
+    "model": "error",
+    "payload": {
+      "error": {
+        "code": "INVALID_REQUEST",
+        "message": "Invalid request.",
+        "retryable": false,
+        "details": {
+          "field": {
+            "nested": "content"
+          }
+        }
+      },
+      "request_id": "req_example"
+    },
+    "error_type": "string_type",
+    "field": "details"
+  },
+  {
+    "name": "compact errors reject stack traces",
+    "model": "error",
+    "payload": {
+      "error": {
+        "code": "INVALID_REQUEST",
+        "message": "Traceback (most recent call last):\ninternal detail",
+        "retryable": false
+      },
+      "request_id": "req_example"
+    },
+    "error_type": "value_error",
+    "field": "message",
+    "message_contains": "stack trace"
+  },
+  {
+    "name": "deposit rejects metadata-only snapshot text",
+    "model": "deposit",
+    "payload": {
+      "protocol": "research-deposit/v2",
+      "idempotency_key": "metadata-text",
+      "run": {"client_ref": "run1", "mode": "manual", "provenance": {}},
+      "sources": [{
+        "client_ref": "src1",
+        "identity": {"locator": "note:metadata", "title": "Metadata", "source_type": "note"},
+        "version": {
+          "version_kind": "note",
+          "retrieved_at": "2026-07-30T00:00:00Z",
+          "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "canonical_locator": "note:metadata",
+          "snapshot": {"policy": "metadata_only", "text": "forbidden"}
+        }
+      }],
+      "evidence": [],
+      "claims": []
+    },
+    "error_type": "value_error",
+    "field": "snapshot",
+    "message_contains": "must not include text"
+  },
+  {
+    "name": "deposit requires retained snapshot text",
+    "model": "deposit",
+    "payload": {
+      "protocol": "research-deposit/v2",
+      "idempotency_key": "missing-retained-text",
+      "run": {"client_ref": "run1", "mode": "manual", "provenance": {}},
+      "sources": [{
+        "client_ref": "src1",
+        "identity": {"locator": "note:retained", "title": "Retained", "source_type": "note"},
+        "version": {
+          "version_kind": "note",
+          "retrieved_at": "2026-07-30T00:00:00Z",
+          "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "canonical_locator": "note:retained",
+          "snapshot": {"policy": "extracted_text"}
+        }
+      }],
+      "evidence": [],
+      "claims": []
+    },
+    "error_type": "value_error",
+    "field": "snapshot",
+    "message_contains": "require text"
+  },
+  {
+    "name": "deposit rejects secret-bearing HTTP locators",
+    "model": "deposit",
+    "payload": {
+      "protocol": "research-deposit/v2",
+      "idempotency_key": "secret-locator",
+      "run": {"client_ref": "run1", "mode": "manual", "provenance": {}},
+      "sources": [{
+        "client_ref": "src1",
+        "identity": {
+          "locator": "https://user:secret@example.test/path?token=secret",
+          "title": "Secret URL",
+          "source_type": "webpage"
+        },
+        "version": {
+          "version_kind": "web",
+          "retrieved_at": "2026-07-30T00:00:00Z",
+          "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "canonical_locator": "https://example.test/path",
+          "snapshot": {"policy": "metadata_only"}
+        }
+      }],
+      "evidence": [],
+      "claims": []
+    },
+    "error_type": "value_error",
+    "field": "locator",
+    "message_contains": "userinfo"
+  }
+]

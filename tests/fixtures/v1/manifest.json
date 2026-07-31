@@ -1,0 +1,38 @@
+{
+  "fixture_version": 1,
+  "builder": "tests.fixtures.v1.factory:populate_v1_fixture",
+  "database_targets": [
+    "sqlite",
+    "postgres"
+  ],
+  "record_types": [
+    "topic",
+    "question",
+    "research_session",
+    "source",
+    "excerpt",
+    "claim",
+    "report",
+    "user",
+    "organization",
+    "org_membership",
+    "api_key",
+    "audit_log"
+  ],
+  "edge_states": [
+    "fresh",
+    "stale",
+    "reviewed",
+    "flagged",
+    "conflicted",
+    "public",
+    "private",
+    "annotation_alias",
+    "finding_alias",
+    "missing_snapshot",
+    "follow_up_lineage",
+    "session_refresh_lineage",
+    "report_refresh_lineage"
+  ],
+  "notes": "Both dialect fixtures are created through RegistryService. Stable legacy edge-state timestamps are adjusted only after service-backed creation."
+}

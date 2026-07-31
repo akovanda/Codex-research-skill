@@ -1,0 +1,174 @@
+{
+  "$defs": {
+    "DepositRecordIds": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_ids": {
+          "additionalProperties": {
+            "maxLength": 200,
+            "minLength": 3,
+            "type": "string"
+          },
+          "maxProperties": 100,
+          "propertyNames": {
+            "maxLength": 100,
+            "minLength": 1
+          },
+          "title": "Claim Ids",
+          "type": "object"
+        },
+        "claim_revision_ids": {
+          "additionalProperties": {
+            "maxLength": 200,
+            "minLength": 3,
+            "type": "string"
+          },
+          "maxProperties": 100,
+          "propertyNames": {
+            "maxLength": 100,
+            "minLength": 1
+          },
+          "title": "Claim Revision Ids",
+          "type": "object"
+        },
+        "evidence_ids": {
+          "additionalProperties": {
+            "maxLength": 200,
+            "minLength": 3,
+            "type": "string"
+          },
+          "maxProperties": 200,
+          "propertyNames": {
+            "maxLength": 100,
+            "minLength": 1
+          },
+          "title": "Evidence Ids",
+          "type": "object"
+        },
+        "question_id": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Question Id"
+        },
+        "report_id": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Report Id"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "source_ids": {
+          "additionalProperties": {
+            "maxLength": 200,
+            "minLength": 3,
+            "type": "string"
+          },
+          "maxProperties": 50,
+          "propertyNames": {
+            "maxLength": 100,
+            "minLength": 1
+          },
+          "title": "Source Ids",
+          "type": "object"
+        },
+        "source_version_ids": {
+          "additionalProperties": {
+            "maxLength": 200,
+            "minLength": 3,
+            "type": "string"
+          },
+          "maxProperties": 50,
+          "propertyNames": {
+            "maxLength": 100,
+            "minLength": 1
+          },
+          "title": "Source Version Ids",
+          "type": "object"
+        }
+      },
+      "title": "DepositRecordIds",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "committed": {
+      "title": "Committed",
+      "type": "boolean"
+    },
+    "idempotent_replay": {
+      "title": "Idempotent Replay",
+      "type": "boolean"
+    },
+    "protocol": {
+      "const": "research-deposit-result/v2",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "records": {
+      "$ref": "#/$defs/DepositRecordIds"
+    },
+    "request_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Request Sha256",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "validated",
+        "committed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "maxLength": 1000,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "protocol",
+    "status",
+    "committed",
+    "idempotent_replay",
+    "records",
+    "warnings"
+  ],
+  "title": "ResearchDepositResult",
+  "type": "object"
+}

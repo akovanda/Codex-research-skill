@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .legacy_feature import require_legacy_heuristics
 from .research_capture import format_capture_summary, run_implicit_research_capture
 from .service import RegistryService
 
@@ -47,6 +48,7 @@ def reset_db(db_path: Path) -> None:
 
 
 def main() -> None:
+    require_legacy_heuristics()
     parser = argparse.ArgumentParser(description="Run a memory/retrieval research scenario against the registry.")
     parser.add_argument(
         "--scenario",

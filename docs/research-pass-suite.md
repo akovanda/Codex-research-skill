@@ -1,5 +1,8 @@
 # Research Pass Suite
 
+This is a marked legacy regression harness. It is not part of the default
+research path and requires `RESEARCH_REGISTRY_LEGACY_HEURISTICS=1`.
+
 This suite is for judging whether the Research Registry is useful on a realistic long-memory project rather than on toy prompts.
 
 The passes are organized as a generic example corpus built around:
@@ -24,35 +27,35 @@ Summary:
 
 ```bash
 . .venv/bin/activate
-research-registry-pass-suite
+RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 research-registry-pass-suite
 ```
 
 Check routing:
 
 ```bash
 . .venv/bin/activate
-research-registry-pass-suite --check-routing
+RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 research-registry-pass-suite --check-routing
 ```
 
 Render the full pass suite as markdown:
 
 ```bash
 . .venv/bin/activate
-research-registry-pass-suite --format markdown
+RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 research-registry-pass-suite --format markdown
 ```
 
 Render only one wave:
 
 ```bash
 . .venv/bin/activate
-research-registry-pass-suite --wave 1 --format markdown
+RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 research-registry-pass-suite --wave 1 --format markdown
 ```
 
 Run the full suite against a seeded local registry and write reports:
 
 ```bash
 . .venv/bin/activate
-research-registry-pass-runner \
+RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 research-registry-pass-runner \
   --source-root /path/to/repo-a \
   --source-root /path/to/repo-b \
   --db-path /tmp/research-pass-runner.sqlite3 \
@@ -66,7 +69,7 @@ Run only one wave when you want a faster focused pass:
 
 ```bash
 . .venv/bin/activate
-research-registry-pass-runner --wave 1 --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2 --markdown-out /tmp/research-pass-runner-wave1.md
+RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 research-registry-pass-runner --wave 1 --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2 --markdown-out /tmp/research-pass-runner-wave1.md
 ```
 
 Run the broader preview workflow gate:

@@ -1,0 +1,27 @@
+{
+  "name": "research-registry",
+  "version": "0.2.0a1",
+  "description": "Recall and explicitly preserve durable, source-backed research.",
+  "author": {
+    "name": "Research Registry contributors",
+    "url": "https://github.com/akovanda/Codex-research-skill"
+  },
+  "homepage": "https://github.com/akovanda/Codex-research-skill#readme",
+  "repository": "https://github.com/akovanda/Codex-research-skill",
+  "license": "Apache-2.0",
+  "keywords": ["research", "provenance", "recall", "mcp"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Research Registry",
+    "shortDescription": "Recall and preserve source-backed research",
+    "longDescription": "Retrieve prior research with provenance and explicitly preserve completed findings as private, unreviewed evidence bundles.",
+    "developerName": "Research Registry contributors",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "Recall what prior research established about this topic.",
+      "Use Research Deposit to preserve these completed findings."
+    ]
+  }
+}

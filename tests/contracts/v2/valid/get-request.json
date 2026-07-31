@@ -1,0 +1,12 @@
+{
+  "protocol": "research-get/v2",
+  "id": "clm_example",
+  "include": [
+    "current_revision",
+    "evidence",
+    "source_versions",
+    "reviews"
+  ],
+  "depth": 1,
+  "include_private": true
+}

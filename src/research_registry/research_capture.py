@@ -6,6 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field
 
+from .legacy_feature import require_legacy_heuristics
 from .local_research import LocalGuidanceDraft, build_focus, run_local_research
 from .models import (
     BackendStatus,
@@ -128,6 +129,7 @@ def prompt_matches_any_keyword(normalized_prompt: str, keywords: tuple[str, ...]
 
 
 def is_research_request(prompt: str) -> bool:
+    require_legacy_heuristics()
     normalized = normalize_research_prompt(prompt)
     if not normalized:
         return False
@@ -142,6 +144,7 @@ def specialized_skill_for_prompt(prompt: str) -> str | None:
 
 
 def specialized_domain_for_prompt(prompt: str) -> str | None:
+    require_legacy_heuristics()
     normalized = normalize_research_prompt(prompt)
     if prompt_matches_any_keyword(normalized, MEMORY_KEYWORDS):
         return "memory-retrieval"
@@ -194,9 +197,10 @@ def run_implicit_research_capture(
     source_signals: list[str] | None = None,
     source_roots: list | None = None,
     prefer_report: bool = True,
-    model_name: str = "gpt-5.4",
-    model_version: str = "2026-04-10",
+    model_name: str = "unknown",
+    model_version: str = "unknown",
 ) -> ImplicitCaptureOutcome:
+    require_legacy_heuristics()
     del prefer_report
     source_signals = source_signals or []
     backend_status = backend.backend_status()

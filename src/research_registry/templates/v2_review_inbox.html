@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Review inbox · Research Registry{% endblock %}
+{% block content %}
+<section class="hero compact">
+  <div>
+    <p class="eyebrow">Operator workflow</p>
+    <h1>Review inbox</h1>
+    <p class="lede">Unreviewed, contested, stale, and refresh-affected records are ordered by severity, evidence impact, and recency.</p>
+  </div>
+</section>
+<section class="panel">
+  <div class="panel-head"><h2>Needs attention</h2><span>{{ inbox.items | length }}</span></div>
+  <div class="stack">
+    {% for item in inbox.items %}
+    <article class="card">
+      <div class="badge-row">
+        {% for badge in item.badges %}<span class="badge {{ badge.tone }}">{{ badge.label }}</span>{% endfor %}
+      </div>
+      <h3><a href="{{ item.href }}">{{ item.title }}</a></h3>
+      <ul>{% for reason in item.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+      <p class="muted"><code>{{ item.id }}</code> · {{ item.evidence_count }} evidence span(s)</p>
+    </article>
+    {% else %}<p class="empty">No accessible records currently need review.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

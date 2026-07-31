@@ -1,6 +1,9 @@
 # Memory/Retrieval Skill
 
-This document covers the `research-memory-retrieval` Codex skill and its local validation flow.
+This document covers the legacy `research-memory-retrieval` Codex skill and its
+local validation flow. The default v2 plugin replaces it with focused
+read-only [`research-recall`](../research-registry-plugin/skills/research-recall/SKILL.md);
+see [Codex Plugin](codex-plugin.md).
 
 If you are just trying to get the project running, start with [Getting Started](getting-started.md).
 
@@ -12,10 +15,11 @@ If you are just trying to get the project running, start with [Getting Started](
 ## Install locally
 
 ```bash
-make up
+make shared-up
 ```
 
-`make up` installs both managed skill symlinks into `~/.codex/skills/` and starts the default localhost backend.
+`make shared-up` retains the older behavior: it installs both managed skill
+symlinks into `~/.codex/skills/` and starts the shared localhost backend.
 
 ## Start the local backend
 
@@ -28,10 +32,12 @@ This gives the skill a shared localhost backend plus a managed MCP endpoint in `
 ## Seed the memory/retrieval corpus
 
 ```bash
-./.venv/bin/research-registry-seed-memory-retrieval
+RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 \
+  ./.venv/bin/research-registry-seed-memory-retrieval
 ```
 
-`make up` already runs this seed step by default. Rerun it manually only if you want to refresh the demo corpus.
+`make shared-up` already runs this seed step by default. Rerun it manually only
+if you want to refresh the demo corpus.
 
 ## Validate
 

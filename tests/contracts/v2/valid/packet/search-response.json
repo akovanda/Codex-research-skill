@@ -1,0 +1,33 @@
+{
+  "protocol": "research-search-result/v2",
+  "query": "publisher retries",
+  "hits": [
+    {
+      "id": "clm_retry",
+      "kind": "claim",
+      "title": "Event publishing retries are bounded",
+      "summary": "The EventPublisher retries transient failures a bounded number of times before surfacing an error.",
+      "score": 0.91,
+      "score_components": {
+        "exact": 0.7,
+        "lexical": 0.95,
+        "scope": 1.0,
+        "relationship": 0.8,
+        "review": 0.4,
+        "freshness": 1.0
+      },
+      "matched_by": [
+        "full-text: publisher retries",
+        "repository scope: artifact",
+        "two evidence relationships"
+      ],
+      "review_state": "unreviewed",
+      "conflict_state": "none",
+      "freshness": "fresh",
+      "evidence_count": 2,
+      "updated_at": "2026-07-29T20:05:00Z",
+      "url": "/claims/clm_retry"
+    }
+  ],
+  "next_cursor": null
+}

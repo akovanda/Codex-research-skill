@@ -2,37 +2,44 @@
 
 ## Do I need Docker?
 
-For the supported localhost preview path, yes.
+No. The personal default uses SQLite, private XDG data, filesystem blobs, and
+tokenless STDIO MCP. Run `research-registry init` or `make init`.
 
-`research-registry up` starts a managed local service plus Postgres in Docker Compose and wires Codex to that shared localhost runtime. `make up` is the source-checkout contributor wrapper around the same runtime path.
-
-If you only want a repo-local development process, you can still run `research-registry-web` against SQLite, but that is a development path, not the main preview install.
+Docker with Compose is retained only for shared/team Postgres deployments and
+existing managed installations. Use `research-registry up` or `make shared-up`
+for that separate path.
 
 ## Do I need Codex to use this?
 
 No.
 
-The main product surface is the web app and JSON API. Codex, MCP, and the checked-in skills sit on top of that and are the primary workflow this preview is optimized for.
+No. The optional web app and JSON API can run independently. The personal
+default is optimized for Codex and MCP, but the SQLite database and review
+server are normal local application surfaces.
 
-## What does `research-registry up` change on my machine?
+## What does `research-registry init` change on my machine?
 
-It does five visible things:
+It does three visible things:
 
 - creates managed config under `~/.config/research-registry/`
-- starts the managed localhost runtime on `127.0.0.1:8010`
-- patches `~/.codex/config.toml` and installs the managed skill symlinks if Codex is present
-- pulls or uses the configured runtime image
-- stores local data under `~/.local/share/research-registry/`
+- creates SQLite and content-addressed blob storage under
+  `~/.local/share/research-registry/`
+- applies additive migrations
 
-`make up` additionally creates `.venv/`, installs the package in editable mode, builds a local image, and seeds demo content by default.
+It starts no service, modifies no Codex config, downloads no container, and
+stores no API/auth token. `install-codex` separately installs the focused
+plugin under `CODEX_HOME`.
 
-If you want to repair config drift, run `research-registry repair` or `make repair`. If you want to remove the managed integration, run `research-registry uninstall` or `make uninstall`. If you also want to delete the managed local data and Docker volumes, run `research-registry uninstall --purge-data` or `make purge-local`.
+Earlier `up`, `repair`, `status`, `token`, `down`, and `uninstall` commands
+remain for the retained managed Docker/Postgres path.
 
 ## Do I need Homebrew, pipx, or uv?
 
 No single package manager is required.
 
-The preferred preview package path is `uvx --from git+https://github.com/akovanda/Codex-research-skill research-registry up` because it can run the CLI without a full source checkout. After PyPI release, `pipx install research-registry` becomes the clean persistent install path. Homebrew is a good future convenience wrapper, but the CLI plus published container image has to work first.
+Use any Python package workflow that installs Python 3.12+ wheel/sdist
+artifacts. `pipx install research-registry` is the clean persistent path after
+a PyPI release. Homebrew is not required.
 
 ## Does anything get published automatically?
 
@@ -42,9 +49,13 @@ Implicit capture stores new records privately by default. Publishing is a separa
 
 ## Can I use SQLite instead of Postgres?
 
-Yes for repo-local development.
+Yes. SQLite is the supported personal default. Postgres is the supported shared
+backend.
 
-The supported localhost preview path uses Postgres in Docker Compose. SQLite remains available for local development or compatibility workflows when you run the app directly.
+The two dialects share logical application contracts and additive migrations,
+but their database files/dumps are not interchangeable. Follow
+[Managed Postgres migration choices](migrate-managed-postgres.md) for an
+existing deployment.
 
 ## What operating systems are supported?
 

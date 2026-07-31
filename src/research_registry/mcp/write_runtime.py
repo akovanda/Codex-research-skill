@@ -1,0 +1,358 @@
+from __future__ import annotations
+
+from typing import Any
+
+from mcp.server.fastmcp import Context
+
+from ..application.deposit import DepositError, ResearchDepositService
+from ..application.refresh import (
+    CapturePolicy,
+    ResearchRefreshService,
+    SourceCaptureCoordinator,
+)
+from ..application.source_versions import SourceVersionService
+from ..application.review import ResearchReviewService
+from ..backend_client import RegistryBackend
+from ..config import Settings
+from ..contracts.v2 import (
+    NamespaceSelector,
+    RefreshEntity,
+    ResearchDepositRequest,
+    ResearchDepositResult,
+    ResearchRefreshRequest,
+    ResearchRefreshResult,
+    ResearchReviewRequest,
+    ResearchReviewResult,
+    ReviewEntity,
+    ReviewNewRevision,
+)
+from ..db import DatabaseTarget, resolve_database_target
+from ..models import AuthContext
+from ..ingestion.blobs import FilesystemBlobStore
+from ..ingestion.fetch_policy import FetchPolicy
+from ..ingestion.git import GitIngestionPolicy, GitSourceIngestor
+from ..ingestion.web import (
+    DoiSourceIngestor,
+    HardenedWebFetcher,
+    WebSourceIngestor,
+)
+from ..service import RegistryService
+
+
+def _local_stdio_auth() -> AuthContext:
+    return AuthContext(
+        actor_user_id="local-stdio",
+        is_admin=False,
+        scopes=["admin", "ingest", "publish", "read_private"],
+        namespace_kind="user",
+        namespace_id="local",
+    )
+
+
+def _admin_auth() -> AuthContext:
+    return AuthContext(
+        is_admin=True,
+        scopes=["admin", "ingest", "publish", "read_private"],
+        namespace_kind="user",
+        namespace_id="local",
+    )
+
+
+class WriteMcpRuntime:
+    """Authenticated MCP translation for review and offline refresh queueing."""
+
+    def __init__(
+        self,
+        backend: RegistryBackend,
+        *,
+        settings: Settings | None = None,
+        service: RegistryService | None = None,
+        default_api_key: str | None = None,
+        allow_admin_fallback: bool = True,
+        capture_coordinator: SourceCaptureCoordinator | None = None,
+    ) -> None:
+        self.backend = backend
+        self.settings = settings
+        self.service = service or (
+            backend if isinstance(backend, RegistryService) else None
+        )
+        self.default_api_key = default_api_key
+        self.allow_admin_fallback = allow_admin_fallback
+        self.reviews = (
+            ResearchReviewService(self.service.database)
+            if self.service is not None
+            else None
+        )
+        self.deposits = self._configured_deposit()
+        configured_capture = capture_coordinator or self._configured_capture()
+        self.refreshes = (
+            ResearchRefreshService(
+                self.service.database,
+                capture_coordinator=configured_capture,
+            )
+            if self.service is not None
+            else None
+        )
+
+    def _configured_deposit(self) -> ResearchDepositService | None:
+        if self.service is None:
+            return None
+        target = (
+            self.service.database
+            if isinstance(self.service.database, DatabaseTarget)
+            else resolve_database_target(self.service.database)
+        )
+        if self.settings is not None:
+            blob_root = self.settings.data_dir / "blobs"
+            snapshot_policy = self.settings.capture_snapshot_policy
+        elif target.sqlite_path is not None:
+            blob_root = target.sqlite_path.parent / "blobs"
+            snapshot_policy = "full_content"
+        else:
+            raise RuntimeError(
+                "DATABASE_INTEGRITY_ERROR: PostgreSQL deposit requires "
+                "configured blob storage."
+            )
+        return ResearchDepositService(
+            self.service.database,
+            FilesystemBlobStore(blob_root),
+            max_snapshot_policy=snapshot_policy,
+        )
+
+    def research_deposit(
+        self,
+        request: ResearchDepositRequest | dict[str, Any],
+        *,
+        ctx: Context | None,
+    ) -> ResearchDepositResult:
+        auth = self._resolve_scope(ctx, "ingest", "deposit")
+        service = self._require_deposits()
+        command = (
+            request
+            if isinstance(request, ResearchDepositRequest)
+            else ResearchDepositRequest.model_validate(request)
+        )
+        if command.namespace is None:
+            command = command.model_copy(
+                update={
+                    "namespace": NamespaceSelector(
+                        kind=auth.namespace_kind,
+                        id=auth.namespace_id,
+                    )
+                }
+            )
+        elif (
+            command.namespace.kind != auth.namespace_kind
+            or command.namespace.id != auth.namespace_id
+        ):
+            raise PermissionError(
+                "NAMESPACE_ACCESS_DENIED: The deposit namespace must match "
+                "the authenticated namespace."
+            )
+        try:
+            return service.deposit(command, auth=auth)
+        except DepositError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(
+                "DEPOSIT_FAILED: The deposit could not be committed."
+            ) from exc
+
+    def _configured_capture(self) -> SourceCaptureCoordinator | None:
+        if (
+            self.service is None
+            or self.settings is None
+            or not self.settings.capture_modes
+        ):
+            return None
+        snapshot_policy = self.settings.capture_snapshot_policy
+        blob_store = FilesystemBlobStore(self.settings.data_dir / "blobs")
+        versions = SourceVersionService(
+            self.service.database,
+            blob_store,
+            max_snapshot_policy=snapshot_policy,  # type: ignore[arg-type]
+        )
+        fetcher = HardenedWebFetcher(
+            FetchPolicy(allow_http=self.settings.capture_allow_http)
+        )
+        git = None
+        if (
+            self.settings.capture_git_roots
+            and self.settings.capture_git_repositories
+        ):
+            git = GitSourceIngestor(
+                GitIngestionPolicy(
+                    allowed_roots=self.settings.capture_git_roots,
+                    repositories=dict(self.settings.capture_git_repositories),
+                ),
+                versions,
+            )
+        return SourceCaptureCoordinator(
+            self.service.database,
+            CapturePolicy(
+                enabled_modes=self.settings.capture_modes,
+                default_snapshot_policy=snapshot_policy,  # type: ignore[arg-type]
+                max_snapshot_policy=snapshot_policy,  # type: ignore[arg-type]
+            ),
+            web=WebSourceIngestor(fetcher, versions),
+            doi=DoiSourceIngestor(fetcher, versions),
+            git=git,
+        )
+
+    def research_review(
+        self,
+        *,
+        idempotency_key: str,
+        entity: ReviewEntity | dict[str, Any],
+        action: str,
+        expected_revision_id: str | None,
+        expected_state: str | None,
+        note: str | None,
+        new_revision: ReviewNewRevision | dict[str, Any] | None,
+        ctx: Context | None,
+    ) -> ResearchReviewResult:
+        auth = self._resolve_admin(ctx)
+        service = self._require_reviews()
+        request = ResearchReviewRequest.model_validate(
+            {
+                "protocol": "research-review/v2",
+                "idempotency_key": idempotency_key,
+                "entity": (
+                    entity.model_dump(mode="json")
+                    if isinstance(entity, ReviewEntity)
+                    else entity
+                ),
+                "action": action,
+                "expected_revision_id": expected_revision_id,
+                "expected_state": expected_state,
+                "note": note,
+                "new_revision": (
+                    new_revision.model_dump(mode="json")
+                    if isinstance(new_revision, ReviewNewRevision)
+                    else new_revision
+                ),
+            }
+        )
+        return service.review(
+            request,
+            namespace_kind=auth.namespace_kind,
+            namespace_id=auth.namespace_id,
+            actor_type="agent",
+            actor_id=auth.actor_user_id or auth.api_key_id,
+        )
+
+    def research_refresh(
+        self,
+        *,
+        mode: str,
+        idempotency_key: str | None,
+        entities: list[RefreshEntity | dict[str, Any]],
+        snapshot_policy: str | None,
+        priority: float,
+        ctx: Context | None,
+    ) -> ResearchRefreshResult:
+        auth = self._resolve_admin(ctx)
+        service = self._require_refreshes()
+        request = ResearchRefreshRequest.model_validate(
+            {
+                "protocol": "research-refresh/v2",
+                "mode": mode,
+                "idempotency_key": idempotency_key,
+                "entities": [
+                    item.model_dump(mode="json")
+                    if isinstance(item, RefreshEntity)
+                    else item
+                    for item in entities
+                ],
+                "snapshot_policy": snapshot_policy,
+                "priority": priority,
+            }
+        )
+        return service.refresh(
+            request,
+            namespace_kind=auth.namespace_kind,
+            namespace_id=auth.namespace_id,
+        )
+
+    def _resolve_admin(self, ctx: Context | None) -> AuthContext:
+        return self._resolve_scope(ctx, "admin", "review")
+
+    def _resolve_scope(
+        self,
+        ctx: Context | None,
+        scope: str,
+        operation: str,
+    ) -> AuthContext:
+        service = self.service
+        if service is None:
+            raise RuntimeError(
+                "DATABASE_INTEGRITY_ERROR: V2 writes require a local registry service."
+            )
+        auth = self._auth_from_request(ctx)
+        if auth is None and self.default_api_key:
+            try:
+                auth = service.authenticate_api_key(self.default_api_key)
+            except PermissionError:
+                auth = None
+        if auth is None and self.allow_admin_fallback:
+            auth = _local_stdio_auth()
+        if auth is None:
+            raise PermissionError(
+                f"AUTH_REQUIRED: Authentication is required for {operation} writes."
+            )
+        if not auth.has_scope(scope):  # type: ignore[arg-type]
+            raise PermissionError(
+                f"INSUFFICIENT_SCOPE: The {scope} scope is required for "
+                f"{operation} writes."
+            )
+        return auth
+
+    def _auth_from_request(self, ctx: Context | None) -> AuthContext | None:
+        if self.service is None:
+            return None
+        headers = self._request_headers(ctx)
+        if headers is None:
+            return None
+        api_key = headers.get("x-api-key", "").strip()
+        if api_key:
+            return self.service.authenticate_api_key(api_key)
+        admin_token = headers.get("x-admin-token", "").strip()
+        if (
+            self.settings
+            and self.settings.admin_token
+            and admin_token == self.settings.admin_token
+        ):
+            return _admin_auth()
+        return None
+
+    @staticmethod
+    def _request_headers(ctx: Context | None) -> Any | None:
+        if ctx is None:
+            return None
+        try:
+            request_context = getattr(ctx, "request_context", None)
+        except ValueError:
+            return None
+        request = getattr(request_context, "request", None)
+        return getattr(request, "headers", None)
+
+    def _require_reviews(self) -> ResearchReviewService:
+        if self.reviews is None:
+            raise RuntimeError(
+                "DATABASE_INTEGRITY_ERROR: V2 review requires a local registry service."
+            )
+        return self.reviews
+
+    def _require_deposits(self) -> ResearchDepositService:
+        if self.deposits is None:
+            raise RuntimeError(
+                "DATABASE_INTEGRITY_ERROR: V2 deposit requires a local registry service."
+            )
+        return self.deposits
+
+    def _require_refreshes(self) -> ResearchRefreshService:
+        if self.refreshes is None:
+            raise RuntimeError(
+                "DATABASE_INTEGRITY_ERROR: V2 refresh requires a local registry service."
+            )
+        return self.refreshes

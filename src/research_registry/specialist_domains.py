@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .legacy_feature import require_legacy_heuristics
 from .memory_retrieval_skill import (
     GapFillBundle,
     MemoryRetrievalSkillResult,
@@ -133,9 +134,10 @@ class DomainSpecialistHarness:
         tools,
         config: DomainSpecialistConfig,
         *,
-        model_name: str = "gpt-5.4",
-        model_version: str = "2026-04-10",
+        model_name: str = "unknown",
+        model_version: str = "unknown",
     ):
+        require_legacy_heuristics()
         self.tools = tools
         self.config = config
         self.model_name = model_name
@@ -674,8 +676,8 @@ def seed_inference_optimization(service) -> dict[str, str]:
     run = service.create_run(
         RunCreate(
             question="What patterns matter most in LLM inference optimization?",
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             notes="Seed corpus for inference optimization specialist coverage.",
         )
     )
@@ -720,8 +722,8 @@ def seed_inference_optimization(service) -> dict[str, str]:
                 deep_link="https://example.org/speculative-decoding-acceptance#results",
             ),
             confidence=0.88,
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             tags=["inference", "speculative decoding", "latency", "acceptance rate"],
         )
     )
@@ -736,8 +738,8 @@ def seed_inference_optimization(service) -> dict[str, str]:
                 deep_link="https://example.org/prefix-caching-memory-pressure#discussion",
             ),
             confidence=0.86,
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             tags=["inference", "prefix caching", "throughput", "memory pressure"],
         )
     )
@@ -747,8 +749,8 @@ def seed_inference_optimization(service) -> dict[str, str]:
             subject="speculative decoding",
             claim="Speculative decoding only improves inference latency when draft-token acceptance remains high enough to offset extra validation work.",
             annotation_ids=[speculative_annotation.id],
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             run_id=run.id,
         )
     )
@@ -758,8 +760,8 @@ def seed_inference_optimization(service) -> dict[str, str]:
             subject="inference caching",
             claim="Prefix and KV caching should be optimized with explicit eviction policy because throughput gains can be offset by memory pressure and eviction churn.",
             annotation_ids=[caching_annotation.id],
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             run_id=run.id,
         )
     )
@@ -768,8 +770,8 @@ def seed_inference_optimization(service) -> dict[str, str]:
             question="What usually limits inference optimization gains in LLM serving?",
             subject="inference optimization",
             finding_ids=[speculative_finding.id, caching_finding.id],
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             run_id=run.id,
         )
     )
@@ -797,8 +799,8 @@ def seed_llm_evals(service) -> dict[str, str]:
     run = service.create_run(
         RunCreate(
             question="What patterns matter most in reliable LLM evaluation pipelines?",
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             notes="Seed corpus for LLM eval specialist coverage.",
         )
     )
@@ -843,8 +845,8 @@ def seed_llm_evals(service) -> dict[str, str]:
                 deep_link="https://example.org/judge-model-human-calibration#results",
             ),
             confidence=0.87,
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             tags=["evals", "judge model", "human labels", "calibration"],
         )
     )
@@ -859,8 +861,8 @@ def seed_llm_evals(service) -> dict[str, str]:
                 deep_link="https://example.org/benchmark-drift-coverage#discussion",
             ),
             confidence=0.86,
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             tags=["evals", "benchmark drift", "failure coverage"],
         )
     )
@@ -870,8 +872,8 @@ def seed_llm_evals(service) -> dict[str, str]:
             subject="judge model calibration",
             claim="Judge-model evaluation pipelines require periodic calibration and disagreement audits against human labels, or automated judging drifts over time.",
             annotation_ids=[calibration_annotation.id],
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             run_id=run.id,
         )
     )
@@ -881,8 +883,8 @@ def seed_llm_evals(service) -> dict[str, str]:
             subject="evaluation reliability",
             claim="Reliable evaluation suites should track capability and failure coverage together, because benchmark improvements can still hide drifted failure modes.",
             annotation_ids=[drift_annotation.id],
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             run_id=run.id,
         )
     )
@@ -891,8 +893,8 @@ def seed_llm_evals(service) -> dict[str, str]:
             question="What makes LLM evaluation pipelines reliable over time?",
             subject="llm evaluation reliability",
             finding_ids=[calibration_finding.id, drift_finding.id],
-            model_name="gpt-5.4",
-            model_version="2026-04-10",
+            model_name="unknown",
+            model_version="unknown",
             run_id=run.id,
         )
     )
@@ -920,7 +922,8 @@ def seed_specialist_domains(service) -> dict[str, dict[str, str]]:
     }
 
 
-def build_domain_harness(domain_id: str, tools, *, model_name: str = "gpt-5.4", model_version: str = "2026-04-10") -> DomainSpecialistHarness:
+def build_domain_harness(domain_id: str, tools, *, model_name: str = "unknown", model_version: str = "unknown") -> DomainSpecialistHarness:
+    require_legacy_heuristics()
     return DomainSpecialistHarness(
         tools,
         DOMAIN_SPECIALIST_CONFIGS[domain_id],

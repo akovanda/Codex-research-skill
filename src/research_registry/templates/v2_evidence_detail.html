@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Evidence · Research Registry{% endblock %}
+{% block content %}
+<section class="hero compact detail">
+  <div>
+    <p class="eyebrow">Evidence span</p>
+    <h1>{{ evidence.source_title }}</h1>
+    <p class="lede">Stored source material is untrusted and rendered as escaped text.</p>
+  </div>
+  <div class="badge-row">
+    <span class="badge">{{ evidence.anchor_state }}</span>
+    <span class="badge">{{ evidence.review_state }}</span>
+    <span class="badge">{{ evidence.trust_tier }} trust</span>
+  </div>
+  <dl class="meta-grid">
+    <dt>Evidence ID</dt><dd><code>{{ evidence.id }}</code></dd>
+    <dt>Source</dt><dd><a href="/v2/sources/{{ evidence.source_id }}">{{ evidence.source_title }}</a></dd>
+    <dt>Source version</dt><dd><a href="/v2/source-versions/{{ evidence.source_version.id }}"><code>{{ evidence.source_version.id }}</code></a></dd>
+    <dt>Selector</dt><dd>{{ evidence.selector_type }}</dd>
+    <dt>Confidence</dt><dd>{{ "%.2f" | format(evidence.confidence) }}</dd>
+    <dt>Parser</dt><dd>{{ evidence.source_version.parser_name or "not recorded" }} {{ evidence.source_version.parser_version or "" }}</dd>
+    <dt>Content hash</dt><dd><code>{{ evidence.source_version.content_sha256 }}</code></dd>
+  </dl>
+</section>
+
+{% if evidence.can_review %}
+<section class="panel" aria-labelledby="evidence-actions-heading">
+  <div class="panel-head"><h2 id="evidence-actions-heading">Review evidence</h2><span>Current state: {{ evidence.review_state }}</span></div>
+  <div class="action-grid">
+    {% for action, label, tone in (("approve", "Approve", ""), ("contest", "Contest", "ghost"), ("reject", "Reject", "danger"), ("request_refresh", "Request refresh", "ghost")) %}
+    <form action="/v2/review" method="post" class="review-form">
+      <input type="hidden" name="entity_kind" value="evidence">
+      <input type="hidden" name="entity_id" value="{{ evidence.id }}">
+      <input type="hidden" name="action" value="{{ action }}">
+      <input type="hidden" name="expected_state" value="{{ evidence.review_state }}">
+      {% if action in ("contest", "reject") %}<label class="confirmation"><input type="checkbox" name="confirm" value="yes" required> Confirm {{ action }}</label>{% endif %}
+      <button type="submit" class="{{ tone }}" aria-label="{{ label }} evidence span">{{ label }}</button>
+    </form>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="panel detail">
+  <div class="panel-head"><h2>Exact quote</h2><span>escaped text</span></div>
+  <blockquote>{{ evidence.quote_text }}</blockquote>
+  {% if evidence.note %}<p>{{ evidence.note }}</p>{% endif %}
+</section>
+
+<section class="panel detail">
+  <div class="panel-head"><h2>Anchor selector</h2><span>{{ evidence.selector_type }}</span></div>
+  <pre class="data-block">{{ evidence.selector | tojson(indent=2) }}</pre>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Related claim revisions</h2><span>{{ evidence.related_claims | length }}</span></div>
+  <div class="stack">
+    {% for claim in evidence.related_claims %}
+    <article class="card">
+      <div class="badge-row"><span class="badge">{{ claim.relationship }}</span><span class="badge">{{ claim.status }}</span></div>
+      <h3><a href="/v2/claims/{{ claim.claim_id }}">{{ claim.title }}</a></h3>
+      <p class="muted">Revision {{ claim.revision_number }} · <code>{{ claim.revision_id }}</code></p>
+      {% if claim.rationale %}<p>{{ claim.rationale }}</p>{% endif %}
+    </article>
+    {% else %}<p class="empty">No claim revisions currently cite this evidence.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Deposit receipt · Research Registry{% endblock %}
+{% block content %}
+<section class="hero compact detail">
+  <div>
+    <p class="eyebrow">Deposit receipt</p>
+    <h1>{{ receipt.receipt.status | capitalize }}</h1>
+    <p class="lede">Atomic deposit <code>{{ receipt.key }}</code>{{ " was replayed idempotently." if receipt.receipt.idempotent_replay else "." }}</p>
+  </div>
+  <div class="badge-row">
+    <span class="badge {{ "positive" if receipt.receipt.committed else "warning" }}">{{ "committed" if receipt.receipt.committed else "validation only" }}</span>
+    <span class="badge {{ "warning" if receipt.review_required else "neutral" }}">{{ "Review required" if receipt.review_required else "No records written" }}</span>
+  </div>
+  {% if receipt.receipt.request_sha256 %}<p class="muted">Request SHA-256 <code>{{ receipt.receipt.request_sha256 }}</code></p>{% endif %}
+</section>
+<section class="grid two-up">
+  <div class="panel">
+    <div class="panel-head"><h2>Inquiry and run</h2></div>
+    <dl class="meta-grid">
+      <dt>Inquiry</dt><dd><code>{{ receipt.receipt.records.question_id or "not created" }}</code></dd>
+      <dt>Research run</dt><dd><code>{{ receipt.receipt.records.run_id or "not created" }}</code></dd>
+      <dt>Report</dt><dd><code>{{ receipt.receipt.records.report_id or "not created" }}</code></dd>
+    </dl>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Warnings</h2><span>{{ receipt.receipt.warnings | length }}</span></div>
+    <ul>{% for warning in receipt.receipt.warnings %}<li>{{ warning }}</li>{% else %}<li>No warnings.</li>{% endfor %}</ul>
+  </div>
+</section>
+{% for label, records in (("Sources", receipt.receipt.records.source_ids), ("Source versions", receipt.receipt.records.source_version_ids), ("Evidence", receipt.receipt.records.evidence_ids), ("Claims", receipt.receipt.records.claim_ids), ("Claim revisions", receipt.receipt.records.claim_revision_ids)) %}
+<section class="panel">
+  <div class="panel-head"><h2>{{ label }}</h2><span>{{ records | length }}</span></div>
+  <dl class="meta-grid">
+    {% for ref, record_id in records.items() %}<dt>{{ ref }}</dt><dd><code>{{ record_id }}</code></dd>{% else %}<dt>Status</dt><dd>None created.</dd>{% endfor %}
+  </dl>
+</section>
+{% endfor %}
+{% endblock %}

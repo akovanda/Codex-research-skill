@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "research-registry"
-version = "0.1.0"
+version = "0.2.0a1"
 description = "A source-backed research registry for agents and humans."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -15,7 +15,7 @@ authors = [
 ]
 keywords = ["research", "mcp", "codex", "llm", "memory", "retrieval", "rag"]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
@@ -52,6 +52,7 @@ Documentation = "https://github.com/akovanda/Codex-research-skill#readme"
 research-registry = "research_registry.cli:main"
 research-registry-web = "research_registry.web:main"
 research-registry-mcp = "research_registry.mcp_server:main"
+research-registry-deep-research-mcp = "research_registry.mcp.deep_research:main"
 research-registry-seed = "research_registry.seed_demo:main"
 research-registry-seed-memory-retrieval = "research_registry.seed_memory_retrieval:main"
 research-registry-capture-queue = "research_registry.capture_queue_cli:main"
@@ -70,9 +71,33 @@ research-registry-local-uninstall = "research_registry.local_uninstall:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-research_registry = ["templates/*.html", "static/*.css", "migrations/*.sql"]
+research_registry = [
+  "templates/*.html",
+  "static/*.css",
+  "migrations/*.sql",
+  "migrations/*/*.json",
+  "migrations/*/*.sql",
+]
 
 [tool.setuptools.data-files]
+"share/research-registry/research-registry-plugin/.codex-plugin" = [
+  "research-registry-plugin/.codex-plugin/plugin.json",
+]
+"share/research-registry/research-registry-plugin" = [
+  "research-registry-plugin/.mcp.json",
+]
+"share/research-registry/research-registry-plugin/skills/research-recall" = [
+  "research-registry-plugin/skills/research-recall/SKILL.md",
+]
+"share/research-registry/research-registry-plugin/skills/research-recall/agents" = [
+  "research-registry-plugin/skills/research-recall/agents/openai.yaml",
+]
+"share/research-registry/research-registry-plugin/skills/research-deposit" = [
+  "research-registry-plugin/skills/research-deposit/SKILL.md",
+]
+"share/research-registry/research-registry-plugin/skills/research-deposit/agents" = [
+  "research-registry-plugin/skills/research-deposit/agents/openai.yaml",
+]
 "share/research-registry/skills/research-capture" = [
   "skills/research-capture/SKILL.md",
 ]
@@ -100,3 +125,6 @@ research_registry = ["templates/*.html", "static/*.css", "migrations/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "legacy: exercises deprecated heuristic research compatibility behavior",
+]

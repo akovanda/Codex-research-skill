@@ -1,0 +1,105 @@
+{
+  "$defs": {
+    "RefreshEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "minLength": 3,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "source",
+            "source_version",
+            "evidence",
+            "claim",
+            "report",
+            "refresh_item"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "title": "RefreshEntity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "entities": {
+      "items": {
+        "$ref": "#/$defs/RefreshEntity"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Entities",
+      "type": "array"
+    },
+    "idempotency_key": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Idempotency Key"
+    },
+    "mode": {
+      "enum": [
+        "inspect",
+        "enqueue",
+        "verify",
+        "capture"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "priority": {
+      "default": 0.5,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Priority",
+      "type": "number"
+    },
+    "protocol": {
+      "const": "research-refresh/v2",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "snapshot_policy": {
+      "anyOf": [
+        {
+          "enum": [
+            "metadata_only",
+            "evidence_only",
+            "extracted_text",
+            "full_content"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Snapshot Policy"
+    }
+  },
+  "required": [
+    "protocol",
+    "mode",
+    "entities"
+  ],
+  "title": "ResearchRefreshRequest",
+  "type": "object"
+}

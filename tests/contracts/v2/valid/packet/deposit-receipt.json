@@ -1,0 +1,31 @@
+{
+  "protocol": "research-deposit-result/v2",
+  "status": "committed",
+  "committed": true,
+  "idempotent_replay": false,
+  "request_sha256": "26b9cdc3d55b27df108925fb9dff237b7c6fc20631260c8b08238e9bdb6655a9",
+  "records": {
+    "question_id": "qst_example",
+    "run_id": "run_example",
+    "source_ids": {
+      "src-code": "src_code",
+      "src-doc": "src_doc"
+    },
+    "source_version_ids": {
+      "src-code": "srcv_code",
+      "src-doc": "srcv_doc"
+    },
+    "evidence_ids": {
+      "ev-code": "evd_code",
+      "ev-doc": "evd_doc"
+    },
+    "claim_ids": {
+      "claim-retry": "clm_retry"
+    },
+    "claim_revision_ids": {
+      "claim-retry": "clmr_retry_1"
+    },
+    "report_id": "rpt_retry"
+  },
+  "warnings": []
+}

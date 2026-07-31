@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime
+import json
+import os
 from pathlib import Path
+import tempfile
+from typing import Iterator
+from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+from .application.deposit import ResearchDepositService
 from .backend_client import RegistryBackend
+from .contracts.common import ClosedModel
+from .contracts.v2 import ResearchDepositRequest, ResearchDepositResult
 from .models import (
     BackendStatus,
     ClaimCreate,
@@ -115,6 +124,60 @@ class QueuedCaptureBundle(BaseModel):
         )
 
 
+class QueuedV2Deposit(ClosedModel):
+    protocol: Literal["research-capture-queue/v2"]
+    queue_id: str
+    created_at: datetime = Field(strict=False)
+    deposit: ResearchDepositRequest
+    backend_url: str | None = None
+    backend_name: str | None = None
+    namespace_kind: str = "user"
+    namespace_id: str = "local"
+    retry_count: int = 0
+    last_error: str | None = None
+    last_attempted_at: datetime | None = Field(default=None, strict=False)
+
+    @model_validator(mode="after")
+    def require_committing_deposit(self) -> "QueuedV2Deposit":
+        if self.deposit.validate_only:
+            raise ValueError("queued v2 deposits must commit when replayed")
+        expected_kind = (
+            self.deposit.namespace.kind if self.deposit.namespace else "user"
+        )
+        expected_id = (
+            self.deposit.namespace.id if self.deposit.namespace else "local"
+        )
+        if (
+            self.namespace_kind != expected_kind
+            or self.namespace_id != expected_id
+        ):
+            raise ValueError("queue namespace must match the deposit namespace")
+        return self
+
+    @classmethod
+    def create(
+        cls,
+        deposit: ResearchDepositRequest,
+        *,
+        backend_status: BackendStatus | None = None,
+    ) -> "QueuedV2Deposit":
+        namespace_kind = deposit.namespace.kind if deposit.namespace else "user"
+        namespace_id = deposit.namespace.id if deposit.namespace else "local"
+        return cls(
+            protocol="research-capture-queue/v2",
+            queue_id=f"queue_{uuid4().hex[:12]}",
+            created_at=utc_now(),
+            deposit=deposit,
+            backend_url=backend_status.url if backend_status else None,
+            backend_name=backend_status.name if backend_status else None,
+            namespace_kind=namespace_kind,
+            namespace_id=namespace_id,
+        )
+
+
+QueueEnvelope = QueuedCaptureBundle | QueuedV2Deposit
+
+
 class QueueFlushResult(BaseModel):
     flushed_queue_ids: list[str] = Field(default_factory=list)
     failed_queue_ids: list[str] = Field(default_factory=list)
@@ -122,63 +185,148 @@ class QueueFlushResult(BaseModel):
 
 
 class CaptureQueue:
-    def __init__(self, queue_path: Path):
+    def __init__(
+        self,
+        queue_path: Path,
+        *,
+        deposit_service: ResearchDepositService | None = None,
+    ):
         self.queue_path = queue_path
+        self.deposit_service = deposit_service
         self.queue_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def enqueue(self, bundle: QueuedCaptureBundle) -> None:
-        with self.queue_path.open("a", encoding="utf-8") as handle:
-            handle.write(bundle.model_dump_json())
-            handle.write("\n")
+    def enqueue(self, bundle: QueueEnvelope) -> None:
+        with self._lock():
+            with self.queue_path.open("a", encoding="utf-8") as handle:
+                handle.write(bundle.model_dump_json(exclude_none=True))
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
 
-    def list_pending(self) -> list[QueuedCaptureBundle]:
+    def list_pending(self) -> list[QueueEnvelope]:
+        with self._lock():
+            return self._list_pending_unlocked()
+
+    def _list_pending_unlocked(self) -> list[QueueEnvelope]:
         if not self.queue_path.exists():
             return []
-        bundles: list[QueuedCaptureBundle] = []
+        bundles: list[QueueEnvelope] = []
         for raw_line in self.queue_path.read_text(encoding="utf-8").splitlines():
             line = raw_line.strip()
             if not line:
                 continue
-            bundles.append(QueuedCaptureBundle.model_validate_json(line))
+            payload = json.loads(line)
+            if payload.get("protocol") == "research-capture-queue/v2":
+                bundles.append(QueuedV2Deposit.model_validate(payload))
+            else:
+                bundles.append(QueuedCaptureBundle.model_validate(payload))
         return bundles
 
     def flush(self, backend: RegistryBackend) -> QueueFlushResult:
-        pending = self.list_pending()
-        remaining: list[QueuedCaptureBundle] = []
-        result = QueueFlushResult()
-        status = backend.backend_status()
-        for bundle in pending:
-            if not self._matches_backend(bundle, status):
-                remaining.append(bundle)
-                continue
+        with self._lock():
+            pending = self._list_pending_unlocked()
+            remaining: list[QueueEnvelope] = []
+            result = QueueFlushResult()
+            status = backend.backend_status()
+            for bundle in pending:
+                if not self._matches_backend(bundle, status):
+                    remaining.append(bundle)
+                    continue
+                try:
+                    if isinstance(bundle, QueuedV2Deposit):
+                        replay_result = self._replay_v2(bundle)
+                    else:
+                        replay_result = self._replay_bundle(backend, bundle)
+                    result.flushed_queue_ids.append(bundle.queue_id)
+                    if replay_result["report_id"] is not None:
+                        result.stored_report_ids.append(replay_result["report_id"])
+                except Exception as exc:
+                    bundle.retry_count += 1
+                    bundle.last_error = str(exc)
+                    bundle.last_attempted_at = utc_now()
+                    remaining.append(bundle)
+                    result.failed_queue_ids.append(bundle.queue_id)
+            self._write_all_unlocked(remaining)
+            return result
+
+    def _write_all(self, bundles: list[QueueEnvelope]) -> None:
+        with self._lock():
+            self._write_all_unlocked(bundles)
+
+    def _write_all_unlocked(self, bundles: list[QueueEnvelope]) -> None:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{self.queue_path.name}.",
+            suffix=".tmp",
+            dir=self.queue_path.parent,
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                for bundle in bundles:
+                    handle.write(bundle.model_dump_json(exclude_none=True))
+                    handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            if os.name != "nt":
+                temporary.chmod(0o600)
+            os.replace(temporary, self.queue_path)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+
+    @contextmanager
+    def _lock(self) -> Iterator[None]:
+        lock_path = self.queue_path.with_name(self.queue_path.name + ".lock")
+        with lock_path.open("a+b") as lock_file:
+            if os.name == "nt":  # pragma: no cover - Windows-only path
+                import msvcrt
+
+                lock_file.seek(0, os.SEEK_END)
+                if lock_file.tell() == 0:
+                    lock_file.write(b"\0")
+                    lock_file.flush()
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+                try:
+                    yield
+                finally:
+                    lock_file.seek(0)
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                return
+            lock_path.chmod(0o600)
             try:
-                replay_result = self._replay_bundle(backend, bundle)
-                result.flushed_queue_ids.append(bundle.queue_id)
-                result.stored_report_ids.append(replay_result["report_id"])
-            except Exception as exc:
-                bundle.retry_count += 1
-                bundle.last_error = str(exc)
-                bundle.last_attempted_at = utc_now()
-                remaining.append(bundle)
-                result.failed_queue_ids.append(bundle.queue_id)
-        self._write_all(remaining)
-        return result
+                import fcntl
+            except ImportError:  # pragma: no cover
+                yield
+            else:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
-    def _write_all(self, bundles: list[QueuedCaptureBundle]) -> None:
-        if not bundles:
-            self.queue_path.write_text("", encoding="utf-8")
-            return
-        with self.queue_path.open("w", encoding="utf-8") as handle:
-            for bundle in bundles:
-                handle.write(bundle.model_dump_json())
-                handle.write("\n")
-
-    def _matches_backend(self, bundle: QueuedCaptureBundle, status: BackendStatus) -> bool:
+    def _matches_backend(self, bundle: QueueEnvelope, status: BackendStatus) -> bool:
         if bundle.backend_url and status.url and bundle.backend_url.rstrip("/") != status.url.rstrip("/"):
             return False
         if bundle.namespace_kind != status.namespace_kind:
             return False
         return bundle.namespace_id == status.namespace_id
+
+    def _replay_v2(
+        self, bundle: QueuedV2Deposit
+    ) -> dict[str, str | None]:
+        if self.deposit_service is None:
+            raise RuntimeError(
+                "v2 queue replay requires a local atomic deposit service"
+            )
+        receipt: ResearchDepositResult = self.deposit_service.deposit(
+            bundle.deposit
+        )
+        return {
+            "question_id": receipt.records.question_id,
+            "session_id": receipt.records.run_id,
+            "report_id": receipt.records.report_id,
+        }
 
     def _replay_bundle(self, backend: RegistryBackend, bundle: QueuedCaptureBundle) -> dict[str, str]:
         question = self._ensure_question(backend, bundle)

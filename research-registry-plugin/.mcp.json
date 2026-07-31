@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "researchRegistry": {
+      "command": "research-registry",
+      "args": ["mcp", "--transport", "stdio"]
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "protocol": "research-refresh/v2",
+  "mode": "inspect",
+  "idempotency_key": null,
+  "entities": [
+    {
+      "kind": "source",
+      "id": "src_doc"
+    }
+  ],
+  "snapshot_policy": "extracted_text",
+  "priority": 0.7
+}

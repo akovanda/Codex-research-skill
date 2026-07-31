@@ -12,17 +12,25 @@ The future public/shared network is not the current product target. The current 
 
 ## Release Scope
 
-`v0.1.0` is a **GitHub-first open-source preview**.
+`v0.1.0` is the **GitHub-first open-source preview**. The unreleased v2 draft
+uses aligned package and plugin metadata `0.2.0a1`; no alpha tag or artifact
+has been published.
+
+The v2 gate currently remains alpha until the operator-only Postgres,
+real-database migration, shared Compose, and security-review evidence is
+complete. See [release status](docs/release-status.md), [evaluation and fixed
+gates](docs/evaluation-and-release-gates.md), and [upgrade/rollback](docs/upgrade-and-rollback.md).
 
 Release-critical supported paths:
 
-- managed localhost runtime for multiple local Codex instances
+- personal SQLite plus filesystem blobs over local STDIO MCP
 - shared self-hosted Compose deployment for internal teams
-- package-manager CLI installs backed by the published GHCR runtime image
+- wheel, sdist, and editable package installs
 
 Supported-but-secondary:
 
-- source-checkout contributor bootstrap via `make up`
+- optional loopback web review server
+- retained Docker/Postgres localhost compatibility runtime
 - repo-local developer process via `research-registry-web`
 - stdio MCP via `research-registry-mcp`
 
@@ -68,81 +76,84 @@ If you are deciding whether this preview is even the right shape for you, read [
 
 ### Choose Your Path
 
-- New user who wants the managed localhost install: [docs/getting-started.md](docs/getting-started.md)
-- Operator who wants a local shared runtime: [docs/deploy-local.md](docs/deploy-local.md)
+- New user who wants the no-Docker personal install: [docs/getting-started.md](docs/getting-started.md)
+- Operator who wants local SQLite and backups: [docs/deploy-local.md](docs/deploy-local.md)
 - Operator who wants a shared internal deployment: [docs/deploy-shared-compose.md](docs/deploy-shared-compose.md)
 - API user who wants a copy-paste HTTP flow: [docs/api-quickstart.md](docs/api-quickstart.md)
-- Codex user who wants implicit capture behavior: [docs/implicit-research-capture.md](docs/implicit-research-capture.md)
+- Codex user who wants focused recall and explicit deposit: [docs/codex-plugin.md](docs/codex-plugin.md)
+- Existing user maintaining the legacy implicit capture path: [docs/implicit-research-capture.md](docs/implicit-research-capture.md)
 - Repo-heavy user who wants command routing and triage: [docs/repo-aware-capture.md](docs/repo-aware-capture.md)
+- Release operator validating outcome/security gates: [docs/evaluation-and-release-gates.md](docs/evaluation-and-release-gates.md)
 
 ### Installed CLI
 
-The release-oriented local path is an installed CLI that manages the Docker Compose runtime:
-
-```bash
-uvx --from git+https://github.com/akovanda/Codex-research-skill research-registry up
-```
-
-After a PyPI release, the same path becomes:
+The personal default is an installed Python package, private XDG storage,
+SQLite, content-addressed filesystem blobs, and tokenless STDIO MCP:
 
 ```bash
 pipx install research-registry
-research-registry up
+research-registry init
+research-registry install-codex
+research-registry doctor
 ```
 
-This path requires Docker with Compose support. It uses the published `ghcr.io/akovanda/codex-research-skill:0.1.0` runtime image by default. Override it with `--image` or `RESEARCH_REGISTRY_IMAGE` for forks, corporate mirrors, or local test images.
+Until a PyPI release, install from the repository:
+
+```bash
+uv tool install git+https://github.com/akovanda/Codex-research-skill
+```
+
+`init` applies packaged additive migrations and creates:
+
+- `${XDG_CONFIG_HOME:-~/.config}/research-registry/config.toml`
+- `${XDG_DATA_HOME:-~/.local/share}/research-registry/registry.sqlite3`
+- `${XDG_DATA_HOME:-~/.local/share}/research-registry/blobs/`
+
+Directories are mode `0700`; the config, SQLite database, backup artifacts, and
+blob files are mode `0600` on POSIX. Personal config contains no API key,
+admin token, or session secret. Re-running `init` verifies the same config and
+schema without replacing user configuration.
 
 Verify:
 
 ```bash
-research-registry status
 research-registry doctor
-curl http://127.0.0.1:8010/readyz
 ```
+
+The plugin launches `research-registry mcp` as a child process. It binds no
+network port, trusts the current operating-system user boundary, and needs no
+daemon or token. See [Codex Plugin](docs/codex-plugin.md) for custom
+`CODEX_HOME`, migration, uninstall, and security behavior.
 
 ### Source Checkout
 
 If you are contributing from this repository, use:
 
 ```bash
-make up
+make init
 ```
 
-Verify that the local runtime is healthy:
+Verify the personal registry:
 
 ```bash
-make status
-curl http://127.0.0.1:8010/readyz
-curl http://127.0.0.1:8010/openapi.json
+make doctor
 ```
 
 What success looks like:
 
-- `research-registry status` or `make status` prints `configured=true` and `ready=true`
-- `research-registry doctor` or `make doctor` shows the runtime, MCP config, and skill links
-- `GET /readyz` returns `{"status":"ready"}`
-- `GET /openapi.json` returns the Research Registry OpenAPI document
-- `~/.codex/config.toml` contains a managed `researchRegistry` MCP block
-- `~/.codex/skills/` contains `research-capture` and `research-memory-retrieval`
+- `research-registry init` reports `status=current` on the second run
+- `research-registry doctor` or `make doctor` reports `ok=true`
+- the database, blob storage, migrations, STDIO wiring, and backup prerequisites
+  are healthy
+- after `research-registry install-codex`, the focused plugin is present under
+  the configured `CODEX_HOME`
 
-Then open `http://127.0.0.1:8010` in a browser. You should see published reports and claims instead of an empty board.
-
-What `make up` does:
+What `make init` does:
 
 - creates `.venv/` if needed
 - installs the project in editable mode
-- creates managed config under `~/.config/research-registry/`
-- creates managed data under `~/.local/share/research-registry/`
-- starts the managed localhost Postgres plus app stack on `127.0.0.1:8010`
-- patches `~/.codex/config.toml` with a managed `researchRegistry` MCP block
-- installs the `research-capture` and `research-memory-retrieval` skill symlinks into `~/.codex/skills/`
-- seeds demo content by default so the UI is not empty
-
-If you want the stack without demo content:
-
-```bash
-make up SEED_DEMO=0
-```
+- initializes private XDG SQLite and blob storage
+- applies additive v1 and v2 migrations
 
 Manual equivalent:
 
@@ -150,72 +161,52 @@ Manual equivalent:
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
-research-registry up --build-local-image --image research-registry-local:latest
-research-registry-seed
-research-registry-seed-memory-retrieval
+research-registry init
+research-registry install-codex
 ```
-
-This installs a shared localhost runtime for your local Codex instances:
-
-- Docker Compose on `127.0.0.1:8010`
-- Postgres for durable local storage
-- a shared local API key
-- a managed MCP entry in `~/.codex/config.toml` pointing at `http://127.0.0.1:8010/mcp/`
-- symlinks for the `research-capture` and `research-memory-retrieval` skills in `~/.codex/skills`
 
 Local default behavior:
 
-- localhost HTTP backend
-- Postgres storage inside Compose
-- one shared local runtime for multiple Codex instances
-- backend status resolves to localhost unless you explicitly point clients elsewhere
+- SQLite plus generated content-addressed filesystem blob paths
+- tokenless, same-user STDIO MCP
+- private and unreviewed research by default
+- no background daemon and no Docker requirement
+- explicit environment overrides still select a configured SQLite/Postgres
+  database or remote shared backend
 
-Status and stop commands:
-
-```bash
-research-registry status
-research-registry doctor
-research-registry repair
-research-registry token
-research-registry down
-research-registry uninstall
-make token
-```
-
-To remove the managed localhost install and delete its local config/data directories plus Docker volumes:
+Create a verified online backup:
 
 ```bash
-make purge-local
+research-registry backup --output ./registry.backup.sqlite3
 ```
 
-For a repo-local developer-only run without Docker, `research-registry-web` still works and defaults to local SQLite.
+This writes a mode-`0600` SQLite backup, manifest, and personal config copy. The
+manifest verifies database integrity and content hashes plus the referenced
+blob inventory. Existing destinations are refused.
 
-Optional demo data:
+The optional loopback review server is an explicit foreground process. Supply
+its admin credential through the environment, not a command-line argument:
 
 ```bash
-make up
+RESEARCH_REGISTRY_ADMIN_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" \
+  research-registry serve
 ```
 
-First real workflow:
+The server uses HTTP authentication and is distinct from tokenless local STDIO.
+Do not expose it directly to an untrusted network.
 
-1. Ask Codex to research something source-backed.
-2. Let the implicit capture workflow store the question, excerpts, claims, and report privately.
-3. Open `/admin/login` and review what was stored.
-4. Publish the reusable reports or claims that should become visible on the public board.
+### Shared Postgres mode
 
-Repo-aware workflow:
+The existing Compose/Postgres path remains supported for teams and existing
+managed installations:
 
-1. Prefer adding `.codex/repo-profile.toml` to the repo you want to analyze.
-2. If no profile exists yet, repo-aware capture falls back to nearest `AGENTS.md` files plus local manifests such as `Cargo.toml`, `package.json`, `Gemfile`, and `pyproject.toml`.
-3. Ask Codex for the exact command, repo triage, or reviewer concerns for a file or stack trace.
-4. Let implicit capture inspect the repo profile or manifest fallback, nearest `AGENTS.md` files, local configs, targeted `rg` hits, git state, and coverage artifacts before storing the result.
+```bash
+research-registry up
+make shared-up
+```
 
-### Shared self-hosted mode
-
-Use Postgres and point clients at a shared server:
-
-- [Compose deployment](docs/deploy-shared-compose.md)
-- [Kubernetes deployment](docs/deploy-kubernetes.md)
+It is no longer the personal default. See [Compose deployment](docs/deploy-shared-compose.md)
+and [managed Postgres migration choices](docs/migrate-managed-postgres.md).
 
 ## Configuration
 
@@ -258,7 +249,7 @@ Backend selection precedence for clients:
 2. `RESEARCH_REGISTRY_BACKEND_PROFILE`
 3. org profile matched by `RESEARCH_REGISTRY_ORG`
 4. `RESEARCH_REGISTRY_DEFAULT_BACKEND_URL`
-5. localhost default
+5. embedded personal SQLite default
 
 Local research root precedence:
 
@@ -379,13 +370,25 @@ Artifacts:
 
 ## MCP And Skills
 
-The web app and API are the primary product surface. MCP and Codex skills sit on top of that:
+Local STDIO MCP is the personal primary surface. The authenticated web app,
+API, and HTTP MCP remain available for review/shared deployments:
 
-- HTTP MCP endpoint: `http://127.0.0.1:8010/mcp/` after `research-registry up` or `make up`
+- v2 Codex plugin: [`research-registry-plugin`](research-registry-plugin)
+- focused read-only recall: [`research-recall`](research-registry-plugin/skills/research-recall/SKILL.md)
+- explicit-only deposit: [`research-deposit`](research-registry-plugin/skills/research-deposit/SKILL.md)
+- bundled local MCP launcher: `research-registry mcp --transport stdio`
+- HTTP MCP endpoint: `http://127.0.0.1:8010/mcp/` after
+  `research-registry up` or `make shared-up`
 - stdio MCP server: `research-registry-mcp`
-- implicit capture skill: [`skills/research-capture`](skills/research-capture/SKILL.md)
-- memory/retrieval skill: [`skills/research-memory-retrieval`](skills/research-memory-retrieval/SKILL.md)
+- legacy implicit capture skill: [`skills/research-capture`](skills/research-capture/SKILL.md)
+- legacy memory/retrieval skill: [`skills/research-memory-retrieval`](skills/research-memory-retrieval/SKILL.md)
 - checked-in repo profile example: [`.codex/repo-profile.toml`](.codex/repo-profile.toml)
+
+The legacy skills are explicit-only and disabled unless
+`RESEARCH_REGISTRY_LEGACY_HEURISTICS=1`. Low-level v1 MCP tools separately
+require `RESEARCH_REGISTRY_MCP_LEGACY=1`. The default plugin loads neither
+legacy surface; removal criteria are documented in
+[Implicit research capture](docs/implicit-research-capture.md).
 
 ## Deployment
 
@@ -395,8 +398,10 @@ The web app and API are the primary product surface. MCP and Codex skills sit on
 - [Architecture](docs/architecture.md)
 - [Local deployment](docs/deploy-local.md)
 - [Shared Compose deployment](docs/deploy-shared-compose.md)
+- [Existing managed Postgres migration](docs/migrate-managed-postgres.md)
 - [Kubernetes deployment](docs/deploy-kubernetes.md)
 - [Operations](docs/operations.md)
+- [Codex plugin](docs/codex-plugin.md)
 - [Implicit research capture](docs/implicit-research-capture.md)
 - [Repo-aware capture](docs/repo-aware-capture.md)
 - [Memory/retrieval skill](docs/memory-retrieval-skill.md)
@@ -414,7 +419,7 @@ Container assets:
 Migrate storage explicitly:
 
 ```bash
-make up SEED_DEMO=0
+make init
 ./.venv/bin/research-registry-migrate
 ```
 
@@ -433,13 +438,15 @@ make preview-check
 Run the grounded pass runner:
 
 ```bash
-./.venv/bin/research-registry-pass-runner --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2
+RESEARCH_REGISTRY_LEGACY_HEURISTICS=1 \
+  ./.venv/bin/research-registry-pass-runner --db-path /tmp/research-pass-runner.sqlite3 --reset --rounds 2
 ```
 
 ## Preview Notes
 
-- Localhost is the default.
+- Personal SQLite/STDIO is the local default.
 - Shared org mode is self-hosted, not multi-tenant cloud.
 - Shared deployments are supported for internal-only exposure behind normal network controls.
-- API keys plus admin token are the supported auth model for this preview.
+- Local STDIO trusts the OS user boundary; shared HTTP uses API keys plus an
+  admin token.
 - Postgres is the intended backend for shared deployments.

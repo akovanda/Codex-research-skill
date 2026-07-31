@@ -1,0 +1,197 @@
+{
+  "$defs": {
+    "SearchHitV2": {
+      "additionalProperties": false,
+      "properties": {
+        "conflict_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "conflicted",
+                "resolved"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Conflict State"
+        },
+        "evidence_count": {
+          "minimum": 0,
+          "title": "Evidence Count",
+          "type": "integer"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "enum": [
+                "fresh",
+                "needs_refresh",
+                "stale",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Freshness"
+        },
+        "id": {
+          "maxLength": 200,
+          "minLength": 3,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "question",
+            "source",
+            "source_version",
+            "evidence",
+            "claim",
+            "report"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "matched_by": {
+          "items": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Matched By",
+          "type": "array"
+        },
+        "review_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "unreviewed",
+                "reviewed",
+                "flagged"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review State"
+        },
+        "score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        },
+        "score_components": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "maxProperties": 20,
+          "propertyNames": {
+            "maxLength": 100
+          },
+          "title": "Score Components",
+          "type": "object"
+        },
+        "summary": {
+          "maxLength": 4000,
+          "title": "Summary",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 500,
+          "title": "Title",
+          "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "maxLength": 8192,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "summary",
+        "score",
+        "review_state",
+        "conflict_state",
+        "freshness",
+        "evidence_count"
+      ],
+      "title": "SearchHitV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "hits": {
+      "items": {
+        "$ref": "#/$defs/SearchHitV2"
+      },
+      "maxItems": 100,
+      "title": "Hits",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "protocol": {
+      "const": "research-search-result/v2",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "query": {
+      "maxLength": 10000,
+      "title": "Query",
+      "type": "string"
+    }
+  },
+  "required": [
+    "protocol",
+    "query",
+    "hits",
+    "next_cursor"
+  ],
+  "title": "ResearchSearchResponse",
+  "type": "object"
+}

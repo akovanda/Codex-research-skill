@@ -3,8 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import research_registry.local_research as local_research
+import pytest
 from research_registry.research_pass_runner import build_seeded_service, execute_passes
 from research_registry.research_pass_suite import ResearchPassSpec
+
+
+pytestmark = pytest.mark.legacy
 
 
 def make_grounded_repo(tmp_path: Path) -> Path:

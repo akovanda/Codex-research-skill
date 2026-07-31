@@ -1,0 +1,51 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "depth": {
+      "default": 1,
+      "maximum": 2,
+      "minimum": 0,
+      "title": "Depth",
+      "type": "integer"
+    },
+    "id": {
+      "maxLength": 200,
+      "minLength": 3,
+      "title": "Id",
+      "type": "string"
+    },
+    "include": {
+      "items": {
+        "enum": [
+          "current_revision",
+          "revision_history",
+          "evidence",
+          "source_versions",
+          "reviews",
+          "reports",
+          "refresh"
+        ],
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Include",
+      "type": "array"
+    },
+    "include_private": {
+      "default": true,
+      "title": "Include Private",
+      "type": "boolean"
+    },
+    "protocol": {
+      "const": "research-get/v2",
+      "title": "Protocol",
+      "type": "string"
+    }
+  },
+  "required": [
+    "protocol",
+    "id"
+  ],
+  "title": "ResearchGetRequest",
+  "type": "object"
+}

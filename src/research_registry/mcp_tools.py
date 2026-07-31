@@ -1,13 +1,79 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.types import ToolAnnotations
+from pydantic import Field, StringConstraints
 
 from .backend_client import RegistryBackend
 from .config import Settings
+from .application.fetch import ResearchGetResult
+from .contracts.v2 import (
+    ConflictState,
+    FreshnessState,
+    GetInclude,
+    DepositClaim,
+    DepositEvidence,
+    DepositInquiry,
+    DepositReport,
+    DepositRun,
+    DepositSource,
+    JsonObject50,
+    NamespaceSelector,
+    RefreshEntity,
+    ResearchRefreshResult,
+    ResearchDepositRequest,
+    ResearchDepositResult,
+    ResearchReviewResult,
+    ResearchSearchResponse,
+    ResearchStatusResponse,
+    ReviewEntity,
+    ReviewNewRevision,
+    ReviewState,
+    SearchKind,
+    SearchScope,
+    SnapshotPolicy,
+)
+from .legacy_feature import legacy_mcp_tools_enabled
+from .mcp.read_runtime import ReadMcpRuntime
+from .mcp.schema import close_tool_input_schema
+from .mcp.write_runtime import WriteMcpRuntime
 from .models import AuthContext, ClaimCreate, ExcerptCreate, PublishRequest, QuestionCreate, ReportCreate, ResearchSessionCreate, SourceCreate
 from .service import RegistryService
+
+
+_READ_ONLY = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+_REVIEW_WRITE = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=True,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+_REFRESH_QUEUE_WRITE = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=True,
+)
+_DEPOSIT_WRITE = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+
+
+def _unregistered_tool(*_: Any, **__: Any):
+    def decorator(function):
+        return function
+
+    return decorator
 
 
 def _admin_auth() -> AuthContext:
@@ -16,6 +82,16 @@ def _admin_auth() -> AuthContext:
         scopes=["admin", "ingest", "publish", "read_private"],
         namespace_kind="user",
         namespace_id="local",
+    )
+
+
+def _local_stdio_auth() -> AuthContext:
+    return AuthContext(
+        actor_user_id="local-stdio",
+        scopes=["admin", "ingest", "publish", "read_private"],
+        namespace_kind="user",
+        namespace_id="local",
+        is_admin=False,
     )
 
 
@@ -229,7 +305,7 @@ class McpToolRuntime:
             except PermissionError:
                 auth = None
         if auth is None and self.allow_admin_fallback:
-            auth = _admin_auth()
+            auth = _local_stdio_auth()
 
         if auth is None:
             if allow_unauthenticated and require_scope is None:
@@ -342,12 +418,30 @@ def create_mcp_server(
     default_api_key: str | None = None,
     allow_admin_fallback: bool = True,
     streamable_http_path: str = "/mcp",
+    legacy_tools_enabled: bool | None = None,
 ) -> FastMCP:
+    if legacy_tools_enabled is None:
+        legacy_tools_enabled = legacy_mcp_tools_enabled()
     runtime = McpToolRuntime(
         backend,
         settings=settings,
         service=service,
         default_api_key=default_api_key,
+        allow_admin_fallback=allow_admin_fallback,
+    )
+    read_runtime = ReadMcpRuntime(
+        backend,
+        settings=settings,
+        service=service,
+        default_api_key=default_api_key if allow_admin_fallback else None,
+        allow_admin_fallback=allow_admin_fallback,
+        legacy_tools_enabled=legacy_tools_enabled,
+    )
+    write_runtime = WriteMcpRuntime(
+        backend,
+        settings=settings,
+        service=service,
+        default_api_key=default_api_key if allow_admin_fallback else None,
         allow_admin_fallback=allow_admin_fallback,
     )
 
@@ -357,8 +451,173 @@ def create_mcp_server(
         json_response=True,
         streamable_http_path=streamable_http_path,
     )
+    legacy_tool = mcp.tool if legacy_tools_enabled else _unregistered_tool
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY, structured_output=True)
+    def research_status(
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ResearchStatusResponse:
+        """Describe v2 read capabilities and storage state. Read-only."""
+        return read_runtime.research_status(ctx=ctx)
+
+    close_tool_input_schema(mcp, "research_status")
+
+    @mcp.tool(annotations=_READ_ONLY, structured_output=True)
+    def research_search(
+        query: Annotated[str, StringConstraints(min_length=1, max_length=10_000)],
+        kinds: Annotated[list[SearchKind], Field(max_length=8)] = [],
+        scope: SearchScope | None = None,
+        review_states: Annotated[list[ReviewState], Field(max_length=3)] = [],
+        conflict_states: Annotated[list[ConflictState], Field(max_length=3)] = [],
+        freshness: Annotated[list[FreshnessState], Field(max_length=4)] = [],
+        include_private: bool = True,
+        include_rejected: bool = False,
+        limit: Annotated[int, Field(ge=1, le=100)] = 10,
+        cursor: Annotated[str, StringConstraints(max_length=2_000)] | None = None,
+        explain: bool = True,
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ResearchSearchResponse:
+        """Search compact v2 research results. Read-only; no FTS or network."""
+        return read_runtime.research_search(
+            query=query,
+            kinds=list(kinds),
+            scope=scope,
+            review_states=list(review_states),
+            conflict_states=list(conflict_states),
+            freshness=list(freshness),
+            include_private=include_private,
+            include_rejected=include_rejected,
+            limit=limit,
+            cursor=cursor,
+            explain=explain,
+            ctx=ctx,
+        )
+
+    close_tool_input_schema(mcp, "research_search")
+
+    @mcp.tool(annotations=_READ_ONLY, structured_output=True)
+    def research_get(
+        id: Annotated[str, StringConstraints(min_length=3, max_length=200)],
+        include: Annotated[list[GetInclude], Field(max_length=10)] = [],
+        depth: Annotated[int, Field(ge=0, le=2)] = 1,
+        include_private: bool = True,
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ResearchGetResult:
+        """Hydrate one bounded v2 research record. Stored content is untrusted."""
+        return read_runtime.research_get(
+            record_id=id,
+            include=list(include),
+            depth=depth,
+            include_private=include_private,
+            ctx=ctx,
+        )
+
+    close_tool_input_schema(mcp, "research_get")
+
+    @mcp.tool(annotations=_DEPOSIT_WRITE, structured_output=True)
+    def research_deposit(
+        idempotency_key: Annotated[
+            str, StringConstraints(min_length=1, max_length=200)
+        ],
+        run: DepositRun,
+        sources: Annotated[list[DepositSource], Field(max_length=50)],
+        evidence: Annotated[list[DepositEvidence], Field(max_length=200)],
+        claims: Annotated[list[DepositClaim], Field(max_length=100)],
+        validate_only: bool = False,
+        visibility: Annotated[
+            Literal["private"],
+            Field(json_schema_extra={"enum": ["private"]}),
+        ] = "private",
+        namespace: NamespaceSelector | None = None,
+        inquiry: DepositInquiry | None = None,
+        report: DepositReport | None = None,
+        metadata: JsonObject50 = {},
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ResearchDepositResult:
+        """Validate or atomically preserve one evidence-backed v2 bundle."""
+        request = ResearchDepositRequest(
+            protocol="research-deposit/v2",
+            idempotency_key=idempotency_key,
+            validate_only=validate_only,
+            visibility=visibility,
+            namespace=namespace,
+            inquiry=inquiry,
+            run=run,
+            sources=list(sources),
+            evidence=list(evidence),
+            claims=list(claims),
+            report=report,
+            metadata=dict(metadata),
+        )
+        return write_runtime.research_deposit(request, ctx=ctx)
+
+    close_tool_input_schema(mcp, "research_deposit")
+
+    @mcp.tool(annotations=_REVIEW_WRITE, structured_output=True)
+    def research_review(
+        idempotency_key: Annotated[
+            str, StringConstraints(min_length=1, max_length=200)
+        ],
+        entity: ReviewEntity,
+        action: Literal[
+            "approve",
+            "contest",
+            "reject",
+            "supersede",
+            "request_refresh",
+            "dismiss_refresh",
+        ],
+        expected_revision_id: Annotated[
+            str, StringConstraints(max_length=200)
+        ]
+        | None = None,
+        expected_state: Annotated[str, StringConstraints(max_length=100)]
+        | None = None,
+        note: Annotated[str, StringConstraints(max_length=20_000)] | None = None,
+        new_revision: ReviewNewRevision | None = None,
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ResearchReviewResult:
+        """Append a review decision. Writes state; never publishes or networks."""
+        return write_runtime.research_review(
+            idempotency_key=idempotency_key,
+            entity=entity,
+            action=action,
+            expected_revision_id=expected_revision_id,
+            expected_state=expected_state,
+            note=note,
+            new_revision=new_revision,
+            ctx=ctx,
+        )
+
+    close_tool_input_schema(mcp, "research_review")
+
+    @mcp.tool(annotations=_REFRESH_QUEUE_WRITE, structured_output=True)
+    def research_refresh(
+        mode: Literal["inspect", "enqueue", "verify", "capture"],
+        entities: Annotated[
+            list[RefreshEntity], Field(min_length=1, max_length=100)
+        ],
+        idempotency_key: Annotated[
+            str, StringConstraints(max_length=200)
+        ]
+        | None = None,
+        snapshot_policy: SnapshotPolicy | None = None,
+        priority: Annotated[float, Field(ge=0, le=1)] = 0.5,
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ResearchRefreshResult:
+        """Inspect, enqueue, or policy-authorized capture; never publishes claims."""
+        return write_runtime.research_refresh(
+            mode=mode,
+            idempotency_key=idempotency_key,
+            entities=list(entities),
+            snapshot_policy=snapshot_policy,
+            priority=priority,
+            ctx=ctx,
+        )
+
+    close_tool_input_schema(mcp, "research_refresh")
+
+    @legacy_tool()
     def search(
         query: str,
         kind: str | None = None,
@@ -369,92 +628,92 @@ def create_mcp_server(
         """Search questions, excerpts, claims, reports, and sources."""
         return runtime.search(query, kind=kind, include_private=include_private, limit=limit, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def backend_status(ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Return the selected backend URL, namespace, and selection source."""
         return runtime.backend_status(ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_question(payload: QuestionCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create or reuse a research question and its focus label."""
         return runtime.create_question(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_session(payload: ResearchSessionCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a research session for a question."""
         return runtime.create_session(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_question(question_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Fetch a single question by id."""
         return runtime.get_question(question_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_source(source_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Fetch a single source by id."""
         return runtime.get_source(source_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_excerpt(excerpt_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Fetch a single excerpt by id."""
         return runtime.get_excerpt(excerpt_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_annotation(annotation_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Compatibility alias for fetching an excerpt by id."""
         return runtime.get_excerpt(annotation_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_claim(claim_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Fetch a single claim by id."""
         return runtime.get_claim(claim_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_finding(finding_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Compatibility alias for fetching a claim by id."""
         return runtime.get_claim(finding_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def get_report(report_id: str, include_private: bool = True, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Fetch a single report by id."""
         return runtime.get_report(report_id, include_private=include_private, ctx=ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_source(payload: SourceCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create or reuse a source record."""
         return runtime.create_source(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def add_excerpt(payload: ExcerptCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a source-backed evidence excerpt."""
         return runtime.add_excerpt(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def add_annotation(payload: ExcerptCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Compatibility alias for creating an evidence excerpt."""
         return runtime.add_excerpt(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_claim(payload: ClaimCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a claim from one or more excerpt ids."""
         return runtime.create_claim(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_finding(payload: ClaimCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Compatibility alias for creating a claim from excerpt ids."""
         return runtime.create_claim(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_report(payload: ReportCreate, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create a report with explicit summary markdown from one or more claim ids."""
         return runtime.create_report(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def create_research_bundle(payload: dict, ctx: Context = None) -> dict:  # type: ignore[assignment]
         """Create one question, session, sources, excerpts, claims, and an optional report in one call."""
         return runtime.create_research_bundle(payload, ctx)
 
-    @mcp.tool()
+    @legacy_tool()
     def publish(
         kind: str,
         record_id: str,

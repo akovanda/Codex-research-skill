@@ -532,6 +532,8 @@ class PublishRequest(BaseModel):
     record_id: str
     cascade_linked_sources: bool = True
     include_in_global_index: bool = False
+    namespace_kind: NamespaceKind | None = None
+    namespace_id: str | None = None
 
 
 class ReviewRequest(BaseModel):
@@ -647,6 +649,8 @@ class BackendStatus(BaseModel):
 
 class FollowUpStatusUpdate(BaseModel):
     follow_up_status: FollowUpStatus
+    namespace_kind: NamespaceKind | None = None
+    namespace_id: str | None = None
 
 
 class ImportUrlRequest(BaseModel):

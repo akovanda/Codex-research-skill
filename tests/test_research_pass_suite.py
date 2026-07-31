@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
 from research_registry.research_pass_suite import load_research_pass_suite, routing_check
+
+
+pytestmark = pytest.mark.legacy
 
 
 def test_research_pass_suite_size_and_uniqueness() -> None:

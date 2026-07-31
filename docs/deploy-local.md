@@ -1,192 +1,150 @@
-# Local Deployment
+# Personal Local Deployment
 
-Local deployment is the default. The recommended path for real use is one shared localhost service for all of your local Codex instances.
+The personal default is a foreground, no-Docker installation:
 
-If you are brand new to the project, read [Getting Started](getting-started.md) first.
+- SQLite at the XDG data path
+- generated content-addressed filesystem blob paths
+- local STDIO MCP at the current OS-user boundary
+- no daemon, system service, network listener, or stored auth token
 
-Preview support target:
+Python 3.12+ is required. Linux is CI-covered; macOS is an intended preview
+target. Windows is not yet claimed.
 
-- Linux: primary localhost target and CI-covered
-- macOS: intended localhost preview target
-- Windows: not yet claimed
+## Initialize
 
-## Prerequisites
-
-- Docker with Compose support
-- Codex on the same machine if you want the managed MCP wiring
-- `uv`, `pipx`, or Python 3.12 for the CLI
-
-If `python3` on your host is older than 3.12, run with `PYTHON=python3.12` or create `.venv` first with a 3.12 interpreter and then rerun `make up`.
-
-## Start
-
-Installed CLI preview path:
+Installed package:
 
 ```bash
-uvx --from git+https://github.com/akovanda/Codex-research-skill research-registry up
-```
-
-After a PyPI release:
-
-```bash
-pipx install research-registry
-research-registry up
-```
-
-Source checkout path:
-
-```bash
-make up
-```
-
-`research-registry up` creates managed config, starts the managed localhost runtime, patches Codex config, and installs the skills. `make up` does the same from a source checkout, builds a local image, and seeds demo content by default.
-
-If you are on a host such as Ubuntu 20.04 where `python3` may still resolve to 3.8, you can bootstrap a compatible local env without changing system Python:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-~/.local/bin/uv python install 3.12
-~/.local/bin/uv venv --python 3.12 .venv
-make up
-```
-
-If you want the runtime without demo content:
-
-```bash
-make up SEED_DEMO=0
-```
-
-This creates:
-
-- managed config under `~/.config/research-registry/`
-- managed data under `~/.local/share/research-registry/`
-- a Docker Compose stack on `http://127.0.0.1:8010`
-- a managed MCP entry in `~/.codex/config.toml`
-- skill symlinks in `~/.codex/skills/`
-
-## Verify
-
-Check status:
-
-```bash
-research-registry status
+research-registry init
+research-registry install-codex
 research-registry doctor
-make status
-curl http://127.0.0.1:8010/readyz
-curl http://127.0.0.1:8010/openapi.json
 ```
 
-What good looks like:
-
-- `configured=true`
-- `ready=true`
-- `api_key_configured=true`
-- `codex_mcp_managed=true`
-- `GET /readyz` returns `{"status":"ready"}`
-- `GET /openapi.json` returns the generated OpenAPI document
-
-If you already had Codex open before the first install, restart those sessions so they reload `~/.codex/config.toml` and the newly installed skill links under `~/.codex/skills/`.
-
-Print the managed local token values:
+Source checkout:
 
 ```bash
-make token
+make init
+./.venv/bin/research-registry install-codex
+make doctor
 ```
 
-Stop the local stack:
+`init` creates private config and data directories using `XDG_CONFIG_HOME` and
+`XDG_DATA_HOME`, with standard `~/.config` and `~/.local/share` fallbacks.
+The initializer's storage-root overrides are:
+
+- `RESEARCH_REGISTRY_MANAGED_CONFIG_DIR`
+- `RESEARCH_REGISTRY_MANAGED_DATA_DIR`
+
+Runtime commands also continue to honor explicit database/backend overrides;
+those overrides suppress automatic first-run initialization. Configured
+personal database and blob paths must remain inside the active XDG data root.
+Unknown, shared, or unsafe configs are refused rather than overwritten.
+
+## Storage and modes
+
+Default layout:
+
+```text
+~/.config/research-registry/
+└── config.toml                  0600
+
+~/.local/share/research-registry/
+├── registry.sqlite3            0600
+└── blobs/                      0700
+    ├── .staging/               0700
+    └── sha256/...
+```
+
+Directories are `0700`; SQLite, config, staged/final blobs, and backups are
+`0600` on POSIX. SQLite foreign keys are enabled and personal initialization
+uses WAL mode. Blob names are generated from SHA-256; callers cannot choose
+filesystem paths.
+
+First run applies the same packaged additive v1/v2 migrations used by Postgres.
+Existing v1 tables and records remain. Re-running initialization verifies
+checksums and is a no-op when current.
+
+## STDIO MCP
+
+The Codex plugin launches:
 
 ```bash
-research-registry down
-make down
+research-registry mcp --transport stdio
 ```
 
-Remove the managed Codex integration but keep local data:
+You can run it manually, but it is normally a child process managed by Codex.
+The command performs safe first-run initialization when no backend override is
+configured, then exposes status/search immediately. It does not bind a port or
+require an API token. Private access is limited to the same local user and
+local namespace.
+
+## Doctor
 
 ```bash
-research-registry uninstall
-make uninstall
+research-registry doctor
 ```
 
-Remove the managed runtime, local data, and Docker volumes:
+Doctor is content-free and secret-free. It checks:
+
+- personal config existence and modes
+- SQLite migration/checksum state and file mode
+- referenced content-addressed blob integrity
+- packaged tokenless STDIO wiring
+- online backup prerequisites
+
+## Backup
 
 ```bash
-research-registry uninstall --purge-data
-make purge-local
+research-registry backup --output ./registry.backup.sqlite3
 ```
 
-Restore the previous Codex config from the managed backup instead of only removing the managed block:
+The command refuses existing destinations and writes:
+
+- an online SQLite backup including committed WAL state
+- a manifest with hashes, integrity, deterministic row inventory, and blob
+  references
+- a verified personal config copy
+
+Back up the referenced blob tree with your normal encrypted filesystem backup.
+The manifest verifies every referenced blob against the live blob root before
+accepting the database backup; it does not duplicate blob bodies beside every
+database backup.
+
+Restore to a new path and verify before use:
 
 ```bash
-research-registry uninstall --restore-codex-backup
+research-registry restore \
+  --backup ./registry.backup.sqlite3 \
+  --manifest ./registry.backup.sqlite3.manifest.json \
+  --destination ./registry.restore-check.sqlite3 \
+  --verify
 ```
 
-## Runtime details
+Keep the config artifact and blob tree with the manifest.
 
-Managed local defaults:
+## Optional web review server
 
-- HTTP app: `http://127.0.0.1:8010`
-- HTTP MCP: `http://127.0.0.1:8010/mcp/`
-- storage: Postgres inside Docker Compose
-- auth: admin token plus a shared local API key written into the managed config and Codex MCP block
-- image: `ghcr.io/akovanda/codex-research-skill:0.1.0` unless overridden with `--image` or `RESEARCH_REGISTRY_IMAGE`
-
-The generated runtime files live under `~/.config/research-registry/`:
-
-- `config.toml`
-- `compose.yaml`
-- `.env`
-
-## Storage
-
-The recommended local runtime uses Postgres in Compose.
-
-For a repo-local developer-only process without Docker, `research-registry-web` still supports SQLite:
-
-- `RESEARCH_REGISTRY_DATABASE_URL=sqlite:///<repo>/.data/registry.sqlite3`
-
-Compatibility fallback:
-
-- `RESEARCH_REGISTRY_DB_PATH=.data/registry.sqlite3`
-
-Config examples:
-
-- repo root `.env.example` is the repo-local development example and defaults to SQLite
-- `deploy/.env.example` is the shared Compose example and defaults to Postgres plus bind/public URL settings
-
-## Health
+The web UI is not required for MCP. Start it explicitly:
 
 ```bash
-curl http://127.0.0.1:8010/healthz
-curl http://127.0.0.1:8010/readyz
+export RESEARCH_REGISTRY_ADMIN_TOKEN="<strong-random-value>"
+research-registry serve
 ```
 
-## Optional setup
+It binds `127.0.0.1:8010` by default and refuses to start without the
+environment credential. HTTP MCP/API routes keep their normal authentication
+rules and never inherit tokenless STDIO trust. Do not bind to a non-loopback
+interface without normal TLS, trusted-host, network, and credential controls.
 
-Put useful content into a new registry:
+## Shared Compose remains separate
+
+For a team or an existing managed Postgres installation:
 
 ```bash
-make up
+research-registry up
+make shared-up
 ```
 
-Then open `http://127.0.0.1:8010` and confirm the public board is populated.
-
-Seed demo content:
-
-```bash
-./.venv/bin/research-registry-seed
-./.venv/bin/research-registry-seed-memory-retrieval
-```
-
-Run migrations explicitly:
-
-```bash
-research-registry-migrate
-```
-
-## Notes
-
-- local Codex and MCP workflows default to localhost when no remote backend override is configured
-- the managed MCP endpoint is HTTP-first; the stdio MCP server remains available for compatibility
-- local mode is the recommended first-run path for contributors and new users
-- if you need a repo-local no-Docker process, use `research-registry-web` and treat that path as development-only for this release
-- if you used `make up`, the admin token is stored in `~/.config/research-registry/config.toml`
+That compatibility path creates Compose/runtime config and uses authenticated
+HTTP. See [Shared Compose](deploy-shared-compose.md) and
+[Managed Postgres migration choices](migrate-managed-postgres.md).

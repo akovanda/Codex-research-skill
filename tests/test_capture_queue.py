@@ -1,8 +1,19 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from research_registry.capture_queue import CaptureQueue, QueuedAnnotation, QueuedCaptureBundle, QueuedFinding, QueuedReport
+from research_registry.application.deposit import ResearchDepositService
+from research_registry.capture_queue import (
+    CaptureQueue,
+    QueuedAnnotation,
+    QueuedCaptureBundle,
+    QueuedFinding,
+    QueuedReport,
+    QueuedV2Deposit,
+)
+from research_registry.contracts.v2 import ResearchDepositRequest
+from research_registry.ingestion.blobs import FilesystemBlobStore
 from research_registry.models import RunCreate, SourceCreate, SourceSelector
 from research_registry.service import RegistryService
 
@@ -118,3 +129,75 @@ def test_capture_queue_flush_is_idempotent_for_reenqueued_bundle(tmp_path: Path)
         assert conn.execute("SELECT COUNT(*) FROM excerpts").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM claims").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 1
+
+
+def test_v2_queue_envelope_replays_through_atomic_deposit_idempotently(
+    tmp_path: Path,
+) -> None:
+    service = make_service(tmp_path)
+    deposits = ResearchDepositService(
+        service.database,
+        FilesystemBlobStore(tmp_path / "blobs"),
+    )
+    queue = CaptureQueue(
+        tmp_path / "pending.jsonl",
+        deposit_service=deposits,
+    )
+    request = ResearchDepositRequest.model_validate(
+        {
+            "protocol": "research-deposit/v2",
+            "idempotency_key": "queued-v2-deposit",
+            "run": {
+                "client_ref": "run",
+                "mode": "manual",
+                "provenance": {},
+            },
+            "sources": [],
+            "evidence": [],
+            "claims": [],
+        }
+    )
+    envelope = QueuedV2Deposit.create(
+        request,
+        backend_status=service.backend_status(),
+    )
+
+    queue.enqueue(envelope)
+    pending = queue.list_pending()
+    assert len(pending) == 1
+    assert isinstance(pending[0], QueuedV2Deposit)
+    assert pending[0].protocol == "research-capture-queue/v2"
+    first = queue.flush(service)
+    queue.enqueue(envelope)
+    second = queue.flush(service)
+
+    assert first.flushed_queue_ids == [envelope.queue_id]
+    assert second.flushed_queue_ids == [envelope.queue_id]
+    assert first.failed_queue_ids == second.failed_queue_ids == []
+    assert queue.list_pending() == []
+    with service.connect() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM idempotency_keys"
+        ).fetchone()[0] == 1
+
+
+def test_concurrent_queue_writers_do_not_lose_jsonl_entries(
+    tmp_path: Path,
+) -> None:
+    service = make_service(tmp_path)
+    queue_path = tmp_path / "pending.jsonl"
+    base = make_bundle(service)
+
+    def enqueue(index: int) -> None:
+        CaptureQueue(queue_path).enqueue(
+            base.model_copy(update={"queue_id": f"queue_concurrent_{index}"})
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(enqueue, range(40)))
+
+    pending = CaptureQueue(queue_path).list_pending()
+    assert len(pending) == 40
+    assert {item.queue_id for item in pending} == {
+        f"queue_concurrent_{index}" for index in range(40)
+    }

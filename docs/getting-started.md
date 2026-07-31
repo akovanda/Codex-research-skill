@@ -1,191 +1,147 @@
 # Getting Started
 
-This is the fastest path for a new user who wants Research Registry working locally with Codex.
-
-If you want a quick answer to "what does this install change?" or "do I need Docker?", read [FAQ](faq.md) first.
-
-The intended first run for a source checkout is:
-
-1. run `make up`
-2. verify the app, MCP wiring, and API docs with `make status`
-3. open the UI or `/docs`
-4. ask Codex to do source-backed research and let the implicit capture flow store it
+The default personal Research Registry is SQLite plus content-addressed
+filesystem blobs, served to Codex over local STDIO. It does not require Docker,
+Postgres, a daemon, a network port, or an API token.
 
 ## Prerequisites
 
-- Docker with Compose support
-- Codex on the same machine if you want the managed MCP setup
-- Python 3.12 if you are installing from a source checkout or using `pipx`
-- `uv` or `pipx` if you want a package-manager install
+- Python 3.12 or newer
+- Codex on the same machine if you want the focused plugin
+- `pipx`, `uv`, or `pip`
 
-If your host `python3` is older than 3.12, either run `make up` with `PYTHON=python3.12` or precreate `.venv` with a 3.12 interpreter before using `make`.
+Docker is needed only for the separate shared Compose/Postgres deployment.
 
-## Install the local runtime
-
-Package-manager preview path:
-
-```bash
-uvx --from git+https://github.com/akovanda/Codex-research-skill research-registry up
-```
+## Install and initialize
 
 After a PyPI release:
 
 ```bash
 pipx install research-registry
-research-registry up
+research-registry init
 ```
 
-This pulls or uses the release runtime image by default. If you need an internal image mirror or fork, pass `--image` or set `RESEARCH_REGISTRY_IMAGE`.
+Until then:
+
+```bash
+uv tool install git+https://github.com/akovanda/Codex-research-skill
+research-registry init
+```
 
 From a source checkout:
 
 ```bash
-make up
+make init
 ```
 
-That command does seven things for you:
+The initializer creates:
 
-- creates `.venv/` if needed
-- installs the project in editable mode
-- creates managed config under `~/.config/research-registry/`
-- starts Postgres plus the app on `http://127.0.0.1:8010`
-- writes a managed `researchRegistry` MCP block into `~/.codex/config.toml`
-- installs the research skills into `~/.codex/skills/`
-- seeds demo content by default so the UI is not empty
+- `${XDG_CONFIG_HOME:-~/.config}/research-registry/config.toml`
+- `${XDG_DATA_HOME:-~/.local/share}/research-registry/registry.sqlite3`
+- `${XDG_DATA_HOME:-~/.local/share}/research-registry/blobs/`
 
-If you need to bootstrap `.venv` on a machine where `python3` is too old, a user-local `uv` install works:
+On POSIX, storage directories are mode `0700` and local files are mode `0600`.
+The personal config contains storage metadata only—no API key, admin token, or
+session secret. First run applies every packaged additive migration. Re-running
+the command verifies the existing config and returns `status=current`; it never
+silently replaces an unknown or shared config.
 
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-~/.local/bin/uv python install 3.12
-~/.local/bin/uv venv --python 3.12 .venv
-make up
-```
+## Install the Codex plugin
 
-`make up` will reuse the precreated `.venv`.
-
-If you want the runtime without demo content:
+Preview and apply the focused plugin installation:
 
 ```bash
-make up SEED_DEMO=0
-```
-
-Manual equivalent:
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -e ".[dev]"
-research-registry up --build-local-image --image research-registry-local:latest
-research-registry-seed
-research-registry-seed-memory-retrieval
-```
-
-## Verify that it worked
-
-Run:
-
-```bash
-research-registry status
+research-registry install-codex --dry-run
+research-registry install-codex
 research-registry doctor
-make status
-curl http://127.0.0.1:8010/readyz
-curl http://127.0.0.1:8010/openapi.json
 ```
 
-You want to see:
+`install-codex` also initializes the personal registry when no explicit or
+shared backend is configured. The plugin bundles:
 
-- `configured=true`
-- `ready=true`
-- `api_key_configured=true`
-- `codex_mcp_managed=true`
-- `{"status":"ready"}` from `/readyz`
-- OpenAPI JSON from `/openapi.json`
+- implicit, read-only `research-recall`
+- explicit-only `research-deposit`
+- `research-registry mcp` over STDIO
 
-If the local install patched Codex correctly, `~/.codex/config.toml` now points at:
+The MCP child process starts on demand, applies any pending additive migrations,
+and immediately supports `research_status` and `research_search`. It trusts the
+current OS user boundary, sends no telemetry, binds no network port, and needs
+no token. Restart existing Codex conversations so they discover the plugin.
 
-- `http://127.0.0.1:8010/mcp/`
-
-If you already had Codex sessions open during the first install, restart them so they reload the managed MCP block and the newly installed `research-capture` and `research-memory-retrieval` skills.
-
-## Make the UI useful immediately
-
-A brand-new registry is empty until something is captured or seeded.
-
-`make up` already seeds demo content by default. Then open `http://127.0.0.1:8010` in a browser. You should see published reports, claims, and questions instead of a blank board.
-
-## First real workflow
-
-Once the local runtime is working, the normal flow is:
-
-1. Ask Codex to research something that should be source-backed.
-2. Let the registry search existing material first.
-3. Let new research store private questions, sessions, excerpts, claims, and a report when reuse is not enough.
-4. Open the workspace at `http://127.0.0.1:8010/admin/login`.
-5. Review the private records and publish the reusable ones.
-
-If you used `make up`, the admin token is stored in:
-
-- `~/.config/research-registry/config.toml`
-
-You can print the current managed token and API key with:
+## Verify and back up
 
 ```bash
-research-registry token
-make token
+research-registry init --json
+research-registry doctor
+research-registry backup --output ./registry.backup.sqlite3
 ```
 
-## Good first prompts
+Healthy doctor output begins with `ok=true` and checks local config modes,
+SQLite migrations/integrity, content-addressed blobs, tokenless STDIO wiring,
+and online backup prerequisites without printing content or secrets.
 
-- `Please research evaluation design for long-term memory retrieval and store the results.`
-- `Investigate reranking strategies for agent memory retrieval and keep source-backed notes.`
-- `Compare approaches for long-context memory compression and store a reusable report.`
+Backup writes three new mode-`0600` files and refuses to overwrite:
+
+- `registry.backup.sqlite3`
+- `registry.backup.sqlite3.manifest.json`
+- `registry.backup.sqlite3.config.toml`
+
+The SQLite online backup API includes committed WAL state. The manifest records
+database hashes and integrity, deterministic table inventory, the config
+artifact hash, and the referenced blob inventory.
+
+## Optional review server
+
+Personal MCP needs no daemon. If you want the web review UI, run it explicitly
+in the foreground with an environment-only HTTP credential:
+
+```bash
+export RESEARCH_REGISTRY_ADMIN_TOKEN="<generate-a-strong-random-value>"
+research-registry serve
+```
+
+The default bind is `127.0.0.1:8010`. `serve` refuses to start without an admin
+token. HTTP auth remains separate from tokenless same-user STDIO. Do not expose
+the review server directly to an untrusted network.
+
+## Shared and existing Docker/Postgres installations
+
+Shared/team deployments still use authenticated HTTP, Postgres, and optional
+Compose:
+
+```bash
+research-registry up
+make shared-up
+```
+
+Do not point a new SQLite registry at a Postgres dump or copy database files
+between dialects. Existing managed data is retained in Postgres unless you
+perform a reviewed application-level export/import. See
+[Managed Postgres migration choices](migrate-managed-postgres.md).
 
 ## Common issues
 
-Docker is not running:
+An existing config is refused:
 
-- start Docker and rerun `research-registry up` or `make up`
+- RR2-011 never overwrites an unknown config.
+- If it is an earlier managed Docker/Postgres config, keep using it as the
+  shared backend or follow the migration guide.
+- If it is user-owned, move it only after making and verifying your own backup.
 
-Port `8010` is already in use:
+Codex does not show the plugin:
 
-- stop the existing service with `make down`
-- or use `research-registry up --port 8011`
+- rerun `research-registry install-codex`
+- check `CODEX_HOME`
+- start a new Codex conversation
 
-Codex already has a manual `researchRegistry` MCP entry:
+Python is older than 3.12:
 
-- remove or rename the manual block in `~/.codex/config.toml`
-- rerun `research-registry repair` or `make repair`
-
-Your host `python3` is older than 3.12:
-
-- rerun with `PYTHON=python3.12 make up`
-- or precreate `.venv` with `uv venv --python 3.12 .venv` and rerun `make up`
-
-You want to stop the local stack:
-
-```bash
-research-registry down
-make down
-```
-
-You want to remove the managed local integration:
-
-```bash
-research-registry uninstall
-make uninstall
-```
-
-You want to remove the managed runtime plus its local data:
-
-```bash
-research-registry uninstall --purge-data
-make purge-local
-```
+- use `uv python install 3.12`
+- install the package with that interpreter
 
 ## Next docs
 
-- [Local deployment](deploy-local.md)
-- [Implicit research capture](implicit-research-capture.md)
-- [Memory/retrieval skill](memory-retrieval-skill.md)
+- [Local deployment and storage](deploy-local.md)
+- [Codex plugin](codex-plugin.md)
 - [Shared deployment with Compose](deploy-shared-compose.md)
+- [Operations and restore verification](operations.md)

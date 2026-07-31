@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Source · Research Registry{% endblock %}
+{% block content %}
+<section class="hero compact detail">
+  <div>
+    <p class="eyebrow">Stable source</p>
+    <h1>{{ source.title }}</h1>
+    <p class="lede safe-content">{{ source.locator }}</p>
+  </div>
+  <div class="badge-row">
+    <span class="badge">{{ source.source_type or "unknown type" }}</span>
+    <span class="badge">{{ source.review_state }}</span>
+    <span class="badge">{{ source.conflict_state }}</span>
+  </div>
+  <dl class="meta-grid">
+    <dt>Source ID</dt><dd><code>{{ source.id }}</code></dd>
+    <dt>Trust tier</dt><dd>{{ source.trust_tier or "not recorded" }}</dd>
+    <dt>Versions</dt><dd>{{ source.versions | length }}</dd>
+  </dl>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Version history</h2><span>Immutable observations</span></div>
+  <div class="timeline">
+    {% for version in source.versions %}
+    <article class="card">
+      <div class="badge-row">
+        <span class="badge">{{ version.version_kind }}</span>
+        <span class="badge {{ "warning" if version.change_label == "Content changed" else "neutral" }}">{{ version.change_label }}</span>
+        <span class="badge">{{ version.snapshot_policy or "policy not recorded" }}</span>
+      </div>
+      <h3><a href="/v2/source-versions/{{ version.id }}"><code>{{ version.id }}</code></a></h3>
+      <dl class="meta-grid compact-meta">
+        <dt>Retrieved</dt><dd>{{ version.retrieved_at }}</dd>
+        <dt>Version key</dt><dd><code>{{ version.version_key }}</code></dd>
+        <dt>Content SHA-256</dt><dd><code>{{ version.content_sha256 }}</code></dd>
+        <dt>Byte count</dt><dd>{{ version.byte_count if version.byte_count is not none else "not recorded" }}</dd>
+        <dt>Byte delta</dt><dd>{{ "%+d" | format(version.byte_delta) if version.byte_delta is not none else "not available" }}</dd>
+        <dt>Snapshot</dt><dd>{{ "retained privately" if version.snapshot_available else "not retained" }}</dd>
+      </dl>
+    </article>
+    {% else %}<p class="empty">No source versions are accessible.</p>{% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Anchored evidence</h2><span>{{ source.evidence | length }}</span></div>
+  <div class="stack">
+    {% for evidence in source.evidence %}
+    <article class="card">
+      <div class="badge-row"><span class="badge">{{ evidence.anchor_state }}</span><span class="badge">{{ evidence.review_state }}</span></div>
+      <h3><a href="/v2/evidence/{{ evidence.id }}"><code>{{ evidence.id }}</code></a></h3>
+      <blockquote>{{ evidence.quote_text }}</blockquote>
+      <p class="muted">Version <code>{{ evidence.source_version_id }}</code></p>
+    </article>
+    {% else %}<p class="empty">No evidence is anchored to accessible versions.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

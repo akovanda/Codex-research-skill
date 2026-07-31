@@ -13,24 +13,25 @@ Research Registry is built around a question-led research model:
 
 Primary surfaces:
 
-- FastAPI web app
-- JSON API
-- HTTP MCP endpoint and compatibility stdio MCP server
+- local STDIO MCP for personal use
+- FastAPI web app and JSON API for optional review/shared use
+- authenticated HTTP MCP for shared deployments
 
 Secondary integrations:
 
-- Codex skills for implicit and domain-specific capture
-- local harnesses and pass runners
+- focused Codex recall and explicit deposit skills
+- explicit-only legacy heuristic adapters, harnesses, and pass runners
 
 ## Deployment Modes
 
 ### Local default
 
-- recommended release path: managed localhost runtime on `127.0.0.1:8010`
-- FastAPI app plus HTTP MCP
-- Postgres in local Docker Compose
-- one shared local backend for multiple Codex instances
-- repo-local SQLite remains available as a developer-only compatibility path
+- SQLite under the XDG data directory
+- content-addressed filesystem blobs under the same private data root
+- tokenless same-user STDIO MCP
+- additive first-run migrations
+- no daemon, system service, Docker, Postgres, or network listener required
+- optional authenticated loopback review server
 
 ### Shared self-hosted
 
@@ -49,13 +50,20 @@ The current preview does not target a public multi-tenant shared service.
 
 ## Storage
 
-The service accepts either:
+The application contracts accept either:
 
 - a local SQLite path
 - a `sqlite:///...` URL
 - a Postgres URL
 
-Managed localhost and shared deployments should use Postgres. SQLite remains available for repo-local development and compatibility workflows.
+Personal deployments use SQLite. Shared/team deployments use Postgres. Both
+dialects retain v1 tables and apply the same logical additive migrations.
+Database files and dumps are not cross-dialect interchange formats.
+
+Large immutable source content is stored outside the database using generated
+SHA-256 keys. Database rows hold hashes, sizes, media types, and storage keys.
+Blob roots are private dedicated directories; API/MCP callers never supply a
+filesystem path.
 
 ## Compatibility
 
@@ -68,3 +76,8 @@ Canonical terms are:
 - report
 
 Compatibility aliases such as `annotation` and `finding` remain available for older clients, but new integrations should not depend on them as the primary model.
+
+Normal startup does not import the legacy local-research, repository
+intelligence, broad-capture, or specialist-routing modules. See
+[Implicit research capture](implicit-research-capture.md) for the explicit
+compatibility flags and removal criteria.

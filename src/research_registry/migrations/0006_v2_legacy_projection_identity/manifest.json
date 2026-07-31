@@ -1,0 +1,5 @@
+{
+  "description": "Persist explicit identities between retained v1 mirrors and authoritative v2 records",
+  "migration_id": "0006_v2_legacy_projection_identity",
+  "transactional": true
+}

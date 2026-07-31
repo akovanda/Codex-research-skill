@@ -4,7 +4,11 @@ import os
 from pathlib import Path
 
 import research_registry.local_research as local_research
+import pytest
 from research_registry.local_research import build_focus, build_query_terms, default_source_roots, run_local_research
+
+
+pytestmark = pytest.mark.legacy
 
 
 def test_build_focus_avoids_generic_object_names() -> None:

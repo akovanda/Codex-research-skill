@@ -18,6 +18,9 @@ from research_registry.local_research import (
     LocalResearchResult,
 )
 from research_registry.mcp_tools import create_mcp_server
+from research_registry.application.migrate_v2 import run_v2_backfill
+from research_registry.application.review import ResearchReviewService
+from research_registry.persistence.read_adapter import CurrentRetrievalAdapter, ReadAccess
 from research_registry.models import (
     ApiKeyCreate,
     AuthContext,
@@ -36,6 +39,7 @@ from research_registry.models import (
     SourceSelector,
 )
 from research_registry.service import RegistryService
+from tests.fixtures.v2_review import seed_review_registry
 
 
 def make_service(tmp_path: Path) -> RegistryService:
@@ -115,6 +119,262 @@ def test_question_claim_report_roundtrip_search_and_public_visibility(tmp_path: 
 
     service.review(ReviewRequest(kind="claim", record_id=claim.id))
     assert service.get_claim(claim.id, include_private=True).human_reviewed is True
+
+
+def test_retained_http_review_appends_one_attributed_v2_event(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    app = create_app(settings)
+    client = TestClient(app)
+    service = app.state.service
+    _, ids = seed_review_registry(
+        tmp_path,
+        key="retained-http-review",
+        database=service.database.url,
+    )
+    issued = service.issue_api_key(
+        ApiKeyCreate(
+            label="legacy-review-admin",
+            actor_user_id="reviewer",
+            scopes=["admin", "read_private"],
+        )
+    )
+    headers = {"x-api-key": issued.token}
+    payload = {
+        "kind": "claim",
+        "record_id": ids["claim"],
+        "reviewed": True,
+    }
+
+    first = client.post("/api/review", headers=headers, json=payload)
+    replay = client.post("/api/review", headers=headers, json=payload)
+    reversal = client.post(
+        "/api/review",
+        headers=headers,
+        json={**payload, "reviewed": False},
+    )
+    report_review = client.post(
+        "/api/review",
+        headers=headers,
+        json={
+            "kind": "report",
+            "record_id": ids["report"],
+            "reviewed": True,
+        },
+    )
+
+    assert first.status_code == 200
+    assert replay.status_code == 200
+    assert reversal.status_code == 403
+    assert report_review.status_code == 200
+    with service.connect() as conn:
+        events = conn.execute(
+            """
+            SELECT * FROM review_events
+            WHERE entity_kind = 'claim_revision' AND entity_id = ?
+            """,
+            (ids["revision"],),
+        ).fetchall()
+        audit = conn.execute(
+            """
+            SELECT * FROM audit_log
+            WHERE action = 'review' AND record_id = ?
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (ids["claim"],),
+        ).fetchone()
+        report_event = conn.execute(
+            """
+            SELECT * FROM review_events
+            WHERE entity_kind = 'report' AND entity_id = ?
+            """,
+            (ids["report"],),
+        ).fetchone()
+    assert len(events) == 1
+    assert events[0]["action"] == "approve"
+    assert events[0]["actor_id"] == issued.record.id
+    assert audit is not None and audit["api_key_id"] == issued.record.id
+    assert report_event is not None
+    assert report_event["actor_id"] == issued.record.id
+
+
+def test_retained_review_can_approve_a_later_contested_revision(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    app = create_app(settings)
+    client = TestClient(app)
+    service = app.state.service
+    _, ids = seed_review_registry(
+        tmp_path,
+        key="retained-review-after-contest",
+        database=service.database.url,
+    )
+    issued = service.issue_api_key(
+        ApiKeyCreate(
+            label="revision-aware-review-admin",
+            actor_user_id="reviewer",
+            scopes=["admin", "read_private"],
+        )
+    )
+    headers = {"x-api-key": issued.token}
+    retained_payload = {
+        "kind": "claim",
+        "record_id": ids["claim"],
+        "reviewed": True,
+    }
+
+    first = client.post("/api/review", headers=headers, json=retained_payload)
+    assert first.status_code == 200
+    contested = ResearchReviewService(service.database).review(
+        {
+            "protocol": "research-review/v2",
+            "idempotency_key": "contest-after-retained-approve",
+            "entity": {
+                "kind": "claim_revision",
+                "id": ids["revision"],
+            },
+            "action": "contest",
+            "expected_revision_id": ids["revision"],
+            "expected_state": "reviewed",
+        }
+    )
+    assert contested.current_revision_id != ids["revision"]
+
+    second = client.post("/api/review", headers=headers, json=retained_payload)
+    replay = client.post("/api/review", headers=headers, json=retained_payload)
+    reversal = client.post(
+        "/api/review",
+        headers=headers,
+        json={**retained_payload, "reviewed": False},
+    )
+
+    assert second.status_code == 200
+    assert replay.status_code == 200
+    assert reversal.status_code == 403
+    with service.connect() as conn:
+        events = conn.execute(
+            """
+            SELECT entity_id, action
+            FROM review_events
+            WHERE entity_kind = 'claim_revision'
+            ORDER BY created_at, id
+            """
+        ).fetchall()
+        current = conn.execute(
+            """
+            SELECT current_revision_id, review_state
+            FROM claims WHERE id = ?
+            """,
+            (ids["claim"],),
+        ).fetchone()
+    assert sorted(
+        (row["entity_id"], row["action"]) for row in events
+    ) == sorted(
+        [
+            (ids["revision"], "approve"),
+            (contested.current_revision_id, "contest"),
+            (contested.current_revision_id, "approve"),
+        ]
+    )
+    assert current["current_revision_id"] == contested.current_revision_id
+    assert current["review_state"] == "reviewed"
+
+
+def test_retained_evidence_review_uses_append_only_effective_state(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    app = create_app(settings)
+    client = TestClient(app)
+    service = app.state.service
+    _, ids = seed_review_registry(
+        tmp_path,
+        key="retained-evidence-review-after-contest",
+        database=service.database.url,
+    )
+    issued = service.issue_api_key(
+        ApiKeyCreate(
+            label="evidence-review-admin",
+            actor_user_id="reviewer",
+            scopes=["admin", "read_private"],
+        )
+    )
+    headers = {"x-api-key": issued.token}
+    retained_payload = {
+        "kind": "excerpt",
+        "record_id": ids["excerpt"],
+        "reviewed": True,
+    }
+
+    first = client.post(
+        "/api/review", headers=headers, json=retained_payload
+    )
+    contested = ResearchReviewService(service.database).review(
+        {
+            "protocol": "research-review/v2",
+            "idempotency_key": "contest-after-retained-evidence-approve",
+            "entity": {
+                "kind": "evidence",
+                "id": ids["supporting"],
+            },
+            "action": "contest",
+            "expected_state": "reviewed",
+        }
+    )
+    second = client.post(
+        "/api/review", headers=headers, json=retained_payload
+    )
+    replay = client.post(
+        "/api/review", headers=headers, json=retained_payload
+    )
+
+    assert first.status_code == 200
+    assert contested.event_id
+    assert second.status_code == 200
+    assert replay.status_code == 200
+    with service.connect() as conn:
+        events = conn.execute(
+            """
+            SELECT action, from_state, to_state
+            FROM review_events
+            WHERE entity_kind = 'evidence' AND entity_id = ?
+            ORDER BY created_at, id
+            """,
+            (ids["supporting"],),
+        ).fetchall()
+        evidence = conn.execute(
+            "SELECT review_state FROM evidence_spans WHERE id = ?",
+            (ids["supporting"],),
+        ).fetchone()
+        excerpt = conn.execute(
+            """
+            SELECT review_state, human_reviewed
+            FROM excerpts WHERE id = ?
+            """,
+            (ids["excerpt"],),
+        ).fetchone()
+    effective = CurrentRetrievalAdapter(service.database).get_record(
+        ids["supporting"],
+        access=ReadAccess(include_private=True, local_trusted=True),
+    )
+
+    assert [
+        (row["action"], row["from_state"], row["to_state"])
+        for row in events
+    ] == [
+        ("approve", "unreviewed", "reviewed"),
+        ("contest", "reviewed", "flagged"),
+        ("approve", "flagged", "reviewed"),
+    ]
+    assert evidence["review_state"] == "unreviewed"
+    assert (excerpt["review_state"], excerpt["human_reviewed"]) == (
+        "reviewed",
+        1,
+    )
+    assert effective is not None
+    assert effective.review_state == "reviewed"
 
 
 def test_api_key_isolation_and_public_namespace_vs_global_index(tmp_path: Path) -> None:
@@ -253,6 +513,86 @@ def test_create_question_accepts_legacy_subject_and_string_focus(tmp_path: Path)
     assert payload["visibility"] == "private"
 
 
+def test_retained_v1_http_writes_are_immediately_projected_into_v2(
+    tmp_path: Path,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    client = TestClient(app)
+    service = app.state.service
+    assert run_v2_backfill(service.database.label).status == "completed"
+    issued = service.issue_api_key(
+        ApiKeyCreate(label="compat-writer", actor_user_id="compat-user")
+    )
+    headers = {"x-api-key": issued.token}
+
+    question = client.post(
+        "/api/questions",
+        headers=headers,
+        json=QuestionCreate(
+            prompt="Does retained v1 HTTP dual-write?",
+            focus=FocusTuple(domain="compatibility", object="v1 dual write"),
+        ).model_dump(mode="json"),
+    ).json()
+    source = client.post(
+        "/api/sources",
+        headers=headers,
+        json=SourceCreate(
+            locator="note:v1-v2-compat",
+            title="V1 compatibility source",
+            content_sha256="a" * 64,
+        ).model_dump(mode="json"),
+    ).json()
+    excerpt = client.post(
+        "/api/excerpts",
+        headers=headers,
+        json=ExcerptCreate(
+            source_id=source["id"],
+            question_id=question["id"],
+            focal_label="v1 dual write",
+            note="Immediate projection evidence.",
+            selector=SourceSelector(exact="immediate projection"),
+            quote_text="immediate projection",
+        ).model_dump(mode="json"),
+    ).json()
+    claim = client.post(
+        "/api/claims",
+        headers=headers,
+        json=ClaimCreate(
+            question_id=question["id"],
+            title="V1 writes project immediately",
+            focal_label="v1 dual write",
+            statement="The retained v1 path creates a v2 revision and evidence link.",
+            excerpt_ids=[excerpt["id"]],
+        ).model_dump(mode="json"),
+    ).json()
+    report = client.post(
+        "/api/reports",
+        headers=headers,
+        json=ReportCreate(
+            question_id=question["id"],
+            title="Compatibility report",
+            focal_label="v1 dual write",
+            summary_md="The retained write path is projected.",
+            claim_ids=[claim["id"]],
+        ).model_dump(mode="json"),
+    )
+    assert report.status_code == 200
+
+    adapter = CurrentRetrievalAdapter(service.database)
+    access = ReadAccess(
+        include_private=True,
+        namespace_kind="user",
+        namespace_id="compat-user",
+    )
+    hydrated = adapter.get_record(claim["id"], access=access)
+    assert hydrated is not None
+    revision = adapter.get_current_revision(claim["id"])
+    assert revision is not None
+    evidence = adapter.list_evidence(hydrated, access=access)
+    assert len(evidence) == 1
+    assert evidence[0]["quote_text"] == "immediate projection"
+
+
 def test_agent_shaped_create_payloads_normalize() -> None:
     question = QuestionCreate.model_validate(
         {
@@ -322,7 +662,10 @@ def test_agent_shaped_create_payloads_normalize() -> None:
 
 
 def test_mcp_write_tools_expose_typed_payload_schema() -> None:
-    mcp = create_mcp_server(object())  # type: ignore[arg-type]
+    mcp = create_mcp_server(  # type: ignore[arg-type]
+        object(),
+        legacy_tools_enabled=True,
+    )
 
     question_schema = mcp._tool_manager._tools["create_question"].parameters
     question_payload = question_schema["properties"]["payload"]
@@ -369,7 +712,8 @@ def test_openapi_docs_are_exposed_with_package_version(tmp_path: Path) -> None:
     assert openapi.status_code == 200
     body = openapi.json()
     assert body["info"]["title"] == "Research Registry"
-    assert body["info"]["version"] == __version__
+    assert body["info"]["version"] == "0.1.0"
+    assert __version__ == "0.2.0a1"
 
 
 def test_search_ranks_fresh_reports_above_stale_reports(tmp_path: Path) -> None:
@@ -483,6 +827,7 @@ def test_registry_service_accepts_sqlite_database_url(tmp_path: Path) -> None:
     assert service.database.sqlite_path == db_path.resolve()
 
 
+@pytest.mark.legacy
 def test_import_brief_refresh_follow_up_and_source_review_work(tmp_path: Path, monkeypatch) -> None:
     service = make_service(tmp_path)
     auth = AuthContext(
@@ -668,6 +1013,7 @@ def test_publish_blocks_sources_missing_snapshots(tmp_path: Path) -> None:
         service.publish(PublishRequest(kind="source", record_id=source.id))
 
 
+@pytest.mark.legacy
 def test_http_supports_import_brief_follow_up_and_refresh_routes(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
     client = TestClient(app)

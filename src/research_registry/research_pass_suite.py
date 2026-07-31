@@ -6,6 +6,7 @@ from collections import Counter
 
 from pydantic import BaseModel, Field
 
+from .legacy_feature import require_legacy_heuristics
 from .research_capture import specialized_domain_for_prompt
 
 
@@ -429,6 +430,7 @@ def render_markdown(specs: list[ResearchPassSpec]) -> str:
 
 
 def main() -> None:
+    require_legacy_heuristics()
     parser = argparse.ArgumentParser(description="Inspect the example research pass suite for long-memory project workflows.")
     parser.add_argument(
         "--format",

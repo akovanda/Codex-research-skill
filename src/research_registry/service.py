@@ -3,19 +3,29 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import secrets
-from typing import Any
+from typing import Any, Iterable
 from uuid import uuid4
 
 from .db import DbConnection, resolve_database_target, connect_database
 from .external_ingest import (
+    ImportedSourceCandidate,
     bibtex_candidates,
     fetch_doi_candidate,
     fetch_url_candidate,
 )
-from .local_research import build_focus, run_local_research
+from .application.source_versions import SourceVersionService
+from .application.review import ResearchReviewService
+from .contracts.v2 import ResearchReviewRequest
+from .ingestion.blobs import FilesystemBlobStore
+from .legacy_feature import require_legacy_heuristics
 from .migration_runner import MigrationRunner
+from .retrieval.projection import rebuild_search_documents
+from .persistence.repositories import V2BackfillRepository
+from .persistence.review_state import latest_effective_review_state
+from .timestamps import utc_text
 from .models import (
     ApiKeyCreate,
     ApiKeyRecord,
@@ -64,6 +74,22 @@ from .models import (
 )
 
 LEGACY_SCHEMA_VERSION = 4
+
+
+def build_focus(*args: Any, **kwargs: Any):
+    """Compatibility seam that keeps legacy heuristics off normal imports."""
+    require_legacy_heuristics()
+    from .local_research import build_focus as legacy_build_focus
+
+    return legacy_build_focus(*args, **kwargs)
+
+
+def run_local_research(*args: Any, **kwargs: Any):
+    """Compatibility seam that keeps legacy heuristics off normal imports."""
+    require_legacy_heuristics()
+    from .local_research import run_local_research as legacy_run_local_research
+
+    return legacy_run_local_research(*args, **kwargs)
 
 
 def utc_now() -> datetime:
@@ -143,8 +169,25 @@ class RegistryService:
 
     def create_topic(self, payload: TopicCreate, auth: AuthContext | None = None) -> TopicRecord:
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
+        dedupe_key = self._scoped_dedupe_key(
+            payload.dedupe_key,
+            metadata["namespace_kind"],
+            metadata["namespace_id"],
+        )
         with self.connect() as conn:
-            existing = self._fetch_existing_by_dedupe_key(conn, "topics", payload.dedupe_key)
+            self._require_mutation_relationships(
+                conn,
+                [("topics", payload.parent_topic_id)],
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
+            existing = self._fetch_existing_by_dedupe_key(
+                conn,
+                "topics",
+                payload.dedupe_key,
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
             if existing:
                 return self._topic_from_row(existing)
             existing = conn.execute(
@@ -174,7 +217,7 @@ class RegistryService:
                     payload.parent_topic_id,
                     metadata["namespace_kind"],
                     metadata["namespace_id"],
-                    payload.dedupe_key,
+                    dedupe_key,
                     created_at.isoformat(),
                 ),
             )
@@ -189,6 +232,7 @@ class RegistryService:
         return self._topic_from_row(row)
 
     def create_question(self, payload: QuestionCreate, auth: AuthContext | None = None) -> QuestionRecord:
+        payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
         topic_id = payload.topic_id
         if topic_id is None:
@@ -206,11 +250,39 @@ class RegistryService:
             )
             topic_id = topic.id
         else:
-            topic = self.get_topic(topic_id)
+            with self.connect() as conn:
+                rows = self._require_mutation_relationships(
+                    conn,
+                    [("topics", topic_id)],
+                    namespace_kind=metadata["namespace_kind"],
+                    namespace_id=metadata["namespace_id"],
+                )
+            topic = self._topic_from_row(rows[("topics", topic_id)])
 
         normalized_prompt = normalize_prompt(payload.prompt)
+        dedupe_key = self._scoped_dedupe_key(
+            payload.dedupe_key,
+            metadata["namespace_kind"],
+            metadata["namespace_id"],
+        )
         with self.connect() as conn:
-            existing = self._fetch_existing_by_dedupe_key(conn, "questions", payload.dedupe_key)
+            self._require_mutation_relationships(
+                conn,
+                [
+                    ("topics", topic_id),
+                    ("questions", payload.parent_question_id),
+                    ("research_sessions", payload.generated_by_session_id),
+                ],
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
+            existing = self._fetch_existing_by_dedupe_key(
+                conn,
+                "questions",
+                payload.dedupe_key,
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
             if existing:
                 return self._question_from_row(existing)
             existing = conn.execute(
@@ -256,12 +328,13 @@ class RegistryService:
                     metadata["api_key_id"],
                     metadata["public_namespace_slug"],
                     self._public_index_state_for_visibility(payload.visibility),
-                    payload.dedupe_key,
+                    dedupe_key,
                     0,
                     created_at.isoformat(),
                 ),
             )
             row = conn.execute("SELECT * FROM questions WHERE id = ?", (question_id,)).fetchone()
+            rebuild_search_documents(conn)
         return self._question_from_row(row)
 
     def get_question(
@@ -277,19 +350,83 @@ class RegistryService:
         self._ensure_visible(row, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
         return self._question_from_row(row)
 
-    def set_question_status(self, question_id: str, status: QuestionStatus) -> None:
+    def set_question_status(
+        self,
+        question_id: str,
+        status: QuestionStatus,
+        *,
+        auth: AuthContext | None = None,
+        namespace_kind: str | None = None,
+        namespace_id: str | None = None,
+    ) -> None:
         with self.connect() as conn:
+            if auth is not None:
+                selected_kind, selected_id = self._selected_mutation_namespace(
+                    auth,
+                    namespace_kind=namespace_kind,
+                    namespace_id=namespace_id,
+                )
+                self._require_mutation_relationships(
+                    conn,
+                    [("questions", question_id)],
+                    namespace_kind=selected_kind,
+                    namespace_id=selected_id,
+                )
             conn.execute("UPDATE questions SET status = ? WHERE id = ?", (status, question_id))
+            rebuild_search_documents(conn)
 
-    def set_follow_up_status(self, question_id: str, follow_up_status: FollowUpStatus) -> None:
+    def set_follow_up_status(
+        self,
+        question_id: str,
+        follow_up_status: FollowUpStatus,
+        *,
+        auth: AuthContext | None = None,
+        namespace_kind: str | None = None,
+        namespace_id: str | None = None,
+    ) -> None:
         with self.connect() as conn:
+            if auth is not None:
+                selected_kind, selected_id = self._selected_mutation_namespace(
+                    auth,
+                    namespace_kind=namespace_kind,
+                    namespace_id=namespace_id,
+                )
+                self._require_mutation_relationships(
+                    conn,
+                    [("questions", question_id)],
+                    namespace_kind=selected_kind,
+                    namespace_id=selected_id,
+                )
             conn.execute("UPDATE questions SET follow_up_status = ? WHERE id = ?", (follow_up_status, question_id))
 
     def create_session(self, payload: ResearchSessionCreate, auth: AuthContext | None = None) -> ResearchSessionRecord:
-        question = self.get_question(payload.question_id, include_private=True)
+        payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
+        dedupe_key = self._scoped_dedupe_key(
+            payload.dedupe_key,
+            metadata["namespace_kind"],
+            metadata["namespace_id"],
+        )
         with self.connect() as conn:
-            existing = self._fetch_existing_by_dedupe_key(conn, "research_sessions", payload.dedupe_key)
+            rows = self._require_mutation_relationships(
+                conn,
+                [
+                    ("questions", payload.question_id),
+                    ("research_sessions", payload.refresh_of_session_id),
+                ],
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
+            question = self._question_from_row(
+                rows[("questions", payload.question_id)]
+            )
+            existing = self._fetch_existing_by_dedupe_key(
+                conn,
+                "research_sessions",
+                payload.dedupe_key,
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
             if existing:
                 return self._session_from_row(existing)
             session_id = self._new_id("sess")
@@ -325,7 +462,7 @@ class RegistryService:
                     metadata["api_key_id"],
                     metadata["public_namespace_slug"],
                     self._public_index_state_for_visibility(payload.visibility),
-                    payload.dedupe_key,
+                    dedupe_key,
                     payload.ttl_days,
                     expires_at.isoformat(),
                     "fresh",
@@ -336,6 +473,7 @@ class RegistryService:
                 ),
             )
             row = conn.execute("SELECT * FROM research_sessions WHERE id = ?", (session_id,)).fetchone()
+            rebuild_search_documents(conn)
         return self._session_from_row(row)
 
     def get_session(
@@ -351,10 +489,28 @@ class RegistryService:
         self._ensure_visible(row, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
         return self._session_from_row(row)
 
-    def create_source(self, payload: SourceCreate, auth: AuthContext | None = None) -> SourceRecord:
+    def create_source(
+        self,
+        payload: SourceCreate,
+        auth: AuthContext | None = None,
+        *,
+        _project_v2: bool = True,
+    ) -> SourceRecord:
+        payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
+        dedupe_key = self._scoped_dedupe_key(
+            payload.dedupe_key,
+            metadata["namespace_kind"],
+            metadata["namespace_id"],
+        )
         with self.connect() as conn:
-            existing = self._fetch_existing_by_dedupe_key(conn, "sources", payload.dedupe_key)
+            existing = self._fetch_existing_by_dedupe_key(
+                conn,
+                "sources",
+                payload.dedupe_key,
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
             if existing:
                 return self._source_from_row(existing)
             existing = conn.execute(
@@ -409,11 +565,14 @@ class RegistryService:
                     metadata["api_key_id"],
                     metadata["public_namespace_slug"],
                     self._public_index_state_for_visibility(payload.visibility),
-                    payload.dedupe_key,
+                    dedupe_key,
                     created_at.isoformat(),
                 ),
             )
             row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+            if _project_v2 and self._v2_dual_write_ready(conn):
+                V2BackfillRepository(conn).project_legacy_write("source", source_id)
+            rebuild_search_documents(conn)
         return self._source_from_row(row)
 
     def get_source(
@@ -429,14 +588,77 @@ class RegistryService:
         self._ensure_visible(row, include_private, auth=auth, public_index_only=public_index_only, namespace_slug=namespace_slug)
         return self._source_from_row(row)
 
-    def create_excerpt(self, payload: ExcerptCreate, auth: AuthContext | None = None) -> ExcerptRecord:
-        question = self.get_question(payload.question_id, include_private=True)
-        source = self._resolve_source(payload, auth=auth)
-        topic_id = payload.topic_id or question.topic_id
+    def create_excerpt(
+        self,
+        payload: ExcerptCreate,
+        auth: AuthContext | None = None,
+        *,
+        _project_v2: bool = True,
+        _source_version_id: str | None = None,
+    ) -> ExcerptRecord:
+        payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
+        if payload.source_id:
+            with self.connect() as conn:
+                rows = self._require_mutation_relationships(
+                    conn,
+                    [("sources", payload.source_id)],
+                    namespace_kind=metadata["namespace_kind"],
+                    namespace_id=metadata["namespace_id"],
+                )
+            source = self._source_from_row(rows[("sources", payload.source_id)])
+        else:
+            assert payload.source is not None
+            source = self.create_source(
+                payload.source.model_copy(
+                    update={
+                        "namespace_kind": metadata["namespace_kind"],
+                        "namespace_id": metadata["namespace_id"],
+                    }
+                ),
+                auth=auth,
+            )
+        dedupe_key = self._scoped_dedupe_key(
+            payload.dedupe_key,
+            metadata["namespace_kind"],
+            metadata["namespace_id"],
+        )
         with self.connect() as conn:
-            existing = self._fetch_existing_by_dedupe_key(conn, "excerpts", payload.dedupe_key)
+            rows = self._require_mutation_relationships(
+                conn,
+                [
+                    ("questions", payload.question_id),
+                    ("sources", source.id),
+                    ("research_sessions", payload.session_id),
+                    ("topics", payload.topic_id),
+                ],
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
+            question = self._question_from_row(
+                rows[("questions", payload.question_id)]
+            )
+            topic_id = payload.topic_id or question.topic_id
+            self._require_mutation_relationships(
+                conn,
+                [("topics", topic_id)],
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
+            existing = self._fetch_existing_by_dedupe_key(
+                conn,
+                "excerpts",
+                payload.dedupe_key,
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
             if existing:
+                if _source_version_id is not None:
+                    V2BackfillRepository(conn).project_imported_excerpt(
+                        existing["id"],
+                        source_version_id=_source_version_id,
+                        evidence_id=self._new_id("evd"),
+                    )
                 return self._excerpt_from_row(existing)
             excerpt_id = self._new_id("ex")
             created_at = utc_now()
@@ -478,12 +700,21 @@ class RegistryService:
                     metadata["api_key_id"],
                     metadata["public_namespace_slug"],
                     self._public_index_state_for_visibility(payload.visibility),
-                    payload.dedupe_key,
+                    dedupe_key,
                     0,
                     created_at.isoformat(),
                 ),
             )
             row = conn.execute("SELECT * FROM excerpts WHERE id = ?", (excerpt_id,)).fetchone()
+            if _source_version_id is not None:
+                V2BackfillRepository(conn).project_imported_excerpt(
+                    excerpt_id,
+                    source_version_id=_source_version_id,
+                    evidence_id=self._new_id("evd"),
+                )
+            elif _project_v2 and self._v2_dual_write_ready(conn):
+                V2BackfillRepository(conn).project_legacy_write("excerpt", excerpt_id)
+            rebuild_search_documents(conn)
         return self._excerpt_from_row(row)
 
     def get_excerpt(
@@ -500,15 +731,44 @@ class RegistryService:
         return self._excerpt_from_row(row)
 
     def create_claim(self, payload: ClaimCreate, auth: AuthContext | None = None) -> ClaimRecord:
-        question = self.get_question(payload.question_id, include_private=True)
-        excerpt_ids = []
-        for excerpt_id in payload.excerpt_ids:
-            excerpt = self.get_excerpt(excerpt_id, include_private=True)
-            excerpt_ids.append(excerpt.id)
-        topic_id = payload.topic_id or question.topic_id
+        payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
+        dedupe_key = self._scoped_dedupe_key(
+            payload.dedupe_key,
+            metadata["namespace_kind"],
+            metadata["namespace_id"],
+        )
         with self.connect() as conn:
-            existing = self._fetch_existing_by_dedupe_key(conn, "claims", payload.dedupe_key)
+            references = [
+                ("questions", payload.question_id),
+                ("research_sessions", payload.session_id),
+                ("topics", payload.topic_id),
+                *(("excerpts", excerpt_id) for excerpt_id in payload.excerpt_ids),
+            ]
+            rows = self._require_mutation_relationships(
+                conn,
+                references,
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
+            question = self._question_from_row(
+                rows[("questions", payload.question_id)]
+            )
+            excerpt_ids = list(payload.excerpt_ids)
+            topic_id = payload.topic_id or question.topic_id
+            self._require_mutation_relationships(
+                conn,
+                [("topics", topic_id)],
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
+            existing = self._fetch_existing_by_dedupe_key(
+                conn,
+                "claims",
+                payload.dedupe_key,
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
             if existing:
                 return self._claim_from_row(existing)
             claim_id = self._new_id("clm")
@@ -549,7 +809,7 @@ class RegistryService:
                     metadata["api_key_id"],
                     metadata["public_namespace_slug"],
                     self._public_index_state_for_visibility(payload.visibility),
-                    payload.dedupe_key,
+                    dedupe_key,
                     0,
                     created_at.isoformat(),
                 ),
@@ -563,6 +823,9 @@ class RegistryService:
                     (claim_id, excerpt_id, None, 1.0),
                 )
             row = conn.execute("SELECT * FROM claims WHERE id = ?", (claim_id,)).fetchone()
+            if self._v2_dual_write_ready(conn):
+                V2BackfillRepository(conn).project_legacy_write("claim", claim_id)
+            rebuild_search_documents(conn)
         return self._claim_from_row(row)
 
     def get_claim(
@@ -579,11 +842,37 @@ class RegistryService:
         return self._claim_from_row(row)
 
     def create_report(self, payload: ReportCreate, auth: AuthContext | None = None) -> ReportRecord:
-        question = self.get_question(payload.question_id, include_private=True)
-        claim_ids = [self.get_claim(claim_id, include_private=True).id for claim_id in payload.claim_ids]
+        payload = self._govern_authenticated_create(payload, auth)
         metadata = self._write_metadata(payload.namespace_kind, payload.namespace_id, auth)
+        dedupe_key = self._scoped_dedupe_key(
+            payload.dedupe_key,
+            metadata["namespace_kind"],
+            metadata["namespace_id"],
+        )
         with self.connect() as conn:
-            existing = self._fetch_existing_by_dedupe_key(conn, "reports", payload.dedupe_key)
+            references = [
+                ("questions", payload.question_id),
+                ("research_sessions", payload.session_id),
+                ("reports", payload.refresh_of_report_id),
+                *(("claims", claim_id) for claim_id in payload.claim_ids),
+            ]
+            rows = self._require_mutation_relationships(
+                conn,
+                references,
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
+            question = self._question_from_row(
+                rows[("questions", payload.question_id)]
+            )
+            claim_ids = list(payload.claim_ids)
+            existing = self._fetch_existing_by_dedupe_key(
+                conn,
+                "reports",
+                payload.dedupe_key,
+                namespace_kind=metadata["namespace_kind"],
+                namespace_id=metadata["namespace_id"],
+            )
             if existing:
                 return self._report_from_row(existing)
             report_id = self._new_id("rpt")
@@ -624,7 +913,7 @@ class RegistryService:
                     metadata["api_key_id"],
                     metadata["public_namespace_slug"],
                     self._public_index_state_for_visibility(payload.visibility),
-                    payload.dedupe_key,
+                    dedupe_key,
                     0,
                     created_at.isoformat(),
                 ),
@@ -635,7 +924,16 @@ class RegistryService:
                     (report_id, claim_id),
                 )
             row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
-        self.set_question_status(question.id, "answered")
+            if self._v2_dual_write_ready(conn):
+                V2BackfillRepository(conn).project_legacy_write("report", report_id)
+            rebuild_search_documents(conn)
+        self.set_question_status(
+            question.id,
+            "answered",
+            auth=auth,
+            namespace_kind=question.namespace_kind,
+            namespace_id=question.namespace_id,
+        )
         return self._report_from_row(row)
 
     def get_report(
@@ -819,6 +1117,7 @@ class RegistryService:
             namespace_kind=payload.namespace_kind,
             namespace_id=payload.namespace_id,
             auth=auth,
+            captured_candidate=candidate,
         )
 
     def import_doi(self, payload: ImportDoiRequest, auth: AuthContext | None = None) -> ImportResult:
@@ -833,6 +1132,7 @@ class RegistryService:
             namespace_kind=payload.namespace_kind,
             namespace_id=payload.namespace_id,
             auth=auth,
+            captured_candidate=candidate,
         )
 
     def import_bibtex(self, payload: ImportBibtexRequest, auth: AuthContext | None = None) -> ImportResult:
@@ -930,8 +1230,8 @@ class RegistryService:
             ResearchSessionCreate(
                 question_id=question.id,
                 prompt=question.prompt,
-                model_name="gpt-5.4",
-                model_version="2026-04-10",
+                model_name="unknown",
+                model_version="unknown",
                 mode="live_research" if live_result.hits else "insufficient_evidence",
                 refresh_of_session_id=prior_session_id,
                 source_signals=[f"refresh:{existing.id}"],
@@ -942,7 +1242,13 @@ class RegistryService:
             auth=auth,
         )
         if not live_result.hits:
-            self.set_question_status(question.id, "insufficient_evidence")
+            self.set_question_status(
+                question.id,
+                "insufficient_evidence",
+                auth=auth,
+                namespace_kind=question.namespace_kind,
+                namespace_id=question.namespace_id,
+            )
             return existing
 
         created_sources: dict[str, str] = {}
@@ -1036,15 +1342,63 @@ class RegistryService:
             ),
             auth=auth,
         )
-        self.set_question_status(question.id, "answered")
+        self.set_question_status(
+            question.id,
+            "answered",
+            auth=auth,
+            namespace_kind=question.namespace_kind,
+            namespace_id=question.namespace_id,
+        )
         return refreshed
 
     def publish(self, payload: PublishRequest, auth: AuthContext | None = None) -> None:
         if auth is not None and not auth.has_scope("publish"):
             raise PermissionError("publish scope required")
         canonical_kind = self._canonical_kind(payload.kind)
-        self._assert_publish_ready(canonical_kind, payload.record_id)
         with self.connect() as conn:
+            target_table = self._table_name(canonical_kind)
+            target = conn.execute(
+                f"""
+                SELECT namespace_kind, namespace_id
+                FROM {target_table}
+                WHERE id = ?
+                """,
+                (payload.record_id,),
+            ).fetchone()
+            if target is None:
+                raise PermissionError(
+                    "record is not available for this mutation"
+                )
+            if auth is None:
+                namespace_kind = target["namespace_kind"]
+                namespace_id = target["namespace_id"]
+            elif auth.is_admin:
+                if (
+                    payload.namespace_kind is None
+                    or payload.namespace_id is None
+                ):
+                    raise PermissionError(
+                        "admin publish requires an explicit namespace"
+                    )
+                namespace_kind = payload.namespace_kind
+                namespace_id = payload.namespace_id
+            else:
+                namespace_kind = auth.namespace_kind
+                namespace_id = auth.namespace_id
+            graph = self._collect_publish_graph(
+                conn, canonical_kind, payload.record_id
+            )
+            self._require_mutation_relationships(
+                conn,
+                [
+                    (self._table_name(kind), record_id)
+                    for kind, record_id in graph
+                ],
+                namespace_kind=namespace_kind,
+                namespace_id=namespace_id,
+            )
+            self._assert_alpha_publishable_graph(conn, graph)
+            self._assert_publish_graph_ready(conn, graph)
             self._set_visibility(conn, canonical_kind, payload.record_id, "public", include_in_global_index=payload.include_in_global_index)
             if payload.cascade_linked_sources:
                 self._cascade_publish(conn, canonical_kind, payload.record_id, include_in_global_index=payload.include_in_global_index)
@@ -1057,8 +1411,187 @@ class RegistryService:
                 details={"include_in_global_index": payload.include_in_global_index},
             )
 
+    def _assert_alpha_publishable_graph(
+        self,
+        conn: Any,
+        graph: set[tuple[str, str]],
+    ) -> None:
+        """Fail closed for native-v2 publication until its graph is versioned."""
+        native_ids: set[str] = set()
+        rows = conn.execute(
+            """
+            SELECT response_json
+            FROM idempotency_keys
+            WHERE operation = 'research_deposit_v2'
+            """
+        ).fetchall()
+        for row in rows:
+            try:
+                response = json.loads(row["response_json"])
+            except (AttributeError, TypeError, json.JSONDecodeError):
+                raise PermissionError(
+                    "native v2 publication state is unavailable"
+                ) from None
+            if isinstance(response, dict) and set(response) == {"reservation"}:
+                continue
+            records = response.get("records") if isinstance(response, dict) else None
+            if not isinstance(records, dict):
+                raise PermissionError(
+                    "native v2 publication state is unavailable"
+                )
+            for value in records.values():
+                if isinstance(value, str):
+                    native_ids.add(value)
+                elif isinstance(value, dict):
+                    native_ids.update(
+                        item for item in value.values() if isinstance(item, str)
+                    )
+        for kind, record_id in graph:
+            if record_id in native_ids:
+                raise PermissionError(
+                    "native v2 publication is disabled for this alpha"
+                )
+            if kind == "claim":
+                revision = conn.execute(
+                    """
+                    SELECT cr.metadata_json
+                    FROM claims c
+                    JOIN claim_revisions cr ON cr.id = c.current_revision_id
+                    WHERE c.id = ?
+                    """,
+                    (record_id,),
+                ).fetchone()
+                if revision is not None:
+                    try:
+                        metadata = json.loads(revision["metadata_json"])
+                    except (TypeError, json.JSONDecodeError):
+                        raise PermissionError(
+                            "native v2 publication state is unavailable"
+                        ) from None
+                    if isinstance(metadata, dict) and metadata.get(
+                        "review_action"
+                    ) is not None:
+                        raise PermissionError(
+                            "native v2 publication is disabled for this alpha"
+                        )
+            if kind != "excerpt":
+                continue
+            mapped = conn.execute(
+                """
+                SELECT v2_id
+                FROM legacy_projection_identity
+                WHERE legacy_kind = 'excerpt' AND legacy_id = ?
+                  AND v2_kind = 'evidence'
+                """,
+                (record_id,),
+            ).fetchone()
+            if mapped is not None and mapped["v2_id"] in native_ids:
+                raise PermissionError(
+                    "native v2 publication is disabled for this alpha"
+                )
+
+    def record_namespace(
+        self,
+        kind: RecordKind,
+        record_id: str,
+    ) -> tuple[str, str]:
+        """Resolve a retained record's namespace for trusted server-side flows."""
+        canonical_kind = self._canonical_kind(kind)
+        if canonical_kind is None:  # pragma: no cover - closed RecordKind contract
+            raise KeyError("record not found")
+        table = self._table_name(canonical_kind)
+        with self.connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT namespace_kind, namespace_id
+                FROM {table}
+                WHERE id = ?
+                """,
+                (record_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError("record not found")
+        return row["namespace_kind"], row["namespace_id"]
+
+    def v2_review_entity_namespace(
+        self,
+        entity_kind: str,
+        entity_id: str,
+    ) -> tuple[str, str]:
+        """Resolve v2 review ownership for the trusted global admin UI.
+
+        Remote API and MCP callers do not use this resolver; they remain bound
+        to their authenticated namespace. The review service still performs
+        the final namespace-scoped lookup after this server-side resolution.
+        """
+        with self.connect() as conn:
+            namespace = self._v2_review_owner_namespace(
+                conn,
+                entity_kind,
+                entity_id,
+                seen=set(),
+            )
+        if namespace is None:
+            raise KeyError("review target not found")
+        return namespace
+
     def review(self, payload: ReviewRequest, auth: AuthContext | None = None) -> None:
         canonical_kind = self._canonical_kind(payload.kind)
+        target = self._v2_review_target(canonical_kind, payload.record_id)
+        if target is not None:
+            if not payload.reviewed:
+                raise PermissionError(
+                    "projected v2 review history is append-only; reviewed=false "
+                    "cannot erase an existing decision"
+                )
+            if target["review_state"] == "reviewed":
+                return
+            actor_id = (
+                auth.api_key_id
+                if auth is not None and auth.api_key_id is not None
+                else auth.actor_user_id
+                if auth is not None and auth.actor_user_id is not None
+                else auth.actor_org_id
+                if auth is not None
+                else None
+            )
+            result = ResearchReviewService(self.database).review(
+                ResearchReviewRequest(
+                    protocol="research-review/v2",
+                    idempotency_key=self._legacy_review_idempotency_key(
+                        canonical_kind,
+                        payload.record_id,
+                        target["entity_id"],
+                        target["review_state"],
+                        "approve",
+                    ),
+                    entity={
+                        "kind": target["entity_kind"],
+                        "id": target["entity_id"],
+                    },
+                    action="approve",
+                    expected_revision_id=target["expected_revision_id"],
+                    expected_state=target["review_state"],
+                    note="Retained v1 HTTP review compatibility operation.",
+                ),
+                namespace_kind=target["namespace_kind"],
+                namespace_id=target["namespace_id"],
+                actor_type="human" if auth and auth.actor_user_id else "agent",
+                actor_id=actor_id,
+            )
+            with self.connect() as conn:
+                self._record_audit(
+                    conn,
+                    action="review",
+                    kind=canonical_kind,
+                    record_id=payload.record_id,
+                    auth=auth,
+                    details={
+                        "reviewed": True,
+                        "v2_review_event_id": result.event_id,
+                    },
+                )
+            return
         table_name = self._table_name(canonical_kind)
         with self.connect() as conn:
             if self._column_exists(conn, table_name, "human_reviewed"):
@@ -1079,6 +1612,105 @@ class RegistryService:
                 auth=auth,
                 details={"reviewed": payload.reviewed},
             )
+
+    def _legacy_review_idempotency_key(
+        self,
+        kind: str,
+        record_id: str,
+        entity_id: str,
+        expected_state: str,
+        action: str,
+    ) -> str:
+        digest = sha256(
+            (
+                "legacy-http-review:"
+                f"{kind}:{record_id}:{entity_id}:{expected_state}:{action}"
+            ).encode()
+        ).hexdigest()
+        return f"legacy-http-review-{digest}"
+
+    def _v2_review_target(
+        self, kind: str, record_id: str
+    ) -> dict[str, str | None] | None:
+        with self.connect() as conn:
+            if "review_events" not in self._list_tables(conn):
+                return None
+            if kind == "claim":
+                row = conn.execute(
+                    """
+                    SELECT current_revision_id AS entity_id, review_state,
+                           namespace_kind, namespace_id
+                    FROM claims
+                    WHERE id = ? AND current_revision_id IS NOT NULL
+                    """,
+                    (record_id,),
+                ).fetchone()
+                entity_kind = "claim_revision"
+            elif kind == "source":
+                row = conn.execute(
+                    """
+                    SELECT sv.id AS entity_id,
+                           'unreviewed' AS review_state,
+                           s.namespace_kind, s.namespace_id
+                    FROM source_versions sv
+                    JOIN sources s ON s.id = sv.source_id
+                    WHERE s.id = ?
+                    ORDER BY sv.retrieved_at DESC, sv.created_at DESC, sv.id DESC
+                    LIMIT 1
+                    """,
+                    (record_id,),
+                ).fetchone()
+                entity_kind = "source_version"
+            elif kind == "excerpt":
+                row = conn.execute(
+                    """
+                    SELECT e.id AS entity_id, e.review_state,
+                           s.namespace_kind, s.namespace_id
+                    FROM legacy_projection_identity lpi
+                    JOIN evidence_spans e
+                      ON e.id = lpi.v2_id AND lpi.v2_kind = 'evidence'
+                    JOIN source_versions sv ON sv.id = e.source_version_id
+                    JOIN sources s ON s.id = sv.source_id
+                    WHERE lpi.legacy_kind = 'excerpt'
+                      AND lpi.legacy_id = ?
+                    """,
+                    (record_id,),
+                ).fetchone()
+                entity_kind = "evidence"
+            elif kind == "report":
+                row = conn.execute(
+                    """
+                    SELECT r.id AS entity_id, r.review_state,
+                           r.namespace_kind, r.namespace_id
+                    FROM legacy_projection_identity lpi
+                    JOIN reports r ON r.id = lpi.v2_id
+                    WHERE lpi.legacy_kind = 'report'
+                      AND lpi.legacy_id = ?
+                      AND lpi.v2_kind = 'report'
+                    """,
+                    (record_id,),
+                ).fetchone()
+                entity_kind = "report"
+            else:
+                return None
+            if row is None:
+                return None
+            effective_review_state = latest_effective_review_state(
+                conn,
+                entity_kind=entity_kind,
+                entity_id=row["entity_id"],
+                fallback=row["review_state"],
+            )
+        return {
+            "entity_kind": entity_kind,
+            "entity_id": row["entity_id"],
+            "expected_revision_id": (
+                row["entity_id"] if entity_kind == "claim_revision" else None
+            ),
+            "review_state": effective_review_state,
+            "namespace_kind": row["namespace_kind"],
+            "namespace_id": row["namespace_id"],
+        }
 
     def set_index_state(self, payload: IndexStateRequest, auth: AuthContext | None = None) -> None:
         if auth is not None and not auth.is_admin:
@@ -1110,7 +1742,12 @@ class RegistryService:
         namespace_kind: str,
         namespace_id: str,
         auth: AuthContext | None,
+        captured_candidate: ImportedSourceCandidate | None = None,
     ) -> ImportResult:
+        has_captured_version = (
+            captured_candidate is not None
+            and captured_candidate.version is not None
+        )
         source_record = self.create_source(
             source.model_copy(
                 update={
@@ -1120,7 +1757,24 @@ class RegistryService:
                 }
             ),
             auth=auth,
+            _project_v2=not has_captured_version,
         )
+        source_version_id: str | None = None
+        if has_captured_version:
+            assert captured_candidate is not None
+            source_version_id = self._persist_imported_version(
+                captured_candidate,
+                source_record.id,
+            )
+            assert source_version_id is not None
+            with self.connect() as conn:
+                V2BackfillRepository(conn).record_projection_identity(
+                    "source",
+                    source_record.id,
+                    "source_version",
+                    source_version_id,
+                    update_existing=True,
+                )
         excerpt_ids: list[str] = []
         if question_id and excerpt_text:
             question = self.get_question(question_id, include_private=True, auth=auth)
@@ -1134,10 +1788,19 @@ class RegistryService:
                     quote_text=excerpt_text,
                     namespace_kind=namespace_kind,
                     namespace_id=namespace_id,
-                    dedupe_key=f"import-excerpt:{question.id}:{source_record.id}",
+                    dedupe_key=(
+                        f"import-excerpt:{question.id}:{source_record.id}"
+                        + (
+                            f":{source_version_id}"
+                            if source_version_id is not None
+                            else ""
+                        )
+                    ),
                     refresh_due_at=source_record.refresh_due_at,
                 ),
                 auth=auth,
+                _project_v2=not has_captured_version,
+                _source_version_id=source_version_id,
             )
             excerpt_ids.append(excerpt.id)
         elif question_id and not excerpt_text:
@@ -1149,6 +1812,28 @@ class RegistryService:
             review_state=source_record.review_state,
             question_id=question_id,
         )
+
+    def _persist_imported_version(
+        self,
+        candidate: ImportedSourceCandidate,
+        source_id: str,
+    ) -> str | None:
+        if candidate.version is None:
+            return None
+        if self.db_path is not None:
+            blob_root = self.db_path.parent / "blobs"
+        else:
+            blob_root = (
+                Path(os.getenv("RESEARCH_REGISTRY_DATA_DIR", ".data"))
+                .expanduser()
+                .resolve()
+                / "blobs"
+            )
+        result = SourceVersionService(
+            self.database,
+            FilesystemBlobStore(blob_root),
+        ).create_or_reuse(candidate.version.source_version_spec(source_id))
+        return result.record.id
 
     def _create_follow_up_questions(
         self,
@@ -1262,20 +1947,32 @@ class RegistryService:
         )
         return follow_ups[:5]
 
-    def _assert_publish_ready(self, kind: str, record_id: str) -> None:
-        source_ids: list[str] = []
-        if kind == "source":
-            source_ids = [record_id]
-        elif kind == "excerpt":
-            source_ids = [self.get_excerpt(record_id, include_private=True).source_id]
-        elif kind == "claim":
-            source_ids = [excerpt.source_id for excerpt in self.list_excerpts_for_claim(record_id, include_private=True)]
-        elif kind == "report":
-            source_ids = self.get_report(record_id, include_private=True).source_ids
-        for source_id in sorted(set(source_ids)):
-            source = self.get_source(source_id, include_private=True)
-            if source.snapshot_required and not source.snapshot_present:
-                raise PermissionError(f"source {source.id} requires a snapshot before publishing")
+    def _assert_publish_graph_ready(
+        self,
+        conn: DbConnection,
+        graph: set[tuple[str, str]],
+    ) -> None:
+        source_ids = sorted(
+            record_id
+            for kind, record_id in graph
+            if kind == "source"
+        )
+        for source_id in source_ids:
+            source = conn.execute(
+                """
+                SELECT snapshot_required, snapshot_present
+                FROM sources WHERE id = ?
+                """,
+                (source_id,),
+            ).fetchone()
+            if (
+                source is not None
+                and source["snapshot_required"]
+                and not source["snapshot_present"]
+            ):
+                raise PermissionError(
+                    "linked source requires a snapshot before publishing"
+                )
 
     def seed_demo(self) -> dict[str, str]:
         if self.search("zebra", include_private=True).hits:
@@ -1286,8 +1983,8 @@ class RegistryService:
             ResearchSessionCreate(
                 question_id=question.id,
                 prompt=question.prompt,
-                model_name="gpt-5.4",
-                model_version="2026-04-10",
+                model_name="unknown",
+                model_version="unknown",
                 mode="live_research",
                 notes="demo seed",
             )
@@ -1456,13 +2153,15 @@ class RegistryService:
             raise PermissionError("invalid api key")
         if row["status"] != "active":
             raise PermissionError("api key is not active")
+        scopes = json.loads(row["scopes_json"])
         return AuthContext(
             api_key_id=row["id"],
             actor_user_id=row["actor_user_id"],
             actor_org_id=row["actor_org_id"],
             namespace_kind=row["namespace_kind"],
             namespace_id=row["namespace_id"],
-            scopes=json.loads(row["scopes_json"]),
+            scopes=scopes,
+            is_admin="admin" in scopes,
         )
 
     def _create_schema_legacy(self, conn: DbConnection) -> None:
@@ -1910,6 +2609,25 @@ class RegistryService:
         ).fetchall()
         return {row["name"] for row in rows}
 
+    def _v2_dual_write_ready(self, conn: DbConnection) -> bool:
+        tables = self._list_tables(conn)
+        if not {
+            "source_versions",
+            "migration_backfill_progress",
+        } <= tables:
+            return False
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM migration_backfill_progress
+            WHERE status <> 'completed'
+            """
+        ).fetchone()
+        completed = conn.execute(
+            "SELECT COUNT(*) AS count FROM migration_backfill_progress"
+        ).fetchone()
+        return int(completed["count"]) > 0 and int(row["count"]) == 0
+
     def _column_exists(self, conn: DbConnection, table: str, column: str) -> bool:
         if self.database.kind == "sqlite":
             rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -2265,19 +2983,36 @@ class RegistryService:
         with self.connect() as conn:
             session_rows = conn.execute(
                 f"""
-                SELECT id, question_id, expires_at, freshness_state, created_at
-                FROM research_sessions
-                WHERE question_id IN ({placeholders})
-                ORDER BY question_id ASC, created_at DESC
+                SELECT rs.id, rs.question_id, rs.expires_at,
+                       rs.freshness_state, rs.created_at
+                FROM research_sessions rs
+                JOIN questions q ON q.id = rs.question_id
+                WHERE rs.question_id IN ({placeholders})
+                  AND (
+                      q.visibility <> 'public'
+                      OR (
+                          rs.visibility = 'public'
+                          AND rs.public_index_state <> 'suppressed'
+                      )
+                  )
+                ORDER BY rs.question_id ASC, rs.created_at DESC
                 """,
                 tuple(question_ids),
             ).fetchall()
             report_rows = conn.execute(
                 f"""
-                SELECT id, question_id, created_at
-                FROM reports
-                WHERE question_id IN ({placeholders})
-                ORDER BY question_id ASC, created_at DESC
+                SELECT r.id, r.question_id, r.created_at
+                FROM reports r
+                JOIN questions q ON q.id = r.question_id
+                WHERE r.question_id IN ({placeholders})
+                  AND (
+                      q.visibility <> 'public'
+                      OR (
+                          r.visibility = 'public'
+                          AND r.public_index_state <> 'suppressed'
+                      )
+                  )
+                ORDER BY r.question_id ASC, r.created_at DESC
                 """,
                 tuple(question_ids),
             ).fetchall()
@@ -2551,7 +3286,9 @@ class RegistryService:
 
     def _resolve_source(self, payload: ExcerptCreate, auth: AuthContext | None = None) -> SourceRecord:
         if payload.source_id:
-            return self.get_source(payload.source_id, include_private=True)
+            return self.get_source(
+                payload.source_id, include_private=True, auth=auth
+            )
         assert payload.source is not None
         return self.create_source(payload.source, auth=auth)
 
@@ -2629,6 +3366,75 @@ class RegistryService:
             """,
             (visibility, public_namespace_slug, public_index_state, record_id),
         )
+
+    def _collect_publish_graph(
+        self,
+        conn: DbConnection,
+        kind: str,
+        record_id: str,
+    ) -> set[tuple[str, str]]:
+        graph: set[tuple[str, str]] = set()
+        pending = [(kind, record_id)]
+        while pending:
+            current_kind, current_id = pending.pop()
+            node = (current_kind, current_id)
+            if node in graph:
+                continue
+            graph.add(node)
+            if current_kind == "source":
+                continue
+            if current_kind == "excerpt":
+                row = conn.execute(
+                    """
+                    SELECT source_id, question_id
+                    FROM excerpts WHERE id = ?
+                    """,
+                    (current_id,),
+                ).fetchone()
+                if row is not None:
+                    pending.extend(
+                        [
+                            ("source", row["source_id"]),
+                            ("question", row["question_id"]),
+                        ]
+                    )
+                continue
+            if current_kind == "claim":
+                row = conn.execute(
+                    "SELECT question_id FROM claims WHERE id = ?",
+                    (current_id,),
+                ).fetchone()
+                if row is not None:
+                    pending.append(("question", row["question_id"]))
+                pending.extend(
+                    ("excerpt", item["excerpt_id"])
+                    for item in conn.execute(
+                        """
+                        SELECT excerpt_id FROM claim_excerpts
+                        WHERE claim_id = ?
+                        """,
+                        (current_id,),
+                    ).fetchall()
+                )
+                continue
+            if current_kind == "report":
+                row = conn.execute(
+                    "SELECT question_id FROM reports WHERE id = ?",
+                    (current_id,),
+                ).fetchone()
+                if row is not None:
+                    pending.append(("question", row["question_id"]))
+                pending.extend(
+                    ("claim", item["claim_id"])
+                    for item in conn.execute(
+                        """
+                        SELECT claim_id FROM report_claims
+                        WHERE report_id = ?
+                        """,
+                        (current_id,),
+                    ).fetchall()
+                )
+        return graph
 
     def _cascade_publish(
         self,
@@ -2783,13 +3589,31 @@ class RegistryService:
         )
 
     def _question_from_row(self, row: Any) -> QuestionRecord:
+        child_visibility_sql = (
+            " AND visibility = 'public'"
+            " AND public_index_state <> 'suppressed'"
+            if row["visibility"] == "public"
+            else ""
+        )
         with self.connect() as conn:
             latest_session = conn.execute(
-                "SELECT id, expires_at, freshness_state FROM research_sessions WHERE question_id = ? ORDER BY created_at DESC LIMIT 1",
+                """
+                SELECT id, expires_at, freshness_state
+                FROM research_sessions
+                WHERE question_id = ?
+                """
+                + child_visibility_sql
+                + " ORDER BY created_at DESC LIMIT 1",
                 (row["id"],),
             ).fetchone()
             latest_report = conn.execute(
-                "SELECT id FROM reports WHERE question_id = ? ORDER BY created_at DESC LIMIT 1",
+                """
+                SELECT id
+                FROM reports
+                WHERE question_id = ?
+                """
+                + child_visibility_sql
+                + " ORDER BY created_at DESC LIMIT 1",
                 (row["id"],),
             ).fetchone()
         latest_session_freshness_state, latest_session_expires_at, latest_session_is_stale = self._session_freshness_from_row(latest_session)
@@ -3069,13 +3893,233 @@ class RegistryService:
             "public_namespace_slug": resolved_namespace_id,
         }
 
+    def _govern_authenticated_create(
+        self,
+        payload: Any,
+        auth: AuthContext | None,
+    ) -> Any:
+        """Keep retained authenticated writes behind review/publication gates.
+
+        Trusted migration and local compatibility callers use ``auth=None`` and
+        may preserve historic state. Any authenticated create is a remote
+        ingest operation: it begins private, unreviewed, non-conflicted, and
+        without caller-authoritative trust.
+        """
+        if auth is None:
+            return payload
+        fields = type(payload).model_fields
+        updates: dict[str, object] = {}
+        if "visibility" in fields:
+            updates["visibility"] = "private"
+        if "review_state" in fields:
+            updates["review_state"] = "unreviewed"
+        if "conflict_state" in fields:
+            updates["conflict_state"] = "none"
+        if "trust_tier" in fields:
+            if isinstance(payload, SourceCreate):
+                updates["trust_tier"] = default_trust_tier_for_source_type(
+                    payload.source_type
+                )
+            else:
+                updates["trust_tier"] = "low"
+        return payload.model_copy(update=updates)
+
+    def _v2_review_owner_namespace(
+        self,
+        conn: DbConnection,
+        entity_kind: str,
+        entity_id: str,
+        *,
+        seen: set[tuple[str, str]],
+    ) -> tuple[str, str] | None:
+        target = (entity_kind, entity_id)
+        if target in seen:
+            return None
+        seen.add(target)
+        if entity_kind == "claim_revision":
+            row = conn.execute(
+                """
+                SELECT c.namespace_kind, c.namespace_id
+                FROM claim_revisions cr
+                JOIN claims c ON c.id = cr.claim_id
+                WHERE cr.id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+        elif entity_kind == "claim":
+            row = conn.execute(
+                """
+                SELECT namespace_kind, namespace_id
+                FROM claims WHERE id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+        elif entity_kind == "evidence":
+            row = conn.execute(
+                """
+                SELECT s.namespace_kind, s.namespace_id
+                FROM evidence_spans e
+                JOIN source_versions sv ON sv.id = e.source_version_id
+                JOIN sources s ON s.id = sv.source_id
+                WHERE e.id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+        elif entity_kind == "source_version":
+            row = conn.execute(
+                """
+                SELECT s.namespace_kind, s.namespace_id
+                FROM source_versions sv
+                JOIN sources s ON s.id = sv.source_id
+                WHERE sv.id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+        elif entity_kind == "source":
+            row = conn.execute(
+                """
+                SELECT namespace_kind, namespace_id
+                FROM sources WHERE id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+        elif entity_kind == "report":
+            row = conn.execute(
+                """
+                SELECT namespace_kind, namespace_id
+                FROM reports WHERE id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+        elif entity_kind == "refresh_item":
+            item = conn.execute(
+                """
+                SELECT entity_kind, entity_id
+                FROM refresh_queue WHERE id = ?
+                """,
+                (entity_id,),
+            ).fetchone()
+            if item is None:
+                return None
+            return self._v2_review_owner_namespace(
+                conn,
+                item["entity_kind"],
+                item["entity_id"],
+                seen=seen,
+            )
+        else:
+            return None
+        if row is None:
+            return None
+        return row["namespace_kind"], row["namespace_id"]
+
     def _row_namespace_matches_auth(self, row: Any, auth: AuthContext) -> bool:
         return row["namespace_kind"] == auth.namespace_kind and row["namespace_id"] == auth.namespace_id
 
-    def _fetch_existing_by_dedupe_key(self, conn: DbConnection, table: str, dedupe_key: str | None) -> Any | None:
+    def _selected_mutation_namespace(
+        self,
+        auth: AuthContext,
+        *,
+        namespace_kind: str | None,
+        namespace_id: str | None,
+    ) -> tuple[str, str]:
+        if not auth.is_admin:
+            return auth.namespace_kind, auth.namespace_id
+        if namespace_kind is None or namespace_id is None:
+            raise PermissionError(
+                "admin mutation requires an explicit namespace"
+            )
+        return namespace_kind, namespace_id
+
+    def _require_mutation_relationships(
+        self,
+        conn: DbConnection,
+        references: Iterable[tuple[str, str | None]],
+        *,
+        namespace_kind: str | None,
+        namespace_id: str | None,
+    ) -> dict[tuple[str, str], Any]:
+        if namespace_kind is None or namespace_id is None:
+            raise PermissionError("mutation namespace is required")
+        rows: dict[tuple[str, str], Any] = {}
+        allowed_tables = {
+            "topics",
+            "questions",
+            "research_sessions",
+            "sources",
+            "excerpts",
+            "claims",
+            "reports",
+        }
+        for table, record_id in references:
+            if record_id is None:
+                continue
+            if table not in allowed_tables:  # pragma: no cover
+                raise ValueError(f"unsupported mutation relationship: {table}")
+            row = conn.execute(
+                f"""
+                SELECT * FROM {table}
+                WHERE id = ? AND namespace_kind = ? AND namespace_id = ?
+                """,
+                (record_id, namespace_kind, namespace_id),
+            ).fetchone()
+            if row is None:
+                raise PermissionError(
+                    "referenced record is not available for this mutation"
+                )
+            rows[(table, record_id)] = row
+        return rows
+
+    def _scoped_dedupe_key(
+        self,
+        dedupe_key: str | None,
+        namespace_kind: str | None,
+        namespace_id: str | None,
+    ) -> str | None:
         if not dedupe_key:
             return None
-        return conn.execute(f"SELECT * FROM {table} WHERE dedupe_key = ? LIMIT 1", (dedupe_key,)).fetchone()
+        if namespace_kind is None or namespace_id is None:
+            raise PermissionError("mutation namespace is required")
+        prefix = (
+            f"namespace:{namespace_kind}:{len(namespace_id)}:"
+            f"{namespace_id}:"
+        )
+        return (
+            dedupe_key
+            if dedupe_key.startswith(prefix)
+            else f"{prefix}{dedupe_key}"
+        )
+
+    def _fetch_existing_by_dedupe_key(
+        self,
+        conn: DbConnection,
+        table: str,
+        dedupe_key: str | None,
+        *,
+        namespace_kind: str | None,
+        namespace_id: str | None,
+    ) -> Any | None:
+        if not dedupe_key:
+            return None
+        scoped = self._scoped_dedupe_key(
+            dedupe_key, namespace_kind, namespace_id
+        )
+        return conn.execute(
+            f"""
+            SELECT * FROM {table}
+            WHERE namespace_kind = ? AND namespace_id = ?
+              AND dedupe_key IN (?, ?)
+            ORDER BY CASE WHEN dedupe_key = ? THEN 0 ELSE 1 END
+            LIMIT 1
+            """,
+            (
+                namespace_kind,
+                namespace_id,
+                scoped,
+                dedupe_key,
+                scoped,
+            ),
+        ).fetchone()
 
     def _record_audit(
         self,
@@ -3108,7 +4152,7 @@ class RegistryService:
         )
 
     def _encode_dt(self, value: datetime | None) -> str | None:
-        return value.isoformat() if value else None
+        return utc_text(value) if value else None
 
     def _decode_dt(self, value: str | None) -> datetime | None:
         return datetime.fromisoformat(value) if value else None

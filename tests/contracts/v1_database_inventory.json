@@ -1,0 +1,1339 @@
+{
+  "contract": "research-registry-database-v1",
+  "database_kind": "sqlite",
+  "migrations": [
+    {
+      "checksum_sha256": "ea4c8ad9e9773fee7f19adc31a247ddc2aa4cbd14fd544418c80b802c6cf278e",
+      "migration_id": "0001_initial"
+    },
+    {
+      "checksum_sha256": "f360daa9ab2fc3a35b4157ab0766961e7ec7cf1699f4c144a21692f7b5dda54c",
+      "migration_id": "0002_workflows_and_trust"
+    }
+  ],
+  "tables": {
+    "api_keys": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "label",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "token_hash",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_user_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_org_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_kind",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "scopes_json",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "status",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "revoked_at",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    },
+    "audit_log": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "action",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "kind",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "record_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "api_key_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_user_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_org_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "details_json",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    },
+    "claim_excerpts": {
+      "columns": [
+        {
+          "name": "claim_id",
+          "nullable": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "excerpt_id",
+          "nullable": false,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "name": "rationale",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "weight",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "REAL"
+        }
+      ],
+      "row_count": 0
+    },
+    "claims": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "question_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "session_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "topic_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "title",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "focal_label",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "statement",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "status",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "confidence",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "REAL"
+        },
+        {
+          "name": "visibility",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "author_type",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "model_name",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "model_version",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_kind",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_user_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_org_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "api_key_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "public_namespace_slug",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "public_index_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "dedupe_key",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "human_reviewed",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "review_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "trust_tier",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "conflict_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "refresh_due_at",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    },
+    "excerpts": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "source_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "question_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "session_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "topic_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "focal_label",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "note",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "selector_json",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "quote_text",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "confidence",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "REAL"
+        },
+        {
+          "name": "tags_json",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "visibility",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "author_type",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "model_name",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "model_version",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_kind",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_user_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_org_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "api_key_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "public_namespace_slug",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "public_index_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "dedupe_key",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "human_reviewed",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "review_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "trust_tier",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "conflict_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "refresh_due_at",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    },
+    "org_memberships": {
+      "columns": [
+        {
+          "name": "org_id",
+          "nullable": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "user_id",
+          "nullable": false,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "name": "role",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    },
+    "organizations": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "display_name",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    },
+    "questions": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "topic_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "prompt",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "normalized_prompt",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "focus_json",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "status",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "parent_question_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "generated_by_session_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "generation_reason",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "priority_score",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "REAL"
+        },
+        {
+          "name": "visibility",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "author_type",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_kind",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_user_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_org_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "api_key_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "public_namespace_slug",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "public_index_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "dedupe_key",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "human_reviewed",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "follow_up_status",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    },
+    "report_claims": {
+      "columns": [
+        {
+          "name": "report_id",
+          "nullable": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "claim_id",
+          "nullable": false,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    },
+    "reports": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "question_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "session_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "title",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "focal_label",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "summary_md",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "report_kind",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "guidance_json",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "visibility",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "author_type",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "model_name",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "model_version",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_kind",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_user_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_org_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "api_key_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "public_namespace_slug",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "public_index_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "dedupe_key",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "human_reviewed",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "refresh_of_report_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "review_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "trust_tier",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "conflict_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "refresh_due_at",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    },
+    "research_sessions": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "question_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "prompt",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "model_name",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "model_version",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "mode",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "status",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "source_signals_json",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "notes",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "visibility",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "author_type",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_kind",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_user_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_org_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "api_key_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "public_namespace_slug",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "public_index_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "dedupe_key",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "ttl_days",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "name": "expires_at",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "freshness_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "refresh_of_session_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "started_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "finished_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    },
+    "schema_migrations": {
+      "columns": [
+        {
+          "name": "migration_id",
+          "nullable": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "checksum_sha256",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "applied_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 2
+    },
+    "sources": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "locator",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "title",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "source_type",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "site_name",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "published_at",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "accessed_at",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "author",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "snippet",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "content_sha256",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "snapshot_url",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "snapshot_required",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "name": "snapshot_present",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "name": "last_verified_at",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "visibility",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_kind",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_user_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "actor_org_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "api_key_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "public_namespace_slug",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "public_index_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "dedupe_key",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "review_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "trust_tier",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "conflict_state",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "refresh_due_at",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    },
+    "topics": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "label",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "slug",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "focus_json",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "parent_topic_id",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_kind",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "namespace_id",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "dedupe_key",
+          "nullable": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    },
+    "users": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "name": "display_name",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "row_count": 0
+    }
+  }
+}

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Search · Research Registry{% endblock %}
+{% block content %}
+<section class="hero compact">
+  <div>
+    <p class="eyebrow">Evidence ledger</p>
+    <h1>Search durable research</h1>
+    <p class="lede">Find current claims, exact evidence, immutable source versions, and reports. Stored material is untrusted content and is shown as text.</p>
+  </div>
+  <form class="search-form" action="/v2/search" method="get" role="search">
+    <label for="registry-query">Search by text, path, locator, or stable ID</label>
+    <div class="search-bar">
+      <input id="registry-query" type="search" name="q" value="{{ page.query }}" placeholder="Search the registry…" autofocus>
+      <button type="submit">Search</button>
+    </div>
+    <div class="filter-row">
+      <label>Kind
+        <select name="kind">
+          <option value="">All records</option>
+          {% for value in ("claim", "evidence", "source", "source_version", "report", "question") %}
+          <option value="{{ value }}" {% if page.kind == value %}selected{% endif %}>{{ value | replace("_", " ") }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Review
+        <select name="review_state">
+          <option value="">Any state</option>
+          {% for value in ("unreviewed", "reviewed", "flagged") %}
+          <option value="{{ value }}" {% if page.review_state == value %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Conflict
+        <select name="conflict_state">
+          <option value="">Any state</option>
+          {% for value in ("none", "conflicted", "resolved") %}
+          <option value="{{ value }}" {% if page.conflict_state == value %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Freshness
+        <select name="freshness">
+          <option value="">Any state</option>
+          {% for value in ("fresh", "needs_refresh", "stale", "unknown") %}
+          <option value="{{ value }}" {% if page.freshness == value %}selected{% endif %}>{{ value | replace("_", " ") }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+  </form>
+  <p class="muted">{{ "Private namespace records included." if page.include_private else "Showing explicitly public, globally indexed records only." }}</p>
+</section>
+
+{% if page.query %}
+<section class="panel" aria-labelledby="search-results-heading">
+  <div class="panel-head">
+    <h2 id="search-results-heading">Search results</h2>
+    <span>{{ page.hits | length }} hit(s)</span>
+  </div>
+  <div class="stack">
+    {% for hit in page.hits %}
+    <article class="card">
+      <div class="badge-row">
+        {% for badge in hit.badges %}
+        <span class="badge {{ badge.tone }}">{{ badge.label }}</span>
+        {% endfor %}
+      </div>
+      <h3><a href="{{ hit.href }}">{{ hit.title }}</a></h3>
+      <p class="safe-content">{{ hit.summary }}</p>
+      <p class="muted"><code>{{ hit.id }}</code> · {{ hit.evidence_count }} evidence span(s) · score {{ "%.3f" | format(hit.score) }}</p>
+      <details>
+        <summary>Score reasons</summary>
+        <ul>
+          {% for reason in hit.score_reasons %}
+          <li>{{ reason }}</li>
+          {% else %}
+          <li>No score explanation was returned.</li>
+          {% endfor %}
+        </ul>
+      </details>
+    </article>
+    {% else %}
+    <p class="empty">No accessible records matched. Try a stable ID, exact path, source locator, or broader terms.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

@@ -3,13 +3,23 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from html import unescape
-import os
+import json
 import re
-from urllib.parse import urlparse
+from urllib.parse import quote
 
-import httpx
 from pydantic import BaseModel, Field
 
+from .contracts.common import SnapshotPolicy
+from .domain.sources import SourceVersionSpec
+from .ingestion.fetch_policy import FetchPolicy
+from .ingestion.web import (
+    HardenedWebFetcher,
+    MediaTypeDenied,
+    ParserFailed,
+    extract_text,
+    normalize_doi as normalize_captured_doi,
+    parse_json_document,
+)
 from .models import SourceCreate
 
 
@@ -23,10 +33,42 @@ WHITESPACE_RE = re.compile(r"\s+")
 DOI_PREFIX_RE = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/)?", re.IGNORECASE)
 
 
+class CapturedVersionCandidate(BaseModel):
+    version_kind: str
+    version_key: str
+    content_sha256: str
+    canonical_locator: str
+    snapshot_policy: SnapshotPolicy
+    snapshot_bytes: bytes | None = None
+    media_type: str | None = None
+    byte_count: int | None = None
+    parser_name: str | None = None
+    parser_version: str | None = None
+    metadata: dict = Field(default_factory=dict)
+
+    def source_version_spec(self, source_id: str) -> SourceVersionSpec:
+        return SourceVersionSpec(
+            source_id=source_id,
+            version_key=self.version_key,
+            version_kind=self.version_kind,  # type: ignore[arg-type]
+            retrieved_at=utc_now(),
+            content_sha256=self.content_sha256,
+            canonical_locator=self.canonical_locator,
+            snapshot_policy=self.snapshot_policy,
+            snapshot_bytes=self.snapshot_bytes,
+            media_type=self.media_type,
+            byte_count=self.byte_count,
+            parser_name=self.parser_name,
+            parser_version=self.parser_version,
+            metadata=self.metadata,
+        )
+
+
 class ImportedSourceCandidate(BaseModel):
     source: SourceCreate
     excerpt_text: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    version: CapturedVersionCandidate | None = None
 
 
 def utc_now() -> datetime:
@@ -34,19 +76,38 @@ def utc_now() -> datetime:
 
 
 def fetch_url_candidate(url: str) -> ImportedSourceCandidate:
-    with httpx.Client(follow_redirects=True, timeout=20.0, headers={"user-agent": "ResearchRegistry/0.1.0"}) as client:
-        response = client.get(url)
-    response.raise_for_status()
-
-    text = response.text
-    final_url = str(response.url)
-    host = response.url.host or urlparse(final_url).netloc or "web"
-    title = _extract_html_title(text) or response.url.path.strip("/").split("/")[-1] or final_url
+    fetcher = HardenedWebFetcher(FetchPolicy())
+    response = fetcher.fetch(url)
+    text = extract_text(
+        response.body,
+        response.media_type,
+        response.charset,
+        maximum_bytes=fetcher.policy.max_extracted_text_bytes,
+    )
+    decoded_source = _decode_source_text(
+        response.body,
+        response.charset,
+    )
+    final_url = response.final_url
+    host = final_url.split("/", 3)[2]
+    path = final_url.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+    title = _extract_html_title(decoded_source) or path or final_url
     snippet = _extract_meta(text, "description") or _extract_meta(text, "og:description") or _extract_first_paragraph(text)
-    author = _extract_meta(text, "author")
-    published_at = _parse_datetime(_extract_meta(text, "article:published_time"))
-    source_type = _infer_source_type(final_url, response.headers.get("content-type", ""))
+    if response.media_type in {"text/html", "application/xhtml+xml"}:
+        snippet = (
+            _extract_meta(decoded_source, "description")
+            or _extract_meta(decoded_source, "og:description")
+            or _extract_first_paragraph(decoded_source)
+            or text[:600]
+        )
+    author = _extract_meta(decoded_source, "author")
+    published_at = _parse_datetime(
+        _extract_meta(decoded_source, "article:published_time")
+    )
+    source_type = _infer_source_type(final_url, response.media_type)
     now = utc_now()
+    snapshot = text.encode("utf-8")
+    content_hash = sha256(snapshot).hexdigest()
 
     return ImportedSourceCandidate(
         source=SourceCreate(
@@ -58,33 +119,78 @@ def fetch_url_candidate(url: str) -> ImportedSourceCandidate:
             accessed_at=now,
             author=_clean_text(author)[:200] if author else None,
             snippet=_clean_text(snippet)[:600] if snippet else None,
-            content_sha256=sha256(response.content).hexdigest(),
+            content_sha256=content_hash,
             snapshot_required=True,
-            snapshot_present=False,
+            snapshot_present=True,
             last_verified_at=now,
             refresh_due_at=now + timedelta(days=30),
             review_state="unreviewed",
             trust_tier="low",
         ),
         excerpt_text=_clean_text(snippet)[:600] if snippet else None,
+        version=CapturedVersionCandidate(
+            version_kind="web",
+            version_key=f"web:{content_hash}",
+            content_sha256=content_hash,
+            canonical_locator=final_url,
+            snapshot_policy="extracted_text",
+            snapshot_bytes=snapshot,
+            media_type="text/plain",
+            byte_count=len(snapshot),
+            parser_name=(
+                "research-registry-html"
+                if response.media_type in {"text/html", "application/xhtml+xml"}
+                else "research-registry-text"
+            ),
+            parser_version="2",
+            metadata={
+                "requested_url": response.requested_url,
+                "redirect_chain": list(response.redirect_chain),
+                "http_status": response.status,
+                "response_headers": response.headers,
+                "wire_sha256": response.content_sha256,
+                "wire_byte_count": len(response.body),
+                "untrusted_content": True,
+            },
+        ),
     )
 
 
 def fetch_doi_candidate(doi: str) -> ImportedSourceCandidate:
     normalized = normalize_doi(doi)
-    warnings: list[str] = []
-    with httpx.Client(timeout=20.0, headers={"user-agent": "ResearchRegistry/0.1.0"}) as client:
-        response = client.get(f"https://api.crossref.org/works/{normalized}")
-    response.raise_for_status()
-    message = response.json()["message"]
-
-    openalex = _fetch_openalex_record(normalized)
-    if openalex is None:
-        warnings.append("OpenAlex enrichment unavailable for this DOI.")
+    fetcher = HardenedWebFetcher(FetchPolicy())
+    response = fetcher.fetch(
+        f"https://api.crossref.org/works/{quote(normalized, safe='/')}"
+    )
+    if response.media_type != "application/json":
+        raise MediaTypeDenied(
+            "MEDIA_TYPE_DENIED: DOI metadata provider did not return JSON."
+        )
+    document = parse_json_document(
+        response.body,
+        maximum_depth=fetcher.policy.max_json_depth,
+        maximum_nodes=fetcher.policy.max_json_nodes,
+    )
+    try:
+        message = document["message"] if isinstance(document, dict) else None
+        if not isinstance(message, dict):
+            raise TypeError("Crossref message is not an object")
+        canonical_metadata = json.dumps(
+            message,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ParserFailed(
+            "PARSER_FAILED: DOI metadata response is invalid."
+        ) from exc
+    metadata_hash = sha256(canonical_metadata).hexdigest()
 
     title = _first_non_empty(message.get("title", [])) or normalized
     container = _first_non_empty(message.get("container-title", []))
-    abstract = _strip_jats(message.get("abstract")) or _openalex_abstract(openalex)
+    abstract = _strip_jats(message.get("abstract"))
     author = _format_crossref_authors(message.get("author", []))
     published_at = _crossref_date(message)
     locator = f"https://doi.org/{normalized}"
@@ -101,16 +207,34 @@ def fetch_doi_candidate(doi: str) -> ImportedSourceCandidate:
             accessed_at=now,
             author=author,
             snippet=_clean_text(snippet)[:600] if snippet else None,
-            content_sha256=sha256(locator.encode("utf-8")).hexdigest(),
+            content_sha256=metadata_hash,
             snapshot_required=True,
-            snapshot_present=False,
+            snapshot_present=True,
             last_verified_at=now,
             refresh_due_at=now + timedelta(days=90),
             review_state="unreviewed",
             trust_tier="medium",
         ),
         excerpt_text=_clean_text(abstract)[:600] if abstract else None,
-        warnings=warnings,
+        version=CapturedVersionCandidate(
+            version_kind="doi",
+            version_key=f"doi:crossref:{metadata_hash}",
+            content_sha256=metadata_hash,
+            canonical_locator=locator,
+            snapshot_policy="extracted_text",
+            snapshot_bytes=canonical_metadata,
+            media_type="application/json",
+            byte_count=len(canonical_metadata),
+            parser_name="research-registry-crossref",
+            parser_version="2",
+            metadata={
+                "doi": normalized,
+                "metadata_provider": "crossref",
+                "hash_semantics": "crossref_message_sha256",
+                "provider_response_sha256": response.content_sha256,
+                "untrusted_content": True,
+            },
+        ),
     )
 
 
@@ -136,7 +260,9 @@ def candidate_from_bibtex_entry(entry: dict[str, str]) -> ImportedSourceCandidat
             accessed_at=now,
             author=_clean_text(author)[:200] if author else None,
             snippet=_clean_text(snippet)[:600] if snippet else None,
-            content_sha256=sha256(locator.encode("utf-8")).hexdigest(),
+            # BibTeX is reference metadata, not a captured article body.
+            # Leave the content hash unknown rather than hash the DOI/URL.
+            content_sha256=None,
             snapshot_required=bool(entry.get("url") or entry.get("doi")),
             snapshot_present=False,
             last_verified_at=now,
@@ -180,21 +306,7 @@ def parse_bibtex_entries(text: str) -> list[dict[str, str]]:
 
 
 def normalize_doi(doi: str) -> str:
-    cleaned = DOI_PREFIX_RE.sub("", doi.strip())
-    return cleaned.strip()
-
-
-def _fetch_openalex_record(doi: str) -> dict | None:
-    api_key = os.getenv("RESEARCH_REGISTRY_OPENALEX_API_KEY", "").strip()
-    params = {"api_key": api_key} if api_key else None
-    try:
-        with httpx.Client(timeout=10.0, headers={"user-agent": "ResearchRegistry/0.1.0"}) as client:
-            response = client.get(f"https://api.openalex.org/works/doi:{doi}", params=params)
-        if response.status_code != 200:
-            return None
-        return response.json()
-    except httpx.HTTPError:
-        return None
+    return normalize_captured_doi(DOI_PREFIX_RE.sub("", doi.strip()))
 
 
 def _extract_html_title(text: str) -> str | None:
@@ -287,21 +399,12 @@ def _crossref_date(message: dict) -> datetime | None:
     return None
 
 
-def _openalex_abstract(openalex: dict | None) -> str | None:
-    if not openalex:
-        return None
-    inverted = openalex.get("abstract_inverted_index")
-    if not inverted:
-        return None
-    max_position = max((position for positions in inverted.values() for position in positions), default=-1)
-    if max_position < 0:
-        return None
-    ordered = [""] * (max_position + 1)
-    for token, positions in inverted.items():
-        for position in positions:
-            if 0 <= position < len(ordered):
-                ordered[position] = token
-    return _clean_text(" ".join(token for token in ordered if token))
+def _decode_source_text(body: bytes, charset: str | None) -> str:
+    encoding = charset or "utf-8"
+    try:
+        return body.decode(encoding)
+    except (LookupError, UnicodeDecodeError):
+        return body.decode("utf-8", errors="replace")
 
 
 def _bibtex_locator(entry: dict[str, str]) -> str:

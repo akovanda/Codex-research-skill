@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import research_registry.local_research as local_research
 from research_registry.research_capture import (
     format_capture_summary,
@@ -11,6 +13,9 @@ from research_registry.research_capture import (
     specialized_skill_for_prompt,
 )
 from research_registry.service import RegistryService
+
+
+pytestmark = pytest.mark.legacy
 
 
 def make_service(tmp_path: Path) -> RegistryService:

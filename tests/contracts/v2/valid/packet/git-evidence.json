@@ -1,0 +1,62 @@
+{
+  "source": {
+    "client_ref": "src-code",
+    "identity": {
+      "locator": "git:artifact:src/events/publisher.py",
+      "title": "Artifact EventPublisher implementation",
+      "source_type": "git_file",
+      "site_name": null,
+      "author": null,
+      "canonical_key": "artifact:src/events/publisher.py",
+      "metadata": {}
+    },
+    "version": {
+      "version_key": "git:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "version_kind": "git_blob",
+      "retrieved_at": "2026-07-29T20:02:00Z",
+      "published_at": null,
+      "content_sha256": "7800f53574345e23f0d86905f1a1bdabcc2860d3954d2400f954a459c900faa0",
+      "canonical_locator": "git:artifact:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:src/events/publisher.py",
+      "snapshot": {
+        "policy": "evidence_only",
+        "text": "for attempt in range(max_attempts):\n    publish_with_retry(event)",
+        "media_type": "text/x-python",
+        "byte_count": 65
+      },
+      "parser_name": "research-registry-git",
+      "parser_version": "2",
+      "repository": {
+        "repository_id": "artifact",
+        "remote_fingerprint": null,
+        "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "blob_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "path": "src/events/publisher.py",
+        "file_mode": "100644"
+      },
+      "metadata": {}
+    }
+  },
+  "evidence": {
+    "client_ref": "ev-code",
+    "source_version": {
+      "ref": "src-code"
+    },
+    "quote_text": "for attempt in range(max_attempts):\n    publish_with_retry(event)",
+    "selector": {
+      "type": "git_line_range",
+      "path": "src/events/publisher.py",
+      "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "blob_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "start_line": 2,
+      "end_line": 3,
+      "exact": "for attempt in range(max_attempts):\n    publish_with_retry(event)",
+      "prefix": "class EventPublisher:",
+      "suffix": null,
+      "deep_link": "src/events/publisher.py#L2-L3"
+    },
+    "note": "Implementation uses a bounded retry loop.",
+    "confidence": 0.98,
+    "review_state": "unreviewed",
+    "metadata": {}
+  }
+}
