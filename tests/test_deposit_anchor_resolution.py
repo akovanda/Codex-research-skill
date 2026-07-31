@@ -26,6 +26,13 @@ def _unique_bundle(*, key: str, suffix: str) -> dict:
     payload["sources"][0]["identity"]["canonical_key"] += f"-{suffix}"
     payload["sources"][0]["version"]["version_key"] += f"-{suffix}"
     payload["sources"][0]["version"]["canonical_locator"] += f"-{suffix}"
+    content = f"{CONTENT} {suffix}"
+    encoded = content.encode("utf-8")
+    payload["sources"][0]["version"]["snapshot"]["text"] = content
+    payload["sources"][0]["version"]["snapshot"]["byte_count"] = len(encoded)
+    payload["sources"][0]["version"]["content_sha256"] = sha256(
+        encoded
+    ).hexdigest()
     payload["claims"][0]["canonical_key"] += f"-{suffix}"
     return payload
 
