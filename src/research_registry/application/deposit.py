@@ -30,6 +30,12 @@ from ..models import AuthContext
 from ..persistence.repositories import V2BackfillRepository, canonical_json
 from ..persistence.unit_of_work import UnitOfWork
 from ..retrieval.projection import rebuild_search_documents
+from .evidence_anchors import (
+    EvidenceAnchorRejected,
+    EvidenceAnchorStorageError,
+    build_anchor_context,
+    validate_anchor,
+)
 from .source_versions import SourceVersionConflict, SourceVersionService
 
 
@@ -299,6 +305,8 @@ class ResearchDepositService:
             self._fault("after_source_identity")
 
             version_ids: dict[str, str] = {}
+            version_records: dict[str, Any] = dict(external_versions)
+            version_snapshots: dict[str, tuple[str | None, str | None]] = {}
             pending_hashes: set[str] = set()
             finalize: list[StagedBlob] = []
             for source in bundle.sources:
@@ -311,6 +319,11 @@ class ResearchDepositService:
                     pending_content_hashes=pending_hashes,
                 )
                 version_ids[source.client_ref] = prepared.result.record.id
+                version_records[prepared.result.record.id] = prepared.result.record
+                version_snapshots[prepared.result.record.id] = (
+                    source.version.snapshot.text,
+                    source.version.snapshot.policy,
+                )
                 projection_repository.record_projection_identity(
                     "source",
                     source_id,
@@ -329,6 +342,8 @@ class ResearchDepositService:
 
             evidence_ids: dict[str, str] = {}
             legacy_excerpt_ids: dict[str, str] = {}
+            anchor_contexts: dict[str, Any] = {}
+            anchor_warning_counts: dict[str, int] = {}
             for evidence in bundle.evidence:
                 source_version_id = (
                     version_ids[evidence.source_version.ref]
@@ -341,6 +356,40 @@ class ResearchDepositService:
                     else external_versions[source_version_id]["source_id"]
                 )
                 self._require_private_source(repository, source_id)
+                context = anchor_contexts.get(source_version_id)
+                if context is None:
+                    snapshot_text, snapshot_policy = version_snapshots.get(
+                        source_version_id,
+                        (None, None),
+                    )
+                    try:
+                        context = build_anchor_context(
+                            source_version=version_records[source_version_id],
+                            snapshot_text=snapshot_text,
+                            snapshot_policy=snapshot_policy,
+                            source_version_repository=uow.source_versions,
+                            blob_store=self.blob_store,
+                        )
+                    except EvidenceAnchorStorageError as exc:
+                        raise DepositError(str(exc)) from exc
+                    anchor_contexts[source_version_id] = context
+                try:
+                    anchor = validate_anchor(
+                        client_ref=evidence.client_ref,
+                        selector=evidence.selector.model_dump(
+                            mode="python",
+                            exclude_none=True,
+                        ),
+                        quote_text=evidence.quote_text,
+                        context=context,
+                        resolved_at=now_text,
+                    )
+                except EvidenceAnchorRejected as exc:
+                    raise DepositError(str(exc)) from exc
+                if anchor.warning_key is not None:
+                    anchor_warning_counts[anchor.warning_key] = (
+                        anchor_warning_counts.get(anchor.warning_key, 0) + 1
+                    )
                 evidence_id = self._new_id("evd")
                 excerpt_id = self._new_id("ex")
                 evidence_ids[evidence.client_ref] = evidence_id
@@ -351,6 +400,7 @@ class ResearchDepositService:
                 metadata = {
                     **evidence.metadata,
                     "v1_excerpt_id": excerpt_id,
+                    "anchor_validation": anchor.metadata,
                 }
                 repository.insert_legacy_excerpt(
                     {
@@ -397,6 +447,8 @@ class ResearchDepositService:
                         "selector_json": selector_json,
                         "note": evidence.note,
                         "confidence": evidence.confidence,
+                        "anchor_state": anchor.anchor_state,
+                        "last_resolved_at": anchor.last_resolved_at,
                         "review_state": "unreviewed",
                         "trust_tier": _DEPOSIT_EVIDENCE_TRUST_TIER,
                         "created_by_model": bundle.run.provenance.model,
@@ -636,7 +688,12 @@ class ResearchDepositService:
                 records=(
                     DepositRecordIds() if bundle.validate_only else committed_records
                 ),
-                warnings=[],
+                warnings=[
+                    f"{warning_key}:{count}"
+                    for warning_key, count in sorted(
+                        anchor_warning_counts.items()
+                    )
+                ],
             )
             response_json = canonical_json(result.model_dump(mode="json"))
             self._fault("after_response_serialization")

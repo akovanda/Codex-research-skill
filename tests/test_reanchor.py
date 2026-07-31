@@ -148,7 +148,8 @@ def test_capture_refresh_creates_new_evidence_and_queues_dependents_without_rewr
             WHERE status = 'pending' ORDER BY entity_kind
             """
         ).fetchall()
-    assert old_evidence["anchor_state"] == "unverified"
+    assert old_evidence["anchor_state"] == "resolved"
+    assert old_evidence["last_resolved_at"] is not None
     assert new_evidence["anchor_state"] == "resolved"
     assert before_claim == after_claim
     assert [row["entity_kind"] for row in queued] == ["claim", "report"]
