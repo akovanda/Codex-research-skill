@@ -99,7 +99,7 @@ def build_anchor_context(
     )
     try:
         content = blob_store.read(reference, verify=True)
-    except (FileNotFoundError, BlobStoreError) as exc:
+    except (OSError, BlobStoreError) as exc:
         raise EvidenceAnchorStorageError(
             "SOURCE_CONTENT_INTEGRITY_ERROR: Retained source content could "
             "not be read or verified."
