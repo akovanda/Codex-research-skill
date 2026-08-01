@@ -29,6 +29,10 @@ tag, or release that version.
   deadlock, and lock-contention failures are reported as retryable concurrency;
   uniqueness, integrity, schema, availability, cancellation, resource,
   transaction-state, and internal failures retain distinct content-free codes.
+- Hardened server and client trust boundaries: tokenless administration is now
+  limited to explicit loopback exposure, remote backends require HTTPS,
+  readiness failures no longer echo storage details, question status writes
+  reject unknown states, and HTTPS admin sessions use Secure cookies.
 
 ## v0.1.0
 

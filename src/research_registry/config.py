@@ -1,12 +1,46 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from ipaddress import ip_address
 from pathlib import Path
 import json
 import os
 import secrets
+from urllib.parse import urlsplit
 
 from .managed_config import load_managed_local_config, managed_data_dir
+
+
+def is_loopback_host(host: str | None) -> bool:
+    """Return whether a configured host is explicitly loopback-only."""
+    if host is None:
+        return False
+    normalized = host.strip().strip("[]").rstrip(".").lower()
+    if not normalized:
+        return False
+    if normalized == "localhost" or normalized.endswith(".localhost"):
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def public_url_uses_https(url: str) -> bool:
+    return urlsplit(url).scheme.lower() == "https"
+
+
+def validate_server_security(settings: "Settings") -> None:
+    """Fail closed when tokenless admin access could leave loopback."""
+    if settings.admin_token and settings.admin_token.strip():
+        return
+    public_host = urlsplit(settings.public_base_url).hostname
+    if is_loopback_host(settings.host) and is_loopback_host(public_host):
+        return
+    raise ValueError(
+        "RESEARCH_REGISTRY_ADMIN_TOKEN is required for non-loopback "
+        "server exposure."
+    )
 
 
 @dataclass(frozen=True)
