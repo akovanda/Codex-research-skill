@@ -31,6 +31,9 @@ from tests.test_shared_http_authorization import (
 from tests.test_source_version_review_state import (
     exercise_source_version_review_state_isolation,
 )
+from tests.test_review_event_sequence import (
+    exercise_runtime_review_event_sequence,
+)
 from tests.test_exact_revision_state import (
     exercise_exact_revision_and_conflict_state,
 )
@@ -537,11 +540,26 @@ def test_postgres_pre_0006_multi_revision_adoption_is_stable(
                 review_revision,
             )
         }
+        conn.execute(
+            "DROP TRIGGER IF EXISTS review_events_assign_stream_position "
+            "ON review_events"
+        )
+        conn.execute(
+            "DROP FUNCTION IF EXISTS append_review_event_stream_position()"
+        )
+        conn.execute(
+            "DROP TRIGGER IF EXISTS review_event_stream_immutable "
+            "ON review_event_stream"
+        )
+        conn.execute("DROP TABLE IF EXISTS review_event_stream")
         conn.execute("DROP TABLE legacy_projection_identity")
         conn.execute(
             """
             DELETE FROM schema_migrations
-            WHERE migration_id = '0006_v2_legacy_projection_identity'
+            WHERE migration_id IN (
+                '0006_v2_legacy_projection_identity',
+                '0007_v2_review_event_stream'
+            )
             """
         )
     service.initialize()
@@ -582,3 +600,16 @@ def test_postgres_pre_0006_multi_revision_adoption_is_stable(
             key: [tuple(row) for row in value]
             for key, value in expected_links.items()
         }
+
+@pytest.mark.skipif(
+    "TEST_DATABASE_URL" not in os.environ,
+    reason="postgres review-event stream requires TEST_DATABASE_URL",
+)
+def test_postgres_same_timestamp_review_events_use_stream_order(
+    tmp_path: Path,
+) -> None:
+    exercise_runtime_review_event_sequence(
+        os.environ["TEST_DATABASE_URL"],
+        tmp_path,
+        key=f"postgres-review-stream-{uuid4().hex}",
+    )

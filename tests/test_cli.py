@@ -146,5 +146,6 @@ def test_cli_migrate_plan_json_does_not_create_schema_history(
         "0004_v2_search",
         "0005_v2_idempotency_namespace",
         "0006_v2_legacy_projection_identity",
+        "0007_v2_review_event_stream",
     ]
     assert not database.exists()

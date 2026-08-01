@@ -33,6 +33,7 @@ V2_AUTHORITATIVE_TABLES = (
     "migration_backfill_progress",
     "migration_backfill_warnings",
     "refresh_queue",
+    "review_event_stream",
     "review_events",
     "source_versions",
 )

@@ -407,11 +407,24 @@ def test_pre_0006_adoption_preserves_review_current_and_historical_links(
     assert all(expected[1].values())
 
     with registry.connect() as conn:
+        conn.execute(
+            "DROP TRIGGER IF EXISTS review_events_assign_stream_position"
+        )
+        conn.execute(
+            "DROP TRIGGER IF EXISTS review_event_stream_immutable_update"
+        )
+        conn.execute(
+            "DROP TRIGGER IF EXISTS review_event_stream_immutable_delete"
+        )
+        conn.execute("DROP TABLE IF EXISTS review_event_stream")
         conn.execute("DROP TABLE legacy_projection_identity")
         conn.execute(
             """
             DELETE FROM schema_migrations
-            WHERE migration_id = '0006_v2_legacy_projection_identity'
+            WHERE migration_id IN (
+                '0006_v2_legacy_projection_identity',
+                '0007_v2_review_event_stream'
+            )
             """
         )
     registry.initialize()
