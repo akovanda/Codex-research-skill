@@ -1,4 +1,4 @@
-name: agent-apply-admin-trust
+name: agent-apply-next-security-correctness-batch
 
 on:
   pull_request:
@@ -42,20 +42,23 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-      - name: Verify and apply audited patch
+      - name: Verify and apply exact-base patch
         run: |
-          cat .agent/admin_trust/patch.b64.* > /tmp/admin-trust.patch.b64
-          echo "834ea0647ce168dc702e459fec4b4b3e83c84ba8d80da1f23777ceea207af522  /tmp/admin-trust.patch.b64" | sha256sum -c -
-          base64 -d /tmp/admin-trust.patch.b64 > /tmp/admin-trust.patch
-          echo "89f34c0b6bcec1d816707c050f264e20b9983caf2355240246bd7b7cb3776b59  /tmp/admin-trust.patch" | sha256sum -c -
-          git apply --check /tmp/admin-trust.patch
-          git apply /tmp/admin-trust.patch
+          cat .agent/next_exact/patch.gz.b64.* > /tmp/next.patch.gz.b64
+          echo "1178b4c02f23370954a7ba39d84b10f035caa9ceb888aab97f4f7e2275553fe1  /tmp/next.patch.gz.b64" | sha256sum -c -
+          base64 -d /tmp/next.patch.gz.b64 > /tmp/next.patch.gz
+          echo "9e16b487f404a110a2516be3a08d224a269cd920eb082267188ccf37e83c74b2  /tmp/next.patch.gz" | sha256sum -c -
+          gzip -dc /tmp/next.patch.gz > /tmp/next.patch
+          echo "1f67bf8319b3c81eab36bed81521a6107af0dd99b9f736bfcf441ec77bc8ed2b  /tmp/next.patch" | sha256sum -c -
+          git apply --check /tmp/next.patch
+          git apply /tmp/next.patch
           git diff --check
-          python -m compileall -q src tests/test_admin_trust_boundaries.py tests/test_security_correctness_regressions.py
-      - name: Run focused browser-admin regressions
+          python -m compileall -q src tests/test_admin_web_boundary.py tests/test_db_qmark_translation.py tests/test_security_correctness_regressions.py
+      - name: Run focused security and SQL regressions
         run: |
           env -u TEST_DATABASE_URL python -m pytest -q \
-            tests/test_admin_trust_boundaries.py \
+            tests/test_admin_web_boundary.py \
+            tests/test_db_qmark_translation.py \
             tests/test_security_correctness_regressions.py \
             tests/test_contract_snapshots.py \
             tests/test_http_e2e.py
@@ -80,5 +83,5 @@ jobs:
           git diff --cached --check
           git config user.name "OpenAI Assistant"
           git config user.email "assistant@users.noreply.github.com"
-          git commit -m "fix: harden browser admin trust boundaries"
+          git commit -m "fix: harden admin requests and PostgreSQL query translation"
           git push --force origin HEAD:agent/next-security-correctness-batch
