@@ -36,14 +36,11 @@ def effective_conflict_state_sql(
                 ELSE 'none'
             END
             FROM review_events re
+            JOIN review_event_stream res ON res.event_id = re.id
             WHERE re.entity_kind = '{entity_kind}'
               AND re.entity_id = {entity_id_sql}
               AND re.action IN ({_DECISION_ACTIONS_SQL})
-            ORDER BY
-                re.created_at DESC,
-                CASE WHEN re.{_LEGACY_CONFLICTED_MIGRATION_SQL}
-                     THEN 1 ELSE 0 END DESC,
-                re.id DESC
+            ORDER BY res.stream_position DESC
             LIMIT 1
         ), 'none')
     """.strip()
@@ -92,13 +89,10 @@ def latest_effective_conflict_state(
         f"""
         SELECT action
         FROM review_events
+        JOIN review_event_stream res ON res.event_id = review_events.id
         WHERE entity_kind = ? AND entity_id = ?
           AND action IN ({_DECISION_ACTIONS_SQL})
-        ORDER BY
-            created_at DESC,
-            CASE WHEN {_LEGACY_CONFLICTED_MIGRATION_SQL}
-                 THEN 1 ELSE 0 END DESC,
-            id DESC
+        ORDER BY res.stream_position DESC
         LIMIT 1
         """,
         (entity_kind, entity_id),

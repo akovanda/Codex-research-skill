@@ -52,9 +52,11 @@ cannot receive private versions, evidence, revisions, runs, reports, or
 revision-producing review actions. Capture is disabled for public sources.
 Retained v1 publication remains available only for its complete static
 compatibility graph.
-Shared beta must also provide an unambiguous namespace-aware global-admin
-deposit-receipt lookup and replace random-ID tie-breaking with an explicit
-deterministic sequence for runtime review events that share a timestamp.
+Review events now receive a database-assigned, append-only global stream
+position. Effective review and conflict state use that stream order rather
+than timestamps or random identifiers, including when multiple decisions share
+the same timestamp. Shared beta must still provide an unambiguous
+namespace-aware global-admin deposit-receipt lookup.
 
 Offline `SHA256SUMS`, SPDX 2.3 SBOM, and in-toto/SLSA-shaped provenance drafts
 are generated under `.data/release/<version>/`. Local provenance explicitly records a

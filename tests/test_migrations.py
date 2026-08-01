@@ -454,6 +454,7 @@ def test_initialize_adopts_existing_legacy_schema(tmp_path: Path) -> None:
         "0004_v2_search",
         "0005_v2_idempotency_namespace",
         "0006_v2_legacy_projection_identity",
+        "0007_v2_review_event_stream",
     ]
     assert schema_meta["version"] == 4
 

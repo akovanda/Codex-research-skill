@@ -58,6 +58,7 @@ def effective_review_state_sql(
                 ELSE re.to_state
             END
             FROM review_events re
+            JOIN review_event_stream res ON res.event_id = re.id
             WHERE re.entity_kind = '{entity_kind}'
               AND re.entity_id = {entity_id_sql}
               AND re.action IN ({_DECISION_REVIEW_ACTIONS_SQL})
@@ -65,11 +66,7 @@ def effective_review_state_sql(
                   re.to_state IN ({_REVIEW_STATES_SQL})
                   OR re.{_LEGACY_CONFLICTED_MIGRATION_SQL}
               )
-            ORDER BY
-                re.created_at DESC,
-                CASE WHEN re.{_LEGACY_CONFLICTED_MIGRATION_SQL}
-                     THEN 1 ELSE 0 END DESC,
-                re.id DESC
+            ORDER BY res.stream_position DESC
             LIMIT 1
         ), {normalized_fallback})
     """.strip()
@@ -89,17 +86,14 @@ def latest_effective_review_state(
             CASE WHEN {_LEGACY_CONFLICTED_MIGRATION_SQL}
                  THEN 'flagged' ELSE to_state END AS to_state
         FROM review_events
+        JOIN review_event_stream res ON res.event_id = review_events.id
         WHERE entity_kind = ? AND entity_id = ?
           AND action IN ({_DECISION_REVIEW_ACTIONS_SQL})
           AND (
               to_state IN ({_REVIEW_STATES_SQL})
               OR ({_LEGACY_CONFLICTED_MIGRATION_SQL})
           )
-        ORDER BY
-            created_at DESC,
-            CASE WHEN {_LEGACY_CONFLICTED_MIGRATION_SQL}
-                 THEN 1 ELSE 0 END DESC,
-            id DESC
+        ORDER BY res.stream_position DESC
         LIMIT 1
         """,
         (entity_kind, entity_id),

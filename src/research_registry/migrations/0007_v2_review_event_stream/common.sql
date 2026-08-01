@@ -1,0 +1,1 @@
+-- Review-event stream allocation is dialect-specific.

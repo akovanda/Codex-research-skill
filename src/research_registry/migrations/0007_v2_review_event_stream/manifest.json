@@ -1,0 +1,5 @@
+{
+  "description": "Assign deterministic append-only stream positions to review events",
+  "migration_id": "0007_v2_review_event_stream",
+  "transactional": true
+}
