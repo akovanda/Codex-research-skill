@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/next-security-correctness-batch
+  pull_request:
+    branches:
+      - master
 
 permissions:
   contents: read
