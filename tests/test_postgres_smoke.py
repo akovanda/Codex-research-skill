@@ -12,6 +12,10 @@ from fastapi.testclient import TestClient
 from research_registry.app import create_app
 from research_registry.models import ApiKeyCreate, ClaimCreate, ExcerptCreate, FocusTuple, QuestionCreate, ReportCreate, ResearchSessionCreate, SourceCreate, SourceSelector
 from research_registry.application.deposit import ResearchDepositService
+from research_registry.application.postgres_errors import (
+    postgres_deposit_error_message,
+)
+from research_registry.db import psycopg
 from research_registry.application.migrate_v2 import run_v2_backfill
 from research_registry.application.review import ResearchReviewService
 from research_registry.ingestion.blobs import FilesystemBlobStore
@@ -46,6 +50,26 @@ from tests.test_v2_deposit import _bundle
 from tests.test_deposit_anchor_resolution import (
     test_postgres_deposit_anchor_resolution_and_atomic_rejection as _exercise_postgres_anchor_validation,
 )
+
+
+@pytest.mark.skipif(
+    "TEST_DATABASE_URL" not in os.environ,
+    reason="postgres diagnostic classification requires TEST_DATABASE_URL",
+)
+def test_postgres_real_errors_receive_specific_safe_diagnostics() -> None:
+    assert psycopg is not None
+    service = RegistryService(os.environ["TEST_DATABASE_URL"])
+    service.initialize()
+    missing_table = f"rr_private_missing_{uuid4().hex}"
+
+    with service.connect() as conn:
+        with pytest.raises(psycopg.errors.UndefinedTable) as caught:
+            conn.execute(f"SELECT * FROM {missing_table}")
+
+    message = postgres_deposit_error_message(caught.value)
+    assert message is not None
+    assert message.startswith("DATABASE_SCHEMA_ERROR:")
+    assert missing_table not in message
 
 
 @pytest.mark.skipif(
