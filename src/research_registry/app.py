@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+import secrets
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
@@ -11,7 +12,12 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
-from .config import Settings, load_settings
+from .config import (
+    Settings,
+    load_settings,
+    public_url_uses_https,
+    validate_server_security,
+)
 from .application.review import (
     ExpectedRevisionMismatch,
     ExpectedStateMismatch,
@@ -39,6 +45,7 @@ from .models import (
     NamespaceKind,
     PublishRequest,
     QuestionCreate,
+    QuestionStatus,
     ReportCreate,
     ResearchSessionCreate,
     ReviewRequest,
@@ -53,7 +60,7 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "tem
 
 
 class QuestionStatusUpdate(BaseModel):
-    status: str
+    status: QuestionStatus
     namespace_kind: NamespaceKind | None = None
     namespace_id: str | None = None
 
@@ -65,6 +72,7 @@ class OrganizationBootstrapRequest(BaseModel):
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
+    validate_server_security(settings)
     service = RegistryService(settings.database_url)
     service.initialize()
     service.set_backend_status(
@@ -113,7 +121,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.mcp = mcp
     app.state.deep_research_mcp = deep_research_mcp
     app.state.web_v2 = V2WebViewService(service.database, settings)
-    app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.session_secret,
+        https_only=public_url_uses_https(settings.public_base_url),
+    )
     app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static")
     app.mount("/mcp", mcp_app)
     app.mount("/deep-research-mcp", deep_research_mcp_app)
@@ -127,7 +139,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             service.check_ready()
         except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"storage unavailable: {exc}") from exc
+            raise HTTPException(status_code=503, detail="storage unavailable") from exc
         return {"status": "ready"}
 
     @app.get("/", response_class=HTMLResponse)
@@ -310,7 +322,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/admin/login", response_class=HTMLResponse)
     async def admin_login_submit(request: Request, token: str = Form(default="")) -> HTMLResponse:
-        if settings.admin_token and token != settings.admin_token:
+        configured_token = (settings.admin_token or "").strip()
+        if configured_token and not secrets.compare_digest(token, configured_token):
             return TEMPLATES.TemplateResponse(request, "admin_login.html", {"request": request, "error": "Token mismatch"}, status_code=401)
         request.session["is_admin"] = True
         return RedirectResponse("/v2/search", status_code=303)
@@ -881,9 +894,13 @@ def _is_admin(request: Request) -> bool:
     settings: Settings = request.app.state.settings
     header_token = request.headers.get("x-admin-token")
     session_admin = bool(request.session.get("is_admin"))
-    if settings.admin_token is None:
+    configured_token = (settings.admin_token or "").strip()
+    if not configured_token:
         return True
-    return session_admin or header_token == settings.admin_token
+    return session_admin or (
+        header_token is not None
+        and secrets.compare_digest(header_token, configured_token)
+    )
 
 
 def _require_admin(request: Request) -> None:

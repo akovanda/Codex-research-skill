@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -330,7 +331,12 @@ class McpToolRuntime:
             return self.service.authenticate_api_key(api_key)
 
         admin_token = headers.get("x-admin-token", "").strip()
-        if self.settings and self.settings.admin_token and admin_token == self.settings.admin_token:
+        configured_token = (
+            (self.settings.admin_token or "").strip()
+            if self.settings is not None
+            else ""
+        )
+        if configured_token and secrets.compare_digest(admin_token, configured_token):
             return _admin_auth()
         return None
 

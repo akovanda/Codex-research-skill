@@ -1136,6 +1136,11 @@
             "title": "Namespace Kind"
           },
           "status": {
+            "enum": [
+              "open",
+              "answered",
+              "insufficient_evidence"
+            ],
             "title": "Status",
             "type": "string"
           }

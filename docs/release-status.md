@@ -58,8 +58,16 @@ compatibility graph.
 Review events now receive a database-assigned, append-only global stream
 position. Effective review and conflict state use that stream order rather
 than timestamps or random identifiers, including when multiple decisions share
-the same timestamp. Shared beta must still provide an unambiguous
-namespace-aware global-admin deposit-receipt lookup.
+the same timestamp. Tokenless web administration is now accepted only when both
+the bind address and configured public URL are explicit loopback targets. Remote
+registry clients reject plaintext non-loopback HTTP and credential-bearing or
+malformed backend URLs before attaching API keys. Readiness probes return a
+content-free storage failure, question status mutations are constrained to the
+closed state contract, and HTTPS deployments issue Secure admin-session
+cookies. Dedicated regressions cover each of these server/client trust
+boundaries and their supported loopback compatibility paths. Shared beta must
+still provide an unambiguous namespace-aware global-admin deposit-receipt
+lookup.
 
 Offline `SHA256SUMS`, SPDX 2.3 SBOM, and in-toto/SLSA-shaped provenance drafts
 are generated under `.data/release/<version>/`. Local provenance explicitly records a

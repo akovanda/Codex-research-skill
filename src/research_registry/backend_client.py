@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from typing import Protocol
+from urllib.parse import urlsplit
 
 import httpx
 
 from .backend_selection import load_backend_profiles, resolve_backend
-from .config import Settings
+from .config import Settings, is_loopback_host
 from .models import (
     BackendStatus,
     BriefBundle,
@@ -22,6 +23,7 @@ from .models import (
     PublishRequest,
     QuestionCreate,
     QuestionRecord,
+    QuestionStatus,
     ReportCreate,
     ReportRecord,
     ResearchSessionCreate,
@@ -46,7 +48,7 @@ class RegistryBackend(Protocol):
     def create_excerpt(self, payload: ExcerptCreate) -> ExcerptRecord: ...
     def create_claim(self, payload: ClaimCreate) -> ClaimRecord: ...
     def create_report(self, payload: ReportCreate) -> ReportRecord: ...
-    def set_question_status(self, question_id: str, status: str) -> None: ...
+    def set_question_status(self, question_id: str, status: QuestionStatus) -> None: ...
     def set_follow_up_status(self, question_id: str, follow_up_status: str) -> None: ...
     def import_url(self, payload: ImportUrlRequest) -> ImportResult: ...
     def import_doi(self, payload: ImportDoiRequest) -> ImportResult: ...
@@ -59,7 +61,7 @@ class RegistryBackend(Protocol):
 
 class RegistryApiClient:
     def __init__(self, base_url: str, api_key: str | None, status: BackendStatus):
-        self.base_url = base_url.rstrip("/")
+        self.base_url = _validated_backend_base_url(base_url)
         self.api_key = api_key
         self._status = status
 
@@ -109,7 +111,7 @@ class RegistryApiClient:
     def create_report(self, payload: ReportCreate) -> ReportRecord:
         return ReportRecord.model_validate(self._request("POST", "/api/reports", json=payload.model_dump(mode="json")))
 
-    def set_question_status(self, question_id: str, status: str) -> None:
+    def set_question_status(self, question_id: str, status: QuestionStatus) -> None:
         self._request("POST", f"/api/questions/{question_id}/status", json={"status": status})
 
     def set_follow_up_status(self, question_id: str, follow_up_status: str) -> None:
@@ -165,3 +167,45 @@ def create_backend(settings: Settings) -> RegistryBackend:
 
     api_key = settings.backend_api_key or profile_key
     return RegistryApiClient(status.url, api_key, status)
+
+
+def _validated_backend_base_url(base_url: str) -> str:
+    """Require an absolute HTTPS backend, except for explicit loopback HTTP."""
+    raw = base_url.strip()
+    if (
+        raw != base_url
+        or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in raw)
+        or "\\" in raw
+    ):
+        raise ValueError(
+            "BACKEND_URL_INVALID: Backend URL contains unsafe characters."
+        )
+    parsed = urlsplit(raw)
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"} or parsed.hostname is None:
+        raise ValueError(
+            "BACKEND_URL_INVALID: Backend URL must be absolute HTTP(S)."
+        )
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError(
+            "BACKEND_URL_INVALID: Backend URL contains an invalid port."
+        ) from exc
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError(
+            "BACKEND_URL_INVALID: Backend URL must not contain userinfo."
+        )
+    if parsed.query or parsed.fragment:
+        raise ValueError(
+            "BACKEND_URL_INVALID: Backend URL must not contain a query or fragment."
+        )
+    if parsed.path not in {"", "/"}:
+        raise ValueError(
+            "BACKEND_URL_INVALID: Backend URL must not contain a path prefix."
+        )
+    if scheme == "http" and not is_loopback_host(parsed.hostname):
+        raise ValueError(
+            "BACKEND_TRANSPORT_INSECURE: Non-loopback backends require HTTPS."
+        )
+    return parsed._replace(path="", query="", fragment="").geturl().rstrip("/")

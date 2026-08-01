@@ -360,6 +360,8 @@ class RegistryService:
         namespace_kind: str | None = None,
         namespace_id: str | None = None,
     ) -> None:
+        if status not in {"open", "answered", "insufficient_evidence"}:
+            raise ValueError("invalid question status")
         with self.connect() as conn:
             if auth is not None:
                 selected_kind, selected_id = self._selected_mutation_namespace(
