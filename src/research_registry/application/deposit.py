@@ -30,6 +30,7 @@ from ..models import AuthContext
 from ..persistence.repositories import V2BackfillRepository, canonical_json
 from ..persistence.unit_of_work import UnitOfWork
 from ..retrieval.projection import rebuild_search_documents
+from .postgres_errors import postgres_deposit_error_message
 from .evidence_anchors import (
     EvidenceAnchorRejected,
     EvidenceAnchorStorageError,
@@ -163,12 +164,10 @@ class ResearchDepositService:
                     "the target records."
                 ) from exc
             except Exception as exc:
-                if exc.__class__.__module__.startswith("psycopg"):
-                    raise DepositError(
-                        "CONCURRENT_WRITE_CONFLICT: A concurrent deposit changed "
-                        "the target records."
-                    ) from exc
-                raise
+                diagnostic = postgres_deposit_error_message(exc)
+                if diagnostic is None:
+                    raise
+                raise DepositError(diagnostic) from exc
         finally:
             for item in staged.values():
                 if item is not None:

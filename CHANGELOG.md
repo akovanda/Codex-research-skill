@@ -25,6 +25,10 @@ tag, or release that version.
   `RESEARCH_REGISTRY_MCP_LEGACY=1`; v1 HTTP and database compatibility remain.
 - Kept the capture queue, including atomic v2 deposit envelopes, and marked
   legacy regression suites explicitly.
+- Classified PostgreSQL deposit failures by SQLSTATE so only serialization,
+  deadlock, and lock-contention failures are reported as retryable concurrency;
+  uniqueness, integrity, schema, availability, cancellation, resource,
+  transaction-state, and internal failures retain distinct content-free codes.
 
 ## v0.1.0
 

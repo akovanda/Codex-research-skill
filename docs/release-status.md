@@ -37,9 +37,12 @@ unavailable page/DOM indexes or absent content remain explicitly unverified
 with bounded warnings and per-evidence metadata. PostgreSQL deposit parity now covers concurrent identical requests,
 same-key conflicting requests, and distinct-key requests that converge on one
 canonical claim. Transaction-scoped advisory identity locks serialize topic,
-question, source, and canonical-claim find-or-create decisions. The remaining
-post-alpha correctness follow-up is to narrow psycopg exception translation so
-programming and schema failures retain distinct stable diagnostics. Retained v1 source creation, snapshot locators, and URL
+question, source, and canonical-claim find-or-create decisions. PostgreSQL
+deposit failures now classify retryable serialization, deadlock, and lock
+contention separately from uniqueness, integrity, schema, availability,
+cancellation, resource, transaction-state, and internal failures. Diagnostics
+are stable and content-free rather than reproducing SQL or server detail.
+Retained v1 source creation, snapshot locators, and URL
 import now reuse the same secret-bearing HTTP(S) validator as v2 before dedupe,
 persistence, or external I/O. Before exposing a shared/public alpha,
 administrators must either supply an explicit namespace for generic creates or
