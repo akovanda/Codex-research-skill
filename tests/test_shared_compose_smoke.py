@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import closing
+import json
 import os
 from pathlib import Path
 import shutil
@@ -10,6 +12,8 @@ import time
 from uuid import uuid4
 
 import httpx
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 import pytest
 
 from research_registry.models import (
@@ -25,6 +29,7 @@ from research_registry.models import (
     SourceCreate,
     SourceSelector,
 )
+from tests.test_v2_deposit import _bundle
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -81,6 +86,74 @@ def _compose_logs(project_name: str, env_file: Path) -> str:
     return result.stdout + result.stderr
 
 
+def _tool_json(result) -> dict:
+    if result.structuredContent is not None:
+        return result.structuredContent
+    assert result.content
+    assert result.content[0].type == "text"
+    return json.loads(result.content[0].text)
+
+
+async def _deposit_blob_bundle(
+    base_url: str,
+    api_key: str,
+    *,
+    suffix: str,
+) -> dict:
+    payload = _bundle(key=f"shared-compose-blob-{suffix}")
+    payload.pop("protocol")
+    payload["namespace"] = {"kind": "org", "id": "acme"}
+    payload["sources"][0]["identity"]["canonical_key"] = (
+        f"shared-compose-blob-source-{suffix}"
+    )
+    payload["sources"][0]["version"]["version_key"] = (
+        f"shared-compose-blob-version-{suffix}"
+    )
+    payload["claims"][0]["canonical_key"] = (
+        f"shared-compose-blob-claim-{suffix}"
+    )
+    async with httpx.AsyncClient(
+        headers={"x-api-key": api_key},
+        timeout=20.0,
+    ) as client:
+        async with streamable_http_client(
+            f"{base_url}/mcp/",
+            http_client=client,
+        ) as streams:
+            read_stream, write_stream, _ = streams
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                result = await session.call_tool("research_deposit", payload)
+                assert result.isError is False
+                receipt = _tool_json(result)
+                assert receipt["committed"] is True
+                return receipt
+
+
+async def _get_private_record(
+    base_url: str,
+    api_key: str,
+    record_id: str,
+) -> dict:
+    async with httpx.AsyncClient(
+        headers={"x-api-key": api_key},
+        timeout=20.0,
+    ) as client:
+        async with streamable_http_client(
+            f"{base_url}/mcp/",
+            http_client=client,
+        ) as streams:
+            read_stream, write_stream, _ = streams
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                result = await session.call_tool(
+                    "research_get",
+                    {"id": record_id, "include_private": True},
+                )
+                assert result.isError is False
+                return _tool_json(result)
+
+
 def test_shared_compose_end_to_end(tmp_path: Path) -> None:
     if shutil.which("docker") is None:
         pytest.skip("docker is required for shared compose smoke")
@@ -99,6 +172,7 @@ def test_shared_compose_end_to_end(tmp_path: Path) -> None:
                 "RESEARCH_REGISTRY_SESSION_SECRET=session-secret",
                 "RESEARCH_REGISTRY_HOST=0.0.0.0",
                 "RESEARCH_REGISTRY_PORT=8000",
+                "RESEARCH_REGISTRY_CAPTURE_SNAPSHOT_POLICY=full_content",
                 f"RESEARCH_REGISTRY_PUBLIC_BASE_URL={base_url}",
                 "RESEARCH_REGISTRY_BIND_HOST=127.0.0.1",
                 f"RESEARCH_REGISTRY_BIND_PORT={port}",
@@ -273,9 +347,59 @@ def test_shared_compose_end_to_end(tmp_path: Path) -> None:
             global_search = client.get("/api/search", params={"q": suffix})
             assert global_search.status_code == 200
             assert report_id in {hit["id"] for hit in global_search.json()["hits"]}
-    except Exception:
+
+        receipt = asyncio.run(
+            _deposit_blob_bundle(base_url, api_key, suffix=suffix)
+        )
+        source_version_id = receipt["records"]["source_version_ids"]["source"]
+
+        subprocess.run(
+            _compose_command(
+                project_name,
+                env_file,
+                "up",
+                "-d",
+                "--force-recreate",
+                "--no-deps",
+                "app",
+            ),
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        _wait_ready(base_url)
+
+        hydrated = asyncio.run(
+            _get_private_record(base_url, api_key, source_version_id)
+        )
+        assert hydrated["id"] == source_version_id
+
+        health_result = subprocess.run(
+            _compose_command(
+                project_name,
+                env_file,
+                "exec",
+                "-T",
+                "app",
+                "research-registry",
+                "blob-health",
+            ),
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        blob_health = json.loads(health_result.stdout)
+        assert blob_health["healthy"] is True
+        assert blob_health["referenced_objects"] >= 1
+        assert blob_health["missing_keys"] == []
+        assert blob_health["corrupt_keys"] == []
+    except Exception as exc:
         logs = _compose_logs(project_name, env_file)
-        raise AssertionError(f"shared compose smoke failed\n\n{logs}") from None
+        raise AssertionError(
+            f"shared compose smoke failed: {exc!r}\n\n{logs}"
+        ) from None
     finally:
         subprocess.run(
             _compose_command(project_name, env_file, "down", "-v"),

@@ -1,6 +1,6 @@
 # V2 Release Status
 
-The draft package and plugin metadata is aligned at `0.2.0a1` and is classified
+The draft package and plugin metadata is aligned at `0.2.0a2` and is classified
 as alpha. The released preview remains `0.1.0`. RR2-014 adds release evidence
 and commands; it does not declare a
 stable release, create a tag, sign artifacts, publish a package, or push an

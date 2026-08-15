@@ -113,6 +113,7 @@ class ReadMcpRuntime:
                 "bounded-hydration",
                 "deep-research-read-only",
                 "v2-deposit",
+                "stable-validate-commit-sha",
                 "review-events",
                 "refresh-inspect-enqueue",
             ],
