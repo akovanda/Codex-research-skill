@@ -149,6 +149,7 @@ def test_status_search_cursor_and_bounded_claim_hydration(
 
     status = _call(server, "research_status", {})
     assert "v2-deposit" in status["capabilities"]
+    assert "stable-validate-commit-sha" in status["capabilities"]
     assert status["protocol"] == "research-status-result/v2"
     assert status["database_type"] == "sqlite"
     assert status["migration_state"] == "current"

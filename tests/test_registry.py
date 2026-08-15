@@ -713,7 +713,7 @@ def test_openapi_docs_are_exposed_with_package_version(tmp_path: Path) -> None:
     body = openapi.json()
     assert body["info"]["title"] == "Research Registry"
     assert body["info"]["version"] == "0.1.0"
-    assert __version__ == "0.2.0a1"
+    assert __version__ == "0.2.0a2"
 
 
 def test_search_ranks_fresh_reports_above_stale_reports(tmp_path: Path) -> None:

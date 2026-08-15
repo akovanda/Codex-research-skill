@@ -188,7 +188,7 @@ def test_package_metadata_matches_preview_contract() -> None:
     project = pyproject["project"]
 
     assert project["name"] == "research-registry"
-    assert project["version"] == "0.2.0a1"
+    assert project["version"] == "0.2.0a2"
     assert project["license"] == "Apache-2.0"
     assert project["license-files"] == ["LICENSE"]
     assert any(author["name"] == "Research Registry contributors" for author in project["authors"])

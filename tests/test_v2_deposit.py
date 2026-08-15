@@ -237,6 +237,40 @@ def test_complete_deposit_is_atomic_private_and_idempotent(
     assert _counts(registry)["claim_revisions"] == 1
 
 
+def test_validate_and_commit_share_one_logical_request_hash(
+    tmp_path: Path,
+) -> None:
+    registry, blobs, deposits = _service(tmp_path)
+    validation_payload = _bundle(
+        key="stable-validate-commit-hash",
+        validate_only=True,
+    )
+    commit_payload = deepcopy(validation_payload)
+    commit_payload["validate_only"] = False
+
+    before = _counts(registry)
+    validated = deposits.deposit(validation_payload)
+    assert validated.status == "validated"
+    assert validated.committed is False
+    assert _counts(registry) == before
+    assert blobs.inspect([]).stored_objects == 0
+
+    committed = deposits.deposit(commit_payload)
+    assert committed.status == "committed"
+    assert committed.committed is True
+    assert committed.request_sha256 == validated.request_sha256
+
+    validated_replay = deposits.deposit(validation_payload)
+    assert validated_replay.status == "validated"
+    assert validated_replay.request_sha256 == committed.request_sha256
+    assert _counts(registry)["idempotency_keys"] == 1
+
+    changed = deepcopy(validation_payload)
+    changed["claims"][0]["statement"] = "A materially different request body."
+    with pytest.raises(IdempotencyConflict):
+        deposits.deposit(changed)
+
+
 def test_native_deposit_backfill_identity_is_stable_and_new_v1_writes_project(
     tmp_path: Path,
 ) -> None:

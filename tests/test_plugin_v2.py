@@ -19,7 +19,7 @@ def test_plugin_manifest_declares_only_documented_bundled_components() -> None:
     )
 
     assert manifest["name"] == "research-registry"
-    assert manifest["version"] == "0.2.0a1"
+    assert manifest["version"] == "0.2.0a2"
     assert manifest["license"] == "Apache-2.0"
     assert manifest["skills"] == "./skills/"
     assert manifest["mcpServers"] == "./.mcp.json"

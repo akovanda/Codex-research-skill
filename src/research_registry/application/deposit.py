@@ -121,6 +121,12 @@ class ResearchDepositService:
             else ResearchDepositRequest.model_validate(request)
         )
         normalized = bundle.model_dump(mode="json")
+        # Validation is the dry-run form of the same logical deposit. Exclude
+        # that transport/execution switch from the durable request identity so
+        # clients can prove that the body they validated is the body they
+        # subsequently committed. Committed v2-alpha receipts are compatible:
+        # their normalized request already contained ``validate_only=false``.
+        normalized["validate_only"] = False
         request_json = canonical_json(normalized)
         request_hash = sha256(request_json.encode("utf-8")).hexdigest()
         namespace_kind = bundle.namespace.kind if bundle.namespace else "user"

@@ -157,6 +157,7 @@ def test_mcp_deposit_local_and_remote_ingest_scope_with_attribution(
 
     assert validated["committed"] is False
     assert committed["committed"] is True
+    assert validated["request_sha256"] == committed["request_sha256"]
     assert replay["idempotent_replay"] is True
     local_evidence_id = committed["records"]["evidence_ids"]["evidence"]
     with registry.connect() as conn:
