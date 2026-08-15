@@ -6,6 +6,7 @@ It keeps the product shape simple:
 
 - one app container
 - one Postgres container
+- one durable app-data volume for content-addressed source blobs
 - API keys plus admin token
 - one shared internal backend for a team or org
 
@@ -32,6 +33,13 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env up --build
 ```
 
 The app runs migrations on startup before serving traffic.
+
+Compose mounts the named `registry-data` volume at
+`/var/lib/research-registry` and sets `RESEARCH_REGISTRY_DATA_DIR` to that
+path. PostgreSQL is authoritative for relational state, while source snapshot
+bytes remain durable across app recreation in this separate volume. Back up
+and restore both `postgres-data` and `registry-data`; an app container without
+the blob volume must not accept v2 deposits.
 
 Optional bind overrides:
 

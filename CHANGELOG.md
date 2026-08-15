@@ -2,8 +2,14 @@
 
 ## Unreleased
 
-Planned package and plugin version: `0.2.0a1`. This draft does not publish,
+Planned package and plugin version: `0.2.0a2`. This draft does not publish,
 tag, or release that version.
+
+- Made validate-only and commit forms of the same v2 deposit share one stable
+  request hash, allowing clients to prove that the validated payload is the
+  payload they committed without changing existing committed receipt hashes.
+- Persisted shared-Compose content-addressed blobs on a dedicated app data
+  volume and covered container recreation in the shared deployment smoke.
 
 - Added deterministic retrieval metrics (Recall@k, MRR, nDCG, Precision@5,
   evidence/state accuracy, duplicates, no-answer accuracy, latency, bytes, and

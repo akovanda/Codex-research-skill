@@ -19,11 +19,16 @@ services:
       dockerfile: Dockerfile
     env_file:
       - .env
+    environment:
+      RESEARCH_REGISTRY_DATA_DIR: /var/lib/research-registry
     ports:
       - "${RESEARCH_REGISTRY_BIND_HOST:-127.0.0.1}:${RESEARCH_REGISTRY_BIND_PORT:-8000}:8000"
+    volumes:
+      - registry-data:/var/lib/research-registry
     depends_on:
       postgres:
         condition: service_healthy
 
 volumes:
   postgres-data:
+  registry-data:
