@@ -13,6 +13,7 @@ from ..contracts.common import ClosedModel
 from ..service import RegistryService
 from .read_runtime import ReadMcpRuntime
 from .schema import close_tool_input_schema
+from .transport_security import transport_security_settings
 
 
 MAX_DEEP_FETCH_BYTES = 65_536
@@ -74,6 +75,9 @@ def create_deep_research_server(
         ),
         json_response=True,
         streamable_http_path=streamable_http_path,
+        transport_security=(
+            transport_security_settings(settings) if settings else None
+        ),
     )
 
     @mcp.tool(annotations=_READ_ONLY, structured_output=True)

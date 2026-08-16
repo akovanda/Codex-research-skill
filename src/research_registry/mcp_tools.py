@@ -39,6 +39,7 @@ from .contracts.v2 import (
 from .legacy_feature import legacy_mcp_tools_enabled
 from .mcp.read_runtime import ReadMcpRuntime
 from .mcp.schema import close_tool_input_schema
+from .mcp.transport_security import transport_security_settings
 from .mcp.write_runtime import WriteMcpRuntime
 from .models import AuthContext, ClaimCreate, ExcerptCreate, PublishRequest, QuestionCreate, ReportCreate, ResearchSessionCreate, SourceCreate
 from .service import RegistryService
@@ -456,6 +457,9 @@ def create_mcp_server(
         instructions="Question-led research memory with excerpt-backed evidence, reusable claims, reports, and publication controls.",
         json_response=True,
         streamable_http_path=streamable_http_path,
+        transport_security=(
+            transport_security_settings(settings) if settings else None
+        ),
     )
     legacy_tool = mcp.tool if legacy_tools_enabled else _unregistered_tool
 
