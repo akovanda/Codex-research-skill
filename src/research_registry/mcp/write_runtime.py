@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import secrets
 from typing import Any
 
@@ -28,6 +29,7 @@ from ..contracts.v2 import (
     ReviewNewRevision,
 )
 from ..db import DatabaseTarget, resolve_database_target
+from ..domain.sources import SnapshotPolicyDenied
 from ..models import AuthContext
 from ..ingestion.blobs import FilesystemBlobStore
 from ..ingestion.fetch_policy import FetchPolicy
@@ -154,9 +156,24 @@ class WriteMcpRuntime:
             return service.deposit(command, auth=auth)
         except DepositError:
             raise
+        except SnapshotPolicyDenied as exc:
+            # This is an expected policy rejection, not a database outage.
+            # Never expose source text or relax the configured retention cap.
+            raise DepositError(
+                "SNAPSHOT_POLICY_DENIED: Requested source retention violates "
+                "the configured snapshot policy."
+            ) from exc
         except Exception as exc:
+            correlation_id = secrets.token_hex(8)
+            # Exception messages and traceback locals can contain SQL values,
+            # source bodies or credentials. Log only bounded diagnostic fields.
+            logging.getLogger(__name__).error(
+                "registry_deposit_failed correlation_id=%s exception_type=%s",
+                correlation_id, type(exc).__name__,
+            )
             raise RuntimeError(
-                "DEPOSIT_FAILED: The deposit could not be committed."
+                "DEPOSIT_FAILED: The deposit could not be committed. "
+                f"correlation_id={correlation_id}"
             ) from exc
 
     def _configured_capture(self) -> SourceCaptureCoordinator | None:
