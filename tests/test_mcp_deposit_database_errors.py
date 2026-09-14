@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import pytest
 
@@ -60,6 +61,9 @@ def test_mcp_deposit_redacts_unclassified_internal_failure(
         )
 
     message = str(raised.value)
-    assert message == "DEPOSIT_FAILED: The deposit could not be committed."
+    assert re.fullmatch(
+        r"DEPOSIT_FAILED: The deposit could not be committed\. correlation_id=[0-9a-f]{16}",
+        message,
+    )
     assert "private_value" not in message
     assert "private_internal_table" not in message
